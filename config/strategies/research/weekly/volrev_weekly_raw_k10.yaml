@@ -1,0 +1,59 @@
+# 研究策略 - 真周频量能反转组合（裸切版）
+name: volrev_weekly_raw_k10
+description: "真周频量能反转组合：vol_ema26_ratio + vol_std_20d_v + turnover_5d + ret_vol_120d，TopK10 裸切基线"
+
+factor_window_scale: 5
+
+weights:
+  alpha: 0.0
+  risk: 1.0
+  enhance: 0.0
+
+factors:
+  risk:
+    - name: vol_ema26_ratio
+      expression: "$volume / (EMA($volume, 26) + 1)"
+      source: qlib
+      negate: true
+    - name: vol_std_20d_v
+      expression: "Std($volume, 20) / (Mean($volume, 20) + 1)"
+      source: qlib
+      negate: true
+    - name: turnover_5d
+      expression: "Mean($turnover_rate_f, 5)"
+      source: qlib
+      negate: true
+    - name: ret_vol_120d
+      expression: "-1 * Std((($close - Ref($close, 1)) / Ref($close, 1)), 120)"
+      source: qlib
+
+selection:
+  mode: factor_topk
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 0
+
+stability:
+  churn_limit: 0
+  margin_stable: false
+
+rebalance:
+  freq: week
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

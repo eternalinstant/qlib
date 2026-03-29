@@ -265,6 +265,15 @@ def _validate_strategy(cfg: Dict[str, Any], name: str) -> None:
                 f"validity.action='{action}' 无效，可选: {sorted(VALID_VALIDITY_ACTIONS)}"
             )
 
+    if "factor_window_scale" in cfg:
+        try:
+            scale = int(cfg["factor_window_scale"])
+        except (TypeError, ValueError):
+            errors.append("factor_window_scale 必须是整数")
+        else:
+            if scale < 1:
+                errors.append("factor_window_scale 不能小于 1")
+
     if errors:
         raise ValueError(f"策略 {name} 配置错误:\n" + "\n".join(f"  - {e}" for e in errors))
 
@@ -309,6 +318,7 @@ class Strategy:
     hard_filter_quantiles: Dict[str, float] = field(default_factory=dict)  # 分位过滤
     composition_components: List[Dict[str, Any]] = field(default_factory=list)
     cash_weight: float = 0.0
+    factor_window_scale: int = 1
 
     @classmethod
     def load(cls, name: str) -> "Strategy":
@@ -466,6 +476,7 @@ class Strategy:
             hard_filter_quantiles=selection.get("hard_filter_quantiles", {}),
             composition_components=components,
             cash_weight=cash_weight,
+            factor_window_scale=int(cfg.get("factor_window_scale", 1)),
         )
 
     @classmethod
@@ -676,6 +687,7 @@ class Strategy:
             "cache_version": SELECTION_CACHE_VERSION,
             "strategy_name": self.name,
             "selection_mode": self.selection_mode,
+            "factor_window_scale": self.factor_window_scale,
         }
 
     def _write_selection_cache_metadata(self) -> None:
@@ -761,6 +773,7 @@ class Strategy:
             stoploss_lookback_days=self.stoploss_lookback_days,
             stoploss_drawdown=self.stoploss_drawdown,
             replacement_pool_size=self.replacement_pool_size,
+            factor_window_scale=self.factor_window_scale,
             hard_filters=self.hard_filters if self.hard_filters else None,
             hard_filter_quantiles=self.hard_filter_quantiles
             if self.hard_filter_quantiles

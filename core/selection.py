@@ -13,6 +13,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
+import re
 import time
 import numpy as np
 import pandas as pd
@@ -42,6 +43,8 @@ FACTOR_PARQUET = (
 INDUSTRY_CSV = PROJECT_ROOT / "data" / "tushare" / "stock_industry.csv"
 STOCK_BASIC_CSV = PROJECT_ROOT / "data" / "tushare" / "stock_basic.csv"
 _trade_calendar_cache: Optional[pd.DatetimeIndex] = None
+WINDOW_FUNCS = {"Mean", "Std", "EMA", "Ref", "Slope", "Min", "Max"}
+INT_LITERAL_RE = re.compile(r"^\d+$")
 
 
 # ── 内部工具函数 ──────────────────────────────────────────────────────────────
@@ -81,6 +84,62 @@ def _get_rebalance_dates(df: pd.DataFrame, freq: str = "month") -> pd.DatetimeIn
     """从 MultiIndex DataFrame 中按指定频率提取调仓日"""
     dates = df.index.get_level_values("datetime").unique().sort_values()
     return compute_rebalance_dates(pd.Series(dates), freq=freq)
+
+
+def _split_top_level_args(text: str) -> list[str]:
+    """按顶层逗号切分函数参数，避免拆开嵌套表达式。"""
+    parts = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i].strip())
+            start = i + 1
+    parts.append(text[start:].strip())
+    return parts
+
+
+def _scale_expression_windows(expr: str, window_scale: int) -> str:
+    """放大 qlib 表达式中的窗口参数，用于真周频/双周/月频因子。"""
+    if window_scale <= 1:
+        return expr
+
+    def walk(text: str) -> str:
+        out = []
+        i = 0
+        n = len(text)
+        while i < n:
+            ch = text[i]
+            if ch.isalpha() or ch == "_":
+                j = i + 1
+                while j < n and (text[j].isalnum() or text[j] == "_"):
+                    j += 1
+                name = text[i:j]
+                if j < n and text[j] == "(":
+                    depth = 1
+                    k = j + 1
+                    while k < n and depth > 0:
+                        if text[k] == "(":
+                            depth += 1
+                        elif text[k] == ")":
+                            depth -= 1
+                        k += 1
+                    inner = text[j + 1 : k - 1]
+                    args = [walk(arg) for arg in _split_top_level_args(inner)]
+                    if name in WINDOW_FUNCS and len(args) >= 2 and INT_LITERAL_RE.fullmatch(args[1]):
+                        args[1] = str(int(args[1]) * window_scale)
+                    out.append(f"{name}(" + ", ".join(args) + ")")
+                    i = k
+                    continue
+            out.append(ch)
+            i += 1
+        return "".join(out)
+
+    return walk(expr)
 
 
 def _smooth_signal_over_time(signal: pd.Series, window: int) -> pd.Series:
@@ -513,6 +572,7 @@ def load_factor_data(
     end_date: str = None,
     rebalance_freq: str = "month",
     universe: str = "all",
+    factor_window_scale: int = 1,
 ) -> tuple:
     """
     Step 1: 加载因子数据（可缓存）
@@ -543,7 +603,8 @@ def load_factor_data(
         end_date = CONFIG.get("end_date", "2026-02-26")
 
     print(
-        f"[INFO] 加载因子数据: universe={universe}, freq={rebalance_freq}, {start_date} ~ {end_date}"
+        f"[INFO] 加载因子数据: universe={universe}, freq={rebalance_freq}, "
+        f"window_scale={factor_window_scale}, {start_date} ~ {end_date}"
     )
 
     if universe == "all":
@@ -561,7 +622,10 @@ def load_factor_data(
         raise FileNotFoundError(f"Qlib 交易日历为空: {_qlib_data_root() / 'calendars' / 'day.txt'}")
 
     qlib_factors = registry.get_by_source("qlib")
-    qlib_fields = [f.expression for f in qlib_factors]
+    qlib_fields = [
+        _scale_expression_windows(f.expression, int(max(factor_window_scale, 1)))
+        for f in qlib_factors
+    ]
     qlib_names = [f"{f.category}_{f.name}" for f in qlib_factors]
 
     qlib_start = time.perf_counter()
@@ -1083,6 +1147,7 @@ def compute_selections(
     replacement_pool_size: int = 0,
     update_start_date: str = None,
     update_lookback_days: int = 60,
+    factor_window_scale: int = 1,
 ) -> pd.DataFrame:
     """
     计算月度 Top-K 选股列表（纯内存，不写 CSV）。
@@ -1152,6 +1217,7 @@ def compute_selections(
         end_date=end_date,
         rebalance_freq=rebalance_freq,
         universe=universe,
+        factor_window_scale=factor_window_scale,
     )
 
     signal_start = time.perf_counter()
