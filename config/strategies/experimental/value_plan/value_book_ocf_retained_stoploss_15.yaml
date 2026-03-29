@@ -1,0 +1,52 @@
+# 实验策略 - 账面价值 + 现金流估值 + 留存收益止损版
+name: value_book_ocf_retained_stoploss_15
+description: "价值实验：book_to_price + ocf_to_ev + retained_earnings，在 stoploss_replace 模式下验证原计划主线加质量安全垫"
+
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+    - name: retained_earnings
+      expression: retained_earnings
+      source: parquet
+      ir: 0.33
+
+selection:
+  mode: stoploss_replace
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  score_smoothing_days: 5
+  stoploss_lookback_days: 20
+  stoploss_drawdown: 0.10
+  replacement_pool_size: 30
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

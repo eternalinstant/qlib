@@ -1,0 +1,60 @@
+# 实验策略 - bull/bear + bb_upper_dist(反向)
+name: bullbear_bbupper_gate_k10
+description: "在 daily_event_gate_k10 执行壳上加入 bb_upper_dist 反向，验证贴近上轨是否能增强 bull/bear 主线"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+    - name: bb_upper_dist
+      expression: "((Mean($close, 20) + 2 * Std($close, 20)) - $close) / ($close + 1e-8)"
+      source: qlib
+      negate: true
+      ir: 0.39
+
+selection:
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 20
+  score_smoothing_days: 5
+  entry_rank: 7
+  exit_rank: 25
+  entry_persist_days: 3
+  exit_persist_days: 3
+  min_hold_days: 10
+
+stability:
+  churn_limit: 2
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

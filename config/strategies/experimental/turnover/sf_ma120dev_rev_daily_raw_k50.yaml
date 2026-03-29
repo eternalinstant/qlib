@@ -1,0 +1,53 @@
+# 实验策略 - 单因子 ma120_dev 反向日频裸切版 Top50
+name: sf_ma120dev_rev_daily_raw_k50
+description: "单因子 ma120_dev 反向日频裸切版 TopK50：保持 raw 日频无缓冲执行，使用更接近实盘的佣金与印花税参数"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: ma120_dev
+      expression: "$close / Mean($close, 120) - 1"
+      source: qlib
+      negate: true
+      ir: 0.41
+
+selection:
+  mode: factor_topk
+  topk: 50
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 0
+  score_smoothing_days: 1
+  entry_persist_days: 1
+  exit_persist_days: 1
+  min_hold_days: 0
+
+stability:
+  churn_limit: 0
+  margin_stable: false
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.00008
+  sell_commission_rate: 0.00008
+  min_buy_commission: 5.0
+  min_sell_commission: 5.0
+  sell_stamp_tax_rate: 0.0005
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

@@ -1,0 +1,57 @@
+# 低换手策略
+# 目标: 年换手≤100%, 手续费≤本金1%/年
+# 月频 + 高sticky + 低churn_limit
+name: value_trend_lowvol
+description: "低换手版：bull_power + bear_power，月频，高sticky，7年手续费<3.5万"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 8
+  buffer: 5
+  score_smoothing_days: 5
+  entry_rank: 5
+  exit_rank: 20
+  entry_persist_days: 20
+  exit_persist_days: 10
+  min_hold_days: 20
+
+stability:
+  churn_limit: 1
+  margin_stable: true
+
+rebalance:
+  freq: week
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

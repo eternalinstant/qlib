@@ -1,0 +1,13 @@
+# 固定组合策略 - 30% 现金三策略分散版
+name: diversified_guard_30
+description: "组合母策略：30% bullbear + 5% low_drawdown + 35% ultra_conservative + 30% cash，在控制现金不超过30%的同时增加一条选股分散腿"
+
+composition:
+  components:
+    - strategy: test_bullbear_constrained_all
+      weight: 0.30
+    - strategy: test_low_drawdown_constrained_all
+      weight: 0.05
+    - strategy: experimental/safety/bullbear_ultra_conservative
+      weight: 0.35
+  cash_weight: 0.30

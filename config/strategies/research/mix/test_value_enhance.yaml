@@ -1,0 +1,66 @@
+# 策略G - 价值增强组合
+name: test_value_enhance
+description: "价值增强：alpha40% + risk10% + enhance50%"
+
+weights:
+  alpha: 0.40
+  risk: 0.10
+  enhance: 0.50
+
+factors:
+  alpha:
+    - name: roa
+      expression: "roa_fina"
+      source: parquet
+      ir: 0.30
+    - name: ebit_to_mv
+      expression: "ebit_to_mv"
+      source: parquet
+      ir: 0.33
+    - name: ocf_to_ev
+      expression: "ocf_to_ev"
+      source: parquet
+      ir: 0.33
+    - name: book_to_price
+      expression: "book_to_market"
+      source: parquet
+      ir: 0.14
+  risk:
+    - name: vol_std_20d
+      expression: "Std(($close - Ref($close, 1)) / Ref($close, 1), 20)"
+      source: qlib
+      negate: true
+      ir: 0.31
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+    - name: bb_position
+      expression: "($close - (Mean($close, 20) - 2 * Std($close, 20))) / (4 * Std($close, 20) + 1e-8)"
+      source: qlib
+      ir: 0.45
+
+selection:
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  sticky: 5
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010

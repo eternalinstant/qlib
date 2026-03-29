@@ -1,0 +1,66 @@
+# 实验策略 - 因子分析版：bull/bear + 低波低额波
+name: bullbear_riskpair_gate_k10
+description: "基于因子分析：bull_power + bear_power 主线，叠加 vol_std_10d 与 amt_std_6d 反向过滤，沿用 event-gate k10 执行"
+
+weights:
+  alpha: 0.0
+  risk: 0.15
+  enhance: 0.85
+
+factors:
+  risk:
+    - name: vol_std_10d
+      expression: "Std($volume, 10) / (Mean($volume, 10) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.57
+    - name: amt_std_6d
+      expression: "Std($amount, 6) / (Mean($amount, 6) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.58
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 20
+  score_smoothing_days: 5
+  entry_rank: 7
+  exit_rank: 25
+  entry_persist_days: 3
+  exit_persist_days: 3
+  min_hold_days: 10
+
+stability:
+  churn_limit: 2
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

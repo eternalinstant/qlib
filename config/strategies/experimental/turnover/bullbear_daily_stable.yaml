@@ -1,0 +1,49 @@
+# 实验策略 - bullbear 日频稳因子版：更强缓冲区 + 更严换手上限
+name: bullbear_daily_stable
+description: "bull/bear 主线日频稳因子版：扩大缓冲区，限制单次最多换 2 只票，避免日频过度抖动"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 20
+
+stability:
+  churn_limit: 2
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

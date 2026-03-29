@@ -1,0 +1,69 @@
+# 实验策略 - 基本面安全垫
+name: bullbear_quality_guard_all
+description: "实验层安全垫版：bull/bear 主驱动，叠加轻量质量与现金流过滤，降低纯技术拥挤风险"
+
+weights:
+  alpha: 0.15
+  risk: 0.10
+  enhance: 0.75
+
+factors:
+  alpha:
+    - name: roa
+      ir: 0.30
+    - name: ocf_to_ev
+      ir: 0.33
+  risk:
+    - name: vol_std_20d
+      ir: 0.31
+    - name: turnover_rate_f
+      ir: 0.42
+  enhance:
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      ir: 0.51
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.82
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true
+
+validity:
+  lookback_days: 60
+  min_observations: 40
+  min_total_return: -0.04
+  min_annual_return: -0.08
+  min_sharpe: 0.10
+  max_drawdown: -0.12
+  action: reduce
+  reduce_to: 0.55

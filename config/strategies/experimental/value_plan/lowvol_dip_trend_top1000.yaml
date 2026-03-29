@@ -1,0 +1,56 @@
+# 低波动+买回调策略：前1000市值低波动股中买短期回调
+# risk层(30%): 低波动+低换手 → 选稳定大市值
+# enhance层(70%): 短期反转(ema5_dev negate) → 在回调时买入
+# 趋势仓位控制：只在市场趋势向上时重仓
+name: lowvol_dip_trend_top1000
+description: "前1000市值低波动买回调：低波动30%+短期反转70%，月频+趋势仓位"
+
+weights:
+  alpha: 0.0
+  risk: 0.30
+  enhance: 0.70
+
+factors:
+  risk:
+    - name: ret_vol_20d
+      expression: "Std($close / Ref($close, 1) - 1, 20)"
+      source: qlib
+      negate: true
+      ir: 0.30
+    - name: turnover_rate_f
+      expression: turnover_rate_f
+      source: parquet
+      negate: true
+      ir: 0.42
+  enhance:
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      negate: true    # 回调越大越买（短期反转）
+      ir: 0.51
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  buffer: 10
+  score_smoothing_days: 5
+  hard_filter_quantiles:
+    total_mv: 0.80
+
+rebalance:
+  freq: month
+
+position:
+  model: trend
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5

@@ -1,0 +1,80 @@
+# 实验策略 - 轻量有效性门控
+name: bullbear_validity_lite_all
+description: "实验层二轮：保留有效性门控，弱化基本面和仓位约束，验证能否在不牺牲太多收益的前提下保留风控价值"
+
+weights:
+  alpha: 0.10
+  risk: 0.05
+  enhance: 0.85
+
+factors:
+  alpha:
+    - name: roa
+      ir: 0.30
+    - name: ocf_to_ev
+      ir: 0.33
+  risk:
+    - name: turnover_rate_f
+      ir: 0.42
+  enhance:
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      ir: 0.51
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: trend
+  strong_bull_threshold: 0.05
+  mild_bull_threshold: 0.02
+  mild_bear_threshold: -0.02
+  strong_bear_threshold: -0.05
+  regime_allocations:
+    strong_bull: 0.98
+    mild_bull: 0.90
+    neutral: 0.80
+    mild_bear: 0.62
+    strong_bear: 0.45
+  opportunity_thresholds:
+    - [-0.12, 0.82, light]
+    - [-0.18, 0.90, moderate]
+  smoothing_factor: 0.70
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true
+
+validity:
+  lookback_days: 40
+  min_observations: 30
+  min_total_return: -0.03
+  min_annual_return: -0.05
+  min_sharpe: 0.10
+  max_drawdown: -0.10
+  action: reduce
+  reduce_to: 0.60

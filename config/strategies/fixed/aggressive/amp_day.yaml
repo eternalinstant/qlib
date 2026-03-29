@@ -1,0 +1,58 @@
+# 固定策略 - 进攻版
+name: amp_day
+description: "固定层进攻基线：沿用 top15_amp_day 的正式口径，作为高收益对照组"
+
+weights:
+  alpha: 0.05
+  risk: 0.10
+  enhance: 0.85
+
+factors:
+  alpha:
+    - name: total_mv_log
+      expression: "Log($total_mv + 1)"
+      source: qlib
+      ir: 0.08
+  risk:
+    - name: vol_std_10d
+      expression: "Std($volume, 10) / (Mean($volume, 10) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.11
+    - name: amt_std_6d
+      expression: "Std($amount, 6) / (Mean($amount, 6) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.09
+  enhance:
+    - name: amplitude
+      expression: "($high - $low) / $close"
+      source: qlib
+      ir: 0.97
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      ir: 0.51
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 10
+  universe: csi300
+  neutralize_industry: false
+  min_market_cap: 50
+  sticky: 3
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.90

@@ -1,0 +1,23 @@
+# 路径配置
+# =====================================
+
+# 数据路径
+data:
+  qlib_data: "~/code/qlib/data/qlib_data/cn_data"
+  selections: "~/code/qlib/data/monthly_selections.csv"
+  updates: "~/code/qlib/data/updates"
+  cache: "~/code/qlib/data/cache"
+
+# 输出路径
+output:
+  results: "~/code/qlib/results"
+  logs: "~/code/qlib/logs"
+  reports: "~/code/qlib/results/reports"
+
+# 日志配置
+logging:
+  level: "INFO"                # DEBUG / INFO / WARNING / ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  rotation:
+    maxBytes: 10485760         # 10MB
+    backupCount: 5

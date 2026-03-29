@@ -1,0 +1,59 @@
+# 最优组合：去硬过滤 + 50/50权重
+# 基于参数扫描：nofilter(+0.10夏普) + w5050(+0.04夏普) 叠加
+name: value_nofilter_5050
+description: "去硬过滤+50/50权重：两个最优方向叠加"
+
+weights:
+  alpha: 0.50
+  risk: 0.0
+  enhance: 0.50
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+    - name: ebit_to_mv
+      expression: ebit_to_mv
+      source: parquet
+      ir: 0.33
+  enhance:
+    - name: turnover_rate_f
+      expression: turnover_rate_f
+      source: parquet
+      negate: true
+      ir: 0.42
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      negate: true
+      ir: 0.51
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  score_smoothing_days: 5
+
+rebalance:
+  freq: month
+
+position:
+  model: trend
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5

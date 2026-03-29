@@ -1,0 +1,58 @@
+# 实验策略 - 质量硬过滤 + ma120 趋势基线
+# 目标：先验证“好公司里的趋势跟随”是否成立，不叠加低波动或多重财务打分
+name: quality_trend_ma120_base_k50
+description: "质量硬过滤 + ma120 趋势正向，Top50 日频慢执行基础版"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: ma120_dev
+      expression: "$close / Mean($close, 120) - 1"
+      source: qlib
+      ir: 0.41
+
+selection:
+  mode: factor_topk
+  topk: 50
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 12
+  score_smoothing_days: 3
+  entry_rank: 45
+  exit_rank: 65
+  entry_persist_days: 2
+  exit_persist_days: 2
+  min_hold_days: 5
+  hard_filters:
+    roa_fina: 0
+    ocf_to_ev: 0
+
+stability:
+  churn_limit: 5
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.00008
+  sell_commission_rate: 0.00008
+  min_buy_commission: 5.0
+  min_sell_commission: 5.0
+  sell_stamp_tax_rate: 0.0005
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

@@ -1,0 +1,11 @@
+# 固定组合策略 - 30% 现金高利用率版
+name: efficient_guard_30
+description: "组合母策略：35% bullbear + 35% ultra_conservative + 30% cash，用低风险动态策略替代部分闲置现金，在现金不超过30%的前提下把历史回撤压到约18%"
+
+composition:
+  components:
+    - strategy: test_bullbear_constrained_all
+      weight: 0.35
+    - strategy: experimental/safety/bullbear_ultra_conservative
+      weight: 0.35
+  cash_weight: 0.30

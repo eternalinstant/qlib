@@ -1,0 +1,54 @@
+# 实验策略 - bullbear 日频裸切版 Top50：每天按最新信号直接重排，不保留任何持仓缓冲
+name: bullbear_daily_raw_k50
+description: "bull/bear 主线日频裸切版 TopK50：不使用 sticky、buffer、churn_limit、分数平滑、连续确认或最短持有期，完全按当日信号重构组合"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  mode: factor_topk
+  topk: 50
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 0
+  score_smoothing_days: 1
+  entry_persist_days: 1
+  exit_persist_days: 1
+  min_hold_days: 0
+
+stability:
+  churn_limit: 0
+  margin_stable: false
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

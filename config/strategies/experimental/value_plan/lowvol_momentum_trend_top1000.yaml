@@ -1,0 +1,58 @@
+# 低波动+趋势动量策略：前1000市值中选"稳稳上涨"的股票
+# 第一层：total_mv 前20%（≈前1000市值）
+# 第二层：低波动(50%) + 趋势动量(50%) 排名选股
+# 仓位：趋势控制
+name: lowvol_momentum_trend_top1000
+description: "前1000市值低波动+趋势：大市值+低波动率50%+趋势动量50%+MA仓位"
+
+weights:
+  alpha: 0.0
+  risk: 0.50     # 低波动
+  enhance: 0.50  # 趋势动量
+
+factors:
+  risk:
+    - name: ret_vol_20d
+      expression: "Std($close / Ref($close, 1) - 1, 20)"
+      source: qlib
+      negate: true    # 低波动率优先
+      ir: 0.30
+    - name: turnover_rate_f
+      expression: turnover_rate_f
+      source: parquet
+      negate: true    # 低换手率优先
+      ir: 0.42
+  enhance:
+    - name: close_vs_ma20
+      expression: "$close / Mean($close, 20) - 1"
+      source: qlib
+      ir: 0.45
+    - name: close_vs_ma60
+      expression: "$close / Mean($close, 60) - 1"
+      source: qlib
+      ir: 0.35
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  score_smoothing_days: 5
+  hard_filter_quantiles:
+    total_mv: 0.80   # 前20%市值 ≈ 前1000只
+
+rebalance:
+  freq: month
+
+position:
+  model: trend
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5

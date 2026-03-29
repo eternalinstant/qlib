@@ -1,0 +1,19 @@
+# 交易配置
+# =====================================
+
+# 资金配置
+capital:
+  initial: 500000              # 初始资金 (元)
+
+# 交易成本
+cost:
+  open_cost: 0.0003            # 买入成本 0.03%
+  close_cost: 0.0013           # 卖出成本 0.13%
+  min_cost: 5                  # 最低佣金
+
+# 数据路径
+paths:
+  qlib_data_path: "~/code/qlib/data/qlib_data/cn_data"
+  selections_path: "~/code/qlib/data/monthly_selections.csv"
+  results_path: "~/code/qlib/results"
+  logs_path: "~/code/qlib/logs"

@@ -1,0 +1,69 @@
+# Top15 核心趋势版（全市场约束版）
+name: top15_core_trend_all
+description: "Top15核心全市场版：ema5_dev + bull/bear power，全市场约束，趋势仓位"
+
+weights:
+  alpha: 0.05
+  risk: 0.15
+  enhance: 0.80
+
+factors:
+  alpha:
+    - name: total_mv_log
+      expression: "Log($total_mv + 1)"
+      source: qlib
+      ir: 0.08
+  risk:
+    - name: vol_std_10d
+      expression: "Std($volume, 10) / (Mean($volume, 10) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.11
+    - name: amt_std_6d
+      expression: "Std($amount, 6) / (Mean($amount, 6) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.09
+    - name: vol_ema26_ratio
+      expression: "$volume / (EMA($volume, 26) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.08
+  enhance:
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      ir: 0.51
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: trend
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true
