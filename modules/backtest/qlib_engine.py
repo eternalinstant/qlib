@@ -2,7 +2,9 @@
 Qlib 回测引擎
 使用共享选股 + 仓位控制进行回测
 """
+
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import numpy as np
@@ -45,7 +47,9 @@ def _load_bond_etf_returns() -> pd.Series:
 
 
 def _raw_data_root() -> Path:
-    qlib_root = Path(CONFIG.get("paths.qlib_data", "~/code/qlib/data/qlib_data/cn_data")).expanduser()
+    qlib_root = Path(
+        CONFIG.get("paths.qlib_data", "~/code/qlib/data/qlib_data/cn_data")
+    ).expanduser()
     return qlib_root.parent / "raw_data"
 
 
@@ -81,7 +85,9 @@ def _get_limit_prices(instrument: str, trade_date, prev_close: float, is_st: boo
     return up_limit, down_limit
 
 
-def _can_buy_at_open(instrument: str, trade_date, open_price: float, prev_close: float, is_st: bool = False) -> bool:
+def _can_buy_at_open(
+    instrument: str, trade_date, open_price: float, prev_close: float, is_st: bool = False
+) -> bool:
     if pd.isna(open_price) or pd.isna(prev_close) or open_price <= 0 or prev_close <= 0:
         return False
     up_limit, _ = _get_limit_prices(instrument, trade_date, prev_close, is_st=is_st)
@@ -90,7 +96,9 @@ def _can_buy_at_open(instrument: str, trade_date, open_price: float, prev_close:
     return float(open_price) < float(up_limit) - PRICE_LIMIT_TOL
 
 
-def _can_sell_at_open(instrument: str, trade_date, open_price: float, prev_close: float, is_st: bool = False) -> bool:
+def _can_sell_at_open(
+    instrument: str, trade_date, open_price: float, prev_close: float, is_st: bool = False
+) -> bool:
     if pd.isna(open_price) or pd.isna(prev_close) or open_price <= 0 or prev_close <= 0:
         return False
     _, down_limit = _get_limit_prices(instrument, trade_date, prev_close, is_st=is_st)
@@ -99,7 +107,9 @@ def _can_sell_at_open(instrument: str, trade_date, open_price: float, prev_close
     return float(open_price) > float(down_limit) + PRICE_LIMIT_TOL
 
 
-def _ensure_tradability_constraints_supported(block_limit_up_buy: bool, block_limit_down_sell: bool) -> None:
+def _ensure_tradability_constraints_supported(
+    block_limit_up_buy: bool, block_limit_down_sell: bool
+) -> None:
     """启用成交约束前，必须确认 raw_data 原始日线目录存在。"""
     if not (block_limit_up_buy or block_limit_down_sell):
         return
@@ -107,8 +117,7 @@ def _ensure_tradability_constraints_supported(block_limit_up_buy: bool, block_li
     if raw_root.exists():
         return
     raise FileNotFoundError(
-        f"缺少原始日线目录: {raw_root}，不能正式启用 "
-        "block_limit_up_buy / block_limit_down_sell。"
+        f"缺少原始日线目录: {raw_root}，不能正式启用 block_limit_up_buy / block_limit_down_sell。"
     )
 
 
@@ -168,7 +177,9 @@ def _load_raw_trade_quotes(instruments, start_date: str, end_date: str) -> pd.Da
     if missing_files:
         preview = ", ".join(missing_files[:10])
         suffix = " ..." if len(missing_files) > 10 else ""
-        print(f"[WARN] raw_data 缺少 {len(missing_files)} 个标的文件，按不可买卖处理: {preview}{suffix}")
+        print(
+            f"[WARN] raw_data 缺少 {len(missing_files)} 个标的文件，按不可买卖处理: {preview}{suffix}"
+        )
 
     if not frames:
         return pd.DataFrame(columns=["open", "close", "prev_close"])
@@ -271,7 +282,8 @@ def _compute_rebalance_day(
         if block_limit_down_sell:
             row = _quote_row(raw_day_quotes, symbol)
             sellable = bool(
-                row is not None and _can_sell_at_open(
+                row is not None
+                and _can_sell_at_open(
                     symbol,
                     trade_date,
                     row.get("open"),
@@ -296,7 +308,8 @@ def _compute_rebalance_day(
         if block_limit_up_buy:
             row = _quote_row(raw_day_quotes, symbol)
             buyable = bool(
-                row is not None and _can_buy_at_open(
+                row is not None
+                and _can_buy_at_open(
                     symbol,
                     trade_date,
                     row.get("open"),
@@ -357,6 +370,7 @@ def _resolve_target_allocation(strategy, controller, signal_date):
 # ============================================================
 # 回测引擎
 # ============================================================
+
 
 class QlibBacktestEngine(BacktestEngine):
     """Qlib 回测引擎"""
@@ -429,7 +443,9 @@ class QlibBacktestEngine(BacktestEngine):
         current_value = initial_capital
 
         trading_cost = getattr(strategy, "trading_cost", {}) if strategy else {}
-        buy_commission_rate = trading_cost.get("buy_commission_rate", trading_cost.get("open_cost", 0.0003))
+        buy_commission_rate = trading_cost.get(
+            "buy_commission_rate", trading_cost.get("open_cost", 0.0003)
+        )
         sell_stamp_tax_rate = trading_cost.get("sell_stamp_tax_rate", 0.001)
         sell_commission_rate = trading_cost.get(
             "sell_commission_rate",
@@ -466,12 +482,19 @@ class QlibBacktestEngine(BacktestEngine):
             for rebal_date in monthly_dates_list[:-1]
         }
 
+        # 预加载第一个 rebal_date 的配置，避免首个交易日 current_stock_pct=0
+        if monthly_dates_list and monthly_dates_list[0] in target_allocation_by_date:
+            first_alloc = target_allocation_by_date[monthly_dates_list[0]]
+            current_stock_pct, current_regime, current_opp, current_mkt_dd = first_alloc
+
         for i, rebal_date in enumerate(monthly_dates_list[:-1]):
             selected = date_to_symbols.get(rebal_date, set())
             if len(selected) < topk:
                 continue
 
-            target_stock_pct, target_regime, target_opp, target_mkt_dd = target_allocation_by_date[rebal_date]
+            target_stock_pct, target_regime, target_opp, target_mkt_dd = target_allocation_by_date[
+                rebal_date
+            ]
             target_selected = set(selected) if target_stock_pct > 0 else set()
             ranked_selected = ranked_selection_orders.get(rebal_date, sorted(target_selected))
 
@@ -486,7 +509,7 @@ class QlibBacktestEngine(BacktestEngine):
                 if day_returns is None:
                     continue
 
-                is_rebal = (j == 0)
+                is_rebal = j == 0
 
                 stock_slot_return = 0.0
                 sell_count = 0
@@ -510,7 +533,10 @@ class QlibBacktestEngine(BacktestEngine):
                     current_cash_slot_count / topk * bond_daily_ret if topk > 0 else 0.0
                 )
 
-                gross_port_ret = current_stock_pct * stock_return_component + (1 - current_stock_pct) * bond_daily_ret
+                gross_port_ret = (
+                    current_stock_pct * stock_return_component
+                    + (1 - current_stock_pct) * bond_daily_ret
+                )
                 pre_fee_value = current_value * (1 + gross_port_ret)
 
                 fee_amount = 0.0
@@ -540,40 +566,54 @@ class QlibBacktestEngine(BacktestEngine):
                     blocked_sell_count = rebal_result["blocked_sell_count"]
                     blocked_buy_count = rebal_result["blocked_buy_count"]
 
-                    per_position_value = pre_fee_value * target_stock_pct / topk if topk > 0 else 0.0
-                    buy_fee_per_order = max(per_position_value * buy_commission_rate, min_buy_commission) if buy_count > 0 else 0.0
-                    sell_commission_per_order = max(per_position_value * sell_commission_rate, min_sell_commission) if sell_count > 0 else 0.0
-                    sell_stamp_tax_per_order = per_position_value * sell_stamp_tax_rate if sell_count > 0 else 0.0
+                    per_position_value = (
+                        pre_fee_value * target_stock_pct / topk if topk > 0 else 0.0
+                    )
+                    buy_fee_per_order = (
+                        max(per_position_value * buy_commission_rate, min_buy_commission)
+                        if buy_count > 0
+                        else 0.0
+                    )
+                    sell_commission_per_order = (
+                        max(per_position_value * sell_commission_rate, min_sell_commission)
+                        if sell_count > 0
+                        else 0.0
+                    )
+                    sell_stamp_tax_per_order = (
+                        per_position_value * sell_stamp_tax_rate if sell_count > 0 else 0.0
+                    )
                     execution_cost_per_order = per_position_value * (slippage_rate + impact_rate)
                     fee_amount = (
-                        buy_count * buy_fee_per_order +
-                        sell_count * (sell_commission_per_order + sell_stamp_tax_per_order) +
-                        (buy_count + sell_count) * execution_cost_per_order
+                        buy_count * buy_fee_per_order
+                        + sell_count * (sell_commission_per_order + sell_stamp_tax_per_order)
+                        + (buy_count + sell_count) * execution_cost_per_order
                     )
                     cost_deduction = fee_amount / current_value if current_value > 0 else 0.0
 
                 end_value = pre_fee_value - fee_amount
                 port_ret = end_value / current_value - 1 if current_value > 0 else 0.0
 
-                portfolio_returns.append({
-                    "date": hd,
-                    "return": port_ret,
-                    "gross_return": gross_port_ret,
-                    "stock_slot_return": stock_slot_return,
-                    "stock_pct": current_stock_pct,
-                    "target_stock_pct": target_stock_pct if is_rebal else current_stock_pct,
-                    "regime": current_regime,
-                    "opportunity": current_opp,
-                    "market_dd": current_mkt_dd,
-                    "cost": cost_deduction,
-                    "fee_amount": fee_amount,
-                    "sell_count": sell_count if is_rebal else 0,
-                    "buy_count": buy_count if is_rebal else 0,
-                    "blocked_sell_count": blocked_sell_count if is_rebal else 0,
-                    "blocked_buy_count": blocked_buy_count if is_rebal else 0,
-                    "cash_slot_count": current_cash_slot_count,
-                    "missing_count": missing_count,
-                })
+                portfolio_returns.append(
+                    {
+                        "date": hd,
+                        "return": port_ret,
+                        "gross_return": gross_port_ret,
+                        "stock_slot_return": stock_slot_return,
+                        "stock_pct": current_stock_pct,
+                        "target_stock_pct": target_stock_pct if is_rebal else current_stock_pct,
+                        "regime": current_regime,
+                        "opportunity": current_opp,
+                        "market_dd": current_mkt_dd,
+                        "cost": cost_deduction,
+                        "fee_amount": fee_amount,
+                        "sell_count": sell_count if is_rebal else 0,
+                        "buy_count": buy_count if is_rebal else 0,
+                        "blocked_sell_count": blocked_sell_count if is_rebal else 0,
+                        "blocked_buy_count": blocked_buy_count if is_rebal else 0,
+                        "cash_slot_count": current_cash_slot_count,
+                        "missing_count": missing_count,
+                    }
+                )
                 total_fee_amount += fee_amount
                 current_value = end_value
 
@@ -614,7 +654,9 @@ class QlibBacktestEngine(BacktestEngine):
                 "strategy_name": strategy_name,
                 "universe": universe,
                 "total_fee_amount": total_fee_amount,
-                "fee_ratio_to_initial": total_fee_amount / initial_capital if initial_capital > 0 else 0.0,
+                "fee_ratio_to_initial": total_fee_amount / initial_capital
+                if initial_capital > 0
+                else 0.0,
             },
         )
 
@@ -622,6 +664,7 @@ class QlibBacktestEngine(BacktestEngine):
 # ============================================================
 # 主程序入口
 # ============================================================
+
 
 def main(strategy=None):
     """主程序入口"""

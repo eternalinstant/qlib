@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 STRATEGIES_DIR = PROJECT_ROOT / "config" / "strategies"
 SELECTIONS_DIR = PROJECT_ROOT / "data" / "selections"
 
-VALID_POSITION_MODELS = {"trend", "fixed", "full"}
+VALID_POSITION_MODELS = {"trend", "fixed", "full", "gate"}
 VALID_REBALANCE_FREQS = {"day", "week", "biweek", "month"}
 VALID_SOURCES = {"qlib", "parquet"}
 VALID_SELECTION_UNIVERSES = {"all", "csi300"}
@@ -183,6 +183,22 @@ def _validate_strategy(cfg: Dict[str, Any], name: str) -> None:
                 errors.append(
                     f"selection.hard_filter_quantiles.{factor_name}={quantile} 超出范围，应在 [0, 1]"
                 )
+    industry_leader_field = selection.get("industry_leader_field")
+    industry_leader_top_n = selection.get("industry_leader_top_n")
+    if industry_leader_field is not None and not str(industry_leader_field).strip():
+        errors.append("selection.industry_leader_field 不能为空字符串")
+    if industry_leader_top_n is not None:
+        try:
+            value = int(industry_leader_top_n)
+        except (TypeError, ValueError):
+            errors.append("selection.industry_leader_top_n 必须是整数")
+        else:
+            if value < 1:
+                errors.append("selection.industry_leader_top_n 不能小于 1")
+    if (industry_leader_field is None) ^ (industry_leader_top_n is None):
+        errors.append(
+            "selection.industry_leader_field 与 selection.industry_leader_top_n 必须同时配置"
+        )
     for name in (
         "score_smoothing_days",
         "entry_persist_days",
@@ -316,6 +332,8 @@ class Strategy:
     config_path: Optional[Path] = None
     hard_filters: Dict[str, float] = field(default_factory=dict)  # 财务因子硬过滤
     hard_filter_quantiles: Dict[str, float] = field(default_factory=dict)  # 分位过滤
+    industry_leader_field: Optional[str] = None
+    industry_leader_top_n: Optional[int] = None
     composition_components: List[Dict[str, Any]] = field(default_factory=list)
     cash_weight: float = 0.0
     factor_window_scale: int = 1
@@ -474,6 +492,12 @@ class Strategy:
             config_path=yaml_path,
             hard_filters=selection.get("hard_filters", {}),
             hard_filter_quantiles=selection.get("hard_filter_quantiles", {}),
+            industry_leader_field=selection.get("industry_leader_field"),
+            industry_leader_top_n=(
+                int(selection["industry_leader_top_n"])
+                if selection.get("industry_leader_top_n") is not None
+                else None
+            ),
             composition_components=components,
             cash_weight=cash_weight,
             factor_window_scale=int(cfg.get("factor_window_scale", 1)),
@@ -564,6 +588,7 @@ class Strategy:
 
         Returns:
             - MarketPositionController for model="trend"
+            - MarketGatePositionController for model="gate"
             - _FixedPositionController for model="fixed"
             - None for model="full" (100% stock)
         """
@@ -577,6 +602,17 @@ class Strategy:
             }
             return MarketPositionController(
                 config=MarketConfig(**config_kwargs) if config_kwargs else None
+            )
+        elif self.position_model == "gate":
+            from core.position import MarketGatePositionController, MarketGateConfig
+
+            config_kwargs = {
+                key: value
+                for key, value in self.position_params.items()
+                if key in MarketGateConfig.__dataclass_fields__
+            }
+            return MarketGatePositionController(
+                config=MarketGateConfig(**config_kwargs) if config_kwargs else None
             )
         elif self.position_model == "fixed":
             stock_pct = self.position_params.get("stock_pct", 0.8)
@@ -688,6 +724,8 @@ class Strategy:
             "strategy_name": self.name,
             "selection_mode": self.selection_mode,
             "factor_window_scale": self.factor_window_scale,
+            "industry_leader_field": self.industry_leader_field,
+            "industry_leader_top_n": self.industry_leader_top_n,
         }
 
     def _write_selection_cache_metadata(self) -> None:
@@ -778,6 +816,8 @@ class Strategy:
             hard_filter_quantiles=self.hard_filter_quantiles
             if self.hard_filter_quantiles
             else None,
+            industry_leader_field=self.industry_leader_field,
+            industry_leader_top_n=self.industry_leader_top_n,
         )
         self._write_selection_cache_metadata()
         return df

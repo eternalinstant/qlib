@@ -1,0 +1,42 @@
+name: week_w_ret_vol_250d_neg_c6dde037fe
+description: 'auto formal single-factor week: w_ret_vol_250d 反向'
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+factors:
+  alpha:
+  - name: w_ret_vol_250d
+    expression: -1 * Std(($close - Ref($close, 1)) / Ref($close, 1), 250)
+    source: qlib
+    negate: true
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 20
+  score_smoothing_days: 1
+  entry_persist_days: 1
+  exit_persist_days: 1
+  min_hold_days: 0
+stability:
+  churn_limit: 2
+  margin_stable: true
+rebalance:
+  freq: week
+position:
+  model: fixed
+  stock_pct: 0.88
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

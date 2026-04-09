@@ -552,11 +552,13 @@ def compute_signal(
     score_start = time.perf_counter()
     signal = pd.Series(0.0, index=df.index)
     for cat in categories:
-        cat_cols = [f"{cat}_{f.name}" for f in registry.get_by_category(cat)]
+        cat_factors = registry.get_by_category(cat)
+        cat_cols = [f"{cat}_{f.name}" for f in cat_factors]
         w = weights.get(cat, 0.0)
         if w > 0 and cat_cols:
             layer_start = time.perf_counter()
-            signal = signal + w * compute_layer_score(df, cat_cols)
+            ir_weights = {f"{cat}_{f.name}": f.ir for f in cat_factors if f.ir != 0.0}
+            signal = signal + w * compute_layer_score(df, cat_cols, ir_weights=ir_weights or None)
             print(
                 f"[INFO] {cat} 层得分完成: {len(cat_cols)} 列, 用时 {time.perf_counter() - layer_start:.1f}s"
             )
@@ -729,6 +731,8 @@ def extract_topk(
     selection_mode: str = "factor_topk",
     hard_filters: dict = None,
     hard_filter_quantiles: dict = None,
+    industry_leader_field: str = None,
+    industry_leader_top_n: int = None,
     hard_filter_data: "pd.DataFrame | None" = None,
     score_smoothing_days: int = 1,
     entry_rank: int = None,
@@ -776,6 +780,10 @@ def extract_topk(
     hard_filter_quantiles : dict, optional
         分位过滤条件，格式: {"roa_fina": 0.4}
         含义为仅保留该因子值高于当日该分位阈值的股票
+    industry_leader_field : str, optional
+        行业内龙头筛选字段（来自 parquet 列），例如 circ_mv
+    industry_leader_top_n : int, optional
+        每个行业仅保留按该字段排序前 N 的股票
     hard_filter_data : pd.DataFrame, optional
         MultiIndex (datetime, instrument) → 各因子值
     selection_mode : str
@@ -804,6 +812,7 @@ def extract_topk(
     hard_filter_by_date = _split_by_datetime(hard_filter_data)
     close_by_date = _split_by_datetime(close_series)
     recent_high_by_date = _split_by_datetime(recent_high_series)
+    industry_map = _load_industry_map() if industry_leader_field and industry_leader_top_n else {}
     if selection_mode == "stoploss_replace":
         if close_series is None and recent_high_series is None:
             raise ValueError("stoploss_replace 模式需要 close_series 或 recent_high_series")
@@ -889,6 +898,27 @@ def extract_topk(
                     threshold = factor_series.quantile(float(quantile))
                     valid_index = factor_series[factor_series >= threshold].index
                     day_scores = day_scores[day_scores.index.isin(valid_index)]
+
+        if industry_leader_field and industry_leader_top_n and hard_filter_data is not None and industry_map:
+            day_factors = hard_filter_by_date.get(dt_key)
+            if day_factors is not None and industry_leader_field in day_factors.columns:
+                rank_series = day_factors[industry_leader_field].dropna()
+                rank_series = rank_series[rank_series.index.isin(day_scores.index)]
+                if not rank_series.empty:
+                    rank_df = rank_series.rename("leader_value").reset_index()
+                    rank_df["industry"] = rank_df["instrument"].map(
+                        lambda x: industry_map.get(x, "unknown")
+                    )
+                    rank_df = rank_df.sort_values(
+                        ["industry", "leader_value", "instrument"],
+                        ascending=[True, False, True],
+                    )
+                    keep_index = (
+                        rank_df.groupby("industry", sort=False)
+                        .head(int(industry_leader_top_n))["instrument"]
+                        .astype(str)
+                    )
+                    day_scores = day_scores[day_scores.index.isin(set(keep_index.tolist()))]
 
         if len(day_scores) < topk:
             continue
@@ -1136,6 +1166,8 @@ def compute_selections(
     return_context: bool = False,
     hard_filters: Dict[str, float] = None,
     hard_filter_quantiles: Dict[str, float] = None,
+    industry_leader_field: str = None,
+    industry_leader_top_n: int = None,
     score_smoothing_days: int = 1,
     entry_rank: int = None,
     exit_rank: int = None,
@@ -1173,6 +1205,10 @@ def compute_selections(
     hard_filter_quantiles : Dict[str, float], optional
         财务因子分位过滤条件，格式: {"roa_fina": 0.4}
         键为 parquet 列名，值为分位数阈值
+    industry_leader_field : str, optional
+        行业内龙头筛选字段（来自 parquet 列），例如 circ_mv
+    industry_leader_top_n : int, optional
+        每个行业仅保留按该字段排序前 N 的股票
     selection_mode : str
         选股模式，默认 factor_topk；stoploss_replace 会启用“跌破近期高点再换仓”
 
@@ -1249,7 +1285,7 @@ def compute_selections(
 
     # 加载硬过滤因子数据
     hard_filter_data = None
-    if (hard_filters or hard_filter_quantiles) and FACTOR_PARQUET.exists():
+    if (hard_filters or hard_filter_quantiles or industry_leader_field) and FACTOR_PARQUET.exists():
         hf_start = time.perf_counter()
         candidate_instruments = monthly_df.index.get_level_values("instrument").unique().tolist()
         requested_hf_cols = set()
@@ -1257,6 +1293,8 @@ def compute_selections(
             requested_hf_cols.update(hard_filters.keys())
         if hard_filter_quantiles:
             requested_hf_cols.update(hard_filter_quantiles.keys())
+        if industry_leader_field:
+            requested_hf_cols.add(industry_leader_field)
         hf_cols = ["datetime", "instrument"] + sorted(requested_hf_cols)
         available_cols = _get_factor_parquet_columns()
         hf_cols = [c for c in hf_cols if c in available_cols]
@@ -1313,6 +1351,8 @@ def compute_selections(
         selection_mode=selection_mode,
         hard_filters=hard_filters,
         hard_filter_quantiles=hard_filter_quantiles,
+        industry_leader_field=industry_leader_field,
+        industry_leader_top_n=industry_leader_top_n,
         hard_filter_data=hard_filter_data,
         score_smoothing_days=score_smoothing_days,
         entry_rank=entry_rank,

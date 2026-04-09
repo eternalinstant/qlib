@@ -411,7 +411,9 @@ class TestDataUpdaterConvert:
         mock_converter = Mock()
         mock_df = pd.DataFrame({'instrument': ['000001sz'], 'datetime': [datetime(2026, 2, 27)]})
         mock_converter.convert.return_value = mock_df
+        mock_converter.repair_price_provider.return_value = {}
         mock_converter.update_close_bins.return_value = 0
+        mock_converter.update_ohlcv_bins.return_value = {}
 
         with patch('modules.data.updater.TushareToQlibConverter', return_value=mock_converter):
             result = updater.convert_to_qlib()
@@ -442,7 +444,9 @@ class TestDataUpdaterConvert:
 
         mock_converter = Mock()
         mock_converter.convert.return_value = pd.DataFrame({'a': [1]})
+        mock_converter.repair_price_provider.return_value = {}
         mock_converter.update_close_bins.return_value = 0
+        mock_converter.update_ohlcv_bins.return_value = {}
 
         with patch('modules.data.updater.TushareToQlibConverter', return_value=mock_converter):
             updater.convert_to_qlib()
@@ -498,6 +502,34 @@ class TestDataUpdaterConvert:
         assert result['success'] is True
         assert result['converted'] is True
 
+    def test_update_daily_repairs_provider_when_market_data_is_current(self, tmp_path):
+        """仅 provider 脏时也应触发转换修复。"""
+        from modules.data.updater import DataUpdater
+
+        cal_dir = tmp_path / "calendars"
+        cal_dir.mkdir(parents=True)
+        (cal_dir / "day.txt").write_text("2026-03-20\n")
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+
+        provider_bad = SimpleNamespace(ok=False, errors=["Qlib provider 字段不一致"])
+        ok_precheck = SimpleNamespace(ok=True, errors=[])
+
+        with patch.object(updater, 'check_update_needed', return_value=False), \
+             patch('modules.data.updater.run_data_precheck', side_effect=[provider_bad, ok_precheck]), \
+             patch.object(updater, 'download_stock_basic', return_value=True), \
+             patch.object(updater, 'download_index_weight', return_value=False), \
+             patch.object(updater, 'download_namechange', return_value=False), \
+             patch.object(updater, 'convert_to_qlib', return_value=True) as mock_convert, \
+             patch.object(updater, 'regenerate_selections', return_value=True):
+
+            result = updater.update_daily()
+
+        mock_convert.assert_called_once()
+        assert result['success'] is True
+        assert result['converted'] is True
+
     def test_update_daily_repairs_missing_history_when_market_data_is_current(self, tmp_path):
         """行情已是最新，但缺历史成分/ST 数据时仍应补数据并通过预检。"""
         from modules.data.updater import DataUpdater
@@ -528,6 +560,101 @@ class TestDataUpdaterConvert:
         assert result['reference_updated'] is True
         assert result['precheck_ok'] is True
         assert result['selections_updated'] is True
+
+    def test_repair_price_provider_rebuilds_aligned_bins(self, tmp_path):
+        """provider 修复应按交易日历补 NaN 对齐字段。"""
+        from modules.data.tushare_to_qlib import TushareToQlibConverter
+
+        qlib_root = tmp_path / "cn_data"
+        features_dir = qlib_root / "features" / "sz000001"
+        features_dir.mkdir(parents=True)
+        cal_dir = qlib_root / "calendars"
+        cal_dir.mkdir(parents=True)
+        (cal_dir / "day.txt").write_text("2026-01-02\n2026-01-05\n2026-01-06\n")
+
+        raw_dir = tmp_path / "raw_data"
+        raw_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-06")],
+                "open": [9.0, 11.0],
+                "high": [10.2, 12.2],
+                "low": [8.8, 10.8],
+                "close": [10.0, 12.0],
+                "volume": [1000.0, 1200.0],
+                "amount": [10000.0, 13000.0],
+            }
+        ).to_parquet(raw_dir / "sz000001.parquet", index=False)
+
+        np.array([0.0, 10.0, 11.0, 12.0], dtype="<f4").tofile(features_dir / "close.day.bin")
+        np.array([0.0, 9.0], dtype="<f4").tofile(features_dir / "open.day.bin")
+        np.array([0.0, 10.2], dtype="<f4").tofile(features_dir / "high.day.bin")
+        np.array([0.0, 8.8], dtype="<f4").tofile(features_dir / "low.day.bin")
+        np.array([0.0, 1000.0], dtype="<f4").tofile(features_dir / "volume.day.bin")
+        np.array([0.0, 10000.0], dtype="<f4").tofile(features_dir / "amount.day.bin")
+
+        converter = TushareToQlibConverter(tushare_dir=str(tmp_path), qlib_dir=str(qlib_root))
+        stats = converter.repair_price_provider()
+
+        assert stats["repaired_instruments"] == 1
+
+        open_bin = np.fromfile(features_dir / "open.day.bin", dtype="<f4")
+        volume_bin = np.fromfile(features_dir / "volume.day.bin", dtype="<f4")
+        assert int(open_bin[0]) == 0
+        assert len(open_bin) == 4
+        assert float(open_bin[1]) == pytest.approx(9.0)
+        assert np.isnan(open_bin[2])
+        assert float(open_bin[3]) == pytest.approx(11.0)
+        assert int(volume_bin[0]) == 0
+        assert np.isnan(volume_bin[2])
+        assert float(volume_bin[3]) == pytest.approx(1200.0)
+
+    def test_repair_price_provider_rebuilds_broken_close_and_missing_fields(self, tmp_path):
+        """close 起始索引越界且 OHLCVA 缺失时，应从 raw_data 重建。"""
+        from modules.data.tushare_to_qlib import TushareToQlibConverter
+
+        qlib_root = tmp_path / "cn_data"
+        features_dir = qlib_root / "features" / "sz000001"
+        features_dir.mkdir(parents=True)
+        cal_dir = qlib_root / "calendars"
+        cal_dir.mkdir(parents=True)
+        (cal_dir / "day.txt").write_text("2026-01-02\n2026-01-05\n2026-01-06\n")
+
+        raw_dir = tmp_path / "raw_data"
+        raw_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "date": [
+                    pd.Timestamp("2026-01-02"),
+                    pd.Timestamp("2026-01-05"),
+                    pd.Timestamp("2026-01-06"),
+                ],
+                "open": [9.0, 10.0, 11.0],
+                "high": [10.2, 11.2, 12.2],
+                "low": [8.8, 9.8, 10.8],
+                "close": [10.0, 11.0, 12.0],
+                "volume": [1000.0, 1100.0, 1200.0],
+                "amount": [10000.0, 11500.0, 13000.0],
+            }
+        ).to_parquet(raw_dir / "sz000001.parquet", index=False)
+
+        np.array([5.0, 99.0], dtype="<f4").tofile(features_dir / "close.day.bin")
+
+        converter = TushareToQlibConverter(tushare_dir=str(tmp_path), qlib_dir=str(qlib_root))
+        stats = converter.repair_price_provider()
+
+        close_bin = np.fromfile(features_dir / "close.day.bin", dtype="<f4")
+        open_bin = np.fromfile(features_dir / "open.day.bin", dtype="<f4")
+        volume_bin = np.fromfile(features_dir / "volume.day.bin", dtype="<f4")
+
+        assert stats["truncated_files"] == 1
+        assert stats["repaired_instruments"] == 1
+        assert int(close_bin[0]) == 0
+        assert close_bin[1:].tolist() == pytest.approx([10.0, 11.0, 12.0])
+        assert int(open_bin[0]) == 0
+        assert open_bin[1:].tolist() == pytest.approx([9.0, 10.0, 11.0])
+        assert int(volume_bin[0]) == 0
+        assert volume_bin[1:].tolist() == pytest.approx([1000.0, 1100.0, 1200.0])
 
 
 class TestGetTusharePro:

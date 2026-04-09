@@ -1,0 +1,44 @@
+name: day_vol_roc_12d_neg_4f3bcc0366
+description: 'auto formal single-factor day: vol_roc_12d 反向'
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+factors:
+  alpha:
+  - name: vol_roc_12d
+    expression: $volume / (Ref($volume, 12) + 1) - 1
+    source: qlib
+    negate: true
+selection:
+  mode: factor_topk
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 20
+  score_smoothing_days: 5
+  entry_rank: 7
+  exit_rank: 25
+  entry_persist_days: 3
+  exit_persist_days: 3
+  min_hold_days: 10
+stability:
+  churn_limit: 2
+  margin_stable: true
+rebalance:
+  freq: day
+position:
+  model: fixed
+  stock_pct: 0.88
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

@@ -104,6 +104,7 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
     _check_exists(errors, resolved, "qlib_instruments", qlib_root / "instruments" / "all.txt")
     _check_exists(errors, resolved, "qlib_factor_data", qlib_root / "factor_data.parquet")
     cal_path = qlib_root / "calendars" / "day.txt"
+    cal_last_idx = None
     if cal_path.exists():
         try:
             cal = pd.read_csv(cal_path, header=None, names=["date"])
@@ -114,6 +115,8 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
                 errors.append(
                     f"Qlib 交易日历最新日期 {cal_dates.max().date()} 距离回测终点 {end_date.date()} 过远"
                 )
+            else:
+                cal_last_idx = len(cal_dates) - 1
         except Exception as exc:
             errors.append(f"{cal_path} 无法检查日期覆盖: {exc}")
 
@@ -206,6 +209,86 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
                         )
                 except Exception as exc:
                     errors.append(f"{namechange} 日期检查失败: {exc}")
+
+    # ── Qlib provider 字段一致性检查 ──
+    # 仅检查 instruments/all.txt 中登记过的 instrument，避免被历史孤儿目录误伤
+    features_dir = qlib_root / "features"
+    if features_dir.exists():
+        import numpy as np
+
+        _OHLCV_FIELDS = ["close", "open", "high", "low", "volume", "amount"]
+        tracked_instruments = set()
+        instruments_path = qlib_root / "instruments" / "all.txt"
+        if instruments_path.exists():
+            try:
+                instruments = pd.read_csv(
+                    instruments_path,
+                    sep="\t",
+                    header=None,
+                    names=["instrument", "start", "end"],
+                )
+                tracked_instruments = set(instruments["instrument"].astype(str).str.lower())
+            except Exception as exc:
+                errors.append(f"{instruments_path} 无法读取 instrument 列表: {exc}")
+
+        _all_inst = sorted(
+            [
+                d
+                for d in features_dir.iterdir()
+                if d.is_dir()
+                and d.name.lower() in tracked_instruments
+                and (d / "close.day.bin").exists()
+            ]
+        )
+        mismatch_count = 0
+        mismatch_details = []
+
+        for inst_dir in _all_inst:
+            inst = inst_dir.name
+
+            # 获取 close bin 的 end_idx（作为基准）
+            close_bin = inst_dir / "close.day.bin"
+            close_raw = np.fromfile(close_bin, dtype="<f4")
+            if len(close_raw) < 2 or np.isnan(close_raw[0]):
+                continue
+            close_start = int(close_raw[0])
+            close_end = close_start + len(close_raw) - 2
+
+            if cal_last_idx is not None and close_end > cal_last_idx:
+                mismatch_count += 1
+                if len(mismatch_details) < 5:
+                    mismatch_details.append(
+                        f"{inst}: close end_idx={close_end} 超出 calendar end_idx={cal_last_idx}"
+                    )
+
+            for fld in _OHLCV_FIELDS:
+                if fld == "close":
+                    continue
+                fld_bin = inst_dir / f"{fld}.day.bin"
+                if not fld_bin.exists():
+                    continue
+                fld_raw = np.fromfile(fld_bin, dtype="<f4")
+                if len(fld_raw) < 2 or np.isnan(fld_raw[0]):
+                    continue
+                fld_start = int(fld_raw[0])
+                fld_end = fld_start + len(fld_raw) - 2
+
+                if fld_end != close_end or (cal_last_idx is not None and fld_end > cal_last_idx):
+                    mismatch_count += 1
+                    if len(mismatch_details) < 5:
+                        mismatch_details.append(
+                            f"{inst}: {fld} end_idx={fld_end} ≠ close end_idx={close_end} (差 {close_end - fld_end} 天)"
+                        )
+
+        if mismatch_count > 0:
+            detail_str = "; ".join(mismatch_details)
+            if mismatch_count > 5:
+                detail_str += f" ... 共 {mismatch_count} 处不一致"
+            errors.append(
+                f"Qlib provider 字段不一致: close 与 OHLCVA bin 截止日期不匹配。"
+                f"请运行: python3 main.py update 。"
+                f"详情: {detail_str}"
+            )
 
     return DataPrecheckResult(ok=not errors, errors=errors, warnings=warnings, resolved_paths=resolved)
 

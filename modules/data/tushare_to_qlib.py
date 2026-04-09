@@ -281,6 +281,312 @@ class TushareToQlibConverter:
         logger.info(f"close.day.bin 已更新 {updated} 只股票")
         return updated
 
+    @staticmethod
+    def _read_bin_file(bin_file: Path):
+        raw = np.fromfile(bin_file, dtype="<f4")
+        if len(raw) < 2 or np.isnan(raw[0]):
+            return None
+        start_idx = int(raw[0])
+        values = raw[1:].astype(np.float32, copy=False)
+        end_idx = start_idx + len(values) - 1
+        return start_idx, end_idx, values
+
+    @staticmethod
+    def _write_bin_file(bin_file: Path, start_idx: int, values) -> bool:
+        values = np.asarray(values, dtype="<f4")
+        if values.size == 0:
+            return False
+        payload = np.empty(values.size + 1, dtype="<f4")
+        payload[0] = np.float32(start_idx)
+        payload[1:] = values
+        with open(bin_file, "wb") as fp:
+            payload.tofile(fp)
+        return True
+
+    def repair_price_provider(self) -> dict:
+        """修复价格 provider 中的超范围 / 字段错位问题。"""
+        cal_file = self.qlib_dir / "calendars" / "day.txt"
+        features_dir = self.qlib_dir / "features"
+        raw_dir = self.qlib_dir.parent / "raw_data"
+
+        if not cal_file.exists() or not features_dir.exists():
+            logger.warning("缺少日历或 features 目录，跳过 provider 修复")
+            return {}
+
+        cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
+        cal_dates = cal["date"].dt.normalize()
+        date_to_idx = {d: i for i, d in enumerate(cal_dates)}
+        cal_last_idx = len(cal) - 1
+        fields = ["open", "high", "low", "close", "volume", "amount"]
+        price_fields = {"open", "high", "low"}
+
+        stats = {
+            "truncated_files": 0,
+            "repaired_instruments": 0,
+            "unresolved_instruments": 0,
+        }
+
+        for inst_dir in features_dir.iterdir():
+            if not inst_dir.is_dir():
+                continue
+
+            close_path = inst_dir / "close.day.bin"
+            close_meta = self._read_bin_file(close_path) if close_path.exists() else None
+            if close_meta is None:
+                continue
+
+            close_start, close_end, close_values = close_meta
+            original_close_start = close_start
+            original_close_end = close_end
+            inst = inst_dir.name
+
+            existing_meta = {"close": close_meta}
+            inconsistent = close_start > cal_last_idx or close_end > cal_last_idx
+            for field in fields:
+                if field == "close":
+                    continue
+                bin_path = inst_dir / f"{field}.day.bin"
+                meta = self._read_bin_file(bin_path) if bin_path.exists() else None
+                if meta is None:
+                    inconsistent = True
+                    continue
+                existing_meta[field] = meta
+                _, field_end, _ = meta
+                if field_end > cal_last_idx or field_end != close_end:
+                    inconsistent = True
+
+            if not inconsistent:
+                continue
+
+            raw_path = raw_dir / f"{inst}.parquet"
+            raw_df = None
+            raw_last_idx = None
+            raw_maps = {}
+            if raw_path.exists():
+                try:
+                    raw_df = pd.read_parquet(raw_path, columns=["date"] + fields)
+                    raw_df["date"] = pd.to_datetime(raw_df["date"], errors="coerce").dt.normalize()
+                    raw_df = raw_df.dropna(subset=["date"])
+                    raw_df = raw_df[raw_df["date"].isin(date_to_idx)]
+                    if not raw_df.empty:
+                        raw_df["cal_idx"] = raw_df["date"].map(date_to_idx).astype(int)
+                        raw_last_idx = int(raw_df["cal_idx"].max())
+                        for field in fields:
+                            if field in raw_df.columns:
+                                fld = raw_df[["cal_idx", field]].dropna(subset=[field])
+                                raw_maps[field] = dict(zip(fld["cal_idx"], fld[field]))
+                except Exception:
+                    raw_df = None
+                    raw_maps = {}
+                    raw_last_idx = None
+
+            raw_close_map = raw_maps.get("close", {})
+            target_close_end = min(close_end, cal_last_idx)
+            if raw_last_idx is not None:
+                target_close_end = min(target_close_end, raw_last_idx)
+
+            if target_close_end < close_start:
+                if not raw_close_map:
+                    stats["unresolved_instruments"] += 1
+                    continue
+
+                close_start = min(raw_close_map)
+                close_end = min(cal_last_idx, raw_last_idx)
+                close_values = np.asarray(
+                    [raw_close_map.get(idx, np.nan) for idx in range(close_start, close_end + 1)],
+                    dtype="<f4",
+                )
+                if self._write_bin_file(close_path, close_start, close_values):
+                    stats["truncated_files"] += 1
+            elif target_close_end < original_close_end:
+                keep = target_close_end - close_start + 1
+                close_values = close_values[:keep]
+                if self._write_bin_file(close_path, close_start, close_values):
+                    stats["truncated_files"] += 1
+                close_end = target_close_end
+
+            if close_start != original_close_start or close_end != original_close_end:
+                existing_meta["close"] = (close_start, close_end, close_values)
+            elif "close" not in existing_meta:
+                existing_meta["close"] = (close_start, close_end, close_values)
+
+            if close_end < close_start:
+                stats["unresolved_instruments"] += 1
+                continue
+
+            close_index = np.arange(close_start, close_end + 1)
+            close_map = dict(zip(close_index.tolist(), close_values.tolist()))
+
+            repaired = False
+            for field in fields:
+                if field == "close":
+                    continue
+
+                bin_path = inst_dir / f"{field}.day.bin"
+                meta = existing_meta.get(field)
+                existing_map = {}
+                start_candidates = [close_start]
+                if meta is not None:
+                    field_start, field_end, field_values = meta
+                    truncated_field_end = min(field_end, close_end, cal_last_idx)
+                    if truncated_field_end >= field_start:
+                        keep = truncated_field_end - field_start + 1
+                        existing_map.update(
+                            zip(
+                                range(field_start, truncated_field_end + 1),
+                                field_values[:keep].tolist(),
+                            )
+                        )
+                        start_candidates.append(field_start)
+
+                raw_field_map = raw_maps.get(field, {})
+                if raw_field_map:
+                    start_candidates.append(min(raw_field_map))
+
+                if not start_candidates:
+                    continue
+
+                target_start = min(start_candidates)
+                rebuilt_values = []
+                for idx in range(target_start, close_end + 1):
+                    derived = None
+                    raw_val = raw_field_map.get(idx)
+                    if field in price_fields:
+                        close_val = close_map.get(idx)
+                        raw_close = raw_close_map.get(idx)
+                        if (
+                            raw_val is not None
+                            and raw_close is not None
+                            and close_val is not None
+                            and np.isfinite(raw_val)
+                            and np.isfinite(raw_close)
+                            and np.isfinite(close_val)
+                            and raw_close > 0
+                        ):
+                            derived = float(close_val) * float(raw_val) / float(raw_close)
+                    elif raw_val is not None and np.isfinite(raw_val):
+                        derived = float(raw_val)
+
+                    if derived is None:
+                        derived = existing_map.get(idx, np.nan)
+                    rebuilt_values.append(derived)
+
+                if self._write_bin_file(bin_path, target_start, rebuilt_values):
+                    repaired = True
+
+            if repaired or target_close_end < original_close_end:
+                stats["repaired_instruments"] += 1
+            elif raw_path.exists():
+                stats["unresolved_instruments"] += 1
+
+        logger.info(
+            "Provider 修复完成: truncated_files=%s, repaired_instruments=%s, unresolved_instruments=%s",
+            stats["truncated_files"],
+            stats["repaired_instruments"],
+            stats["unresolved_instruments"],
+        )
+        return stats
+
+    def update_ohlcv_bins(self) -> dict:
+        """从 raw_data 目录更新 open/high/low/volume/amount 的 bin 文件
+
+        raw_data 由 updater.update_raw_data_quotes() 从 Tushare daily 接口下载，
+        每股一个 parquet，包含完整的 OHLCVA 数据。
+        此方法将 raw_data 中的 OHLCVA 字段同步到 Qlib bin 格式，
+        与 update_close_bins() 使用相同的 splice-point ratio 机制保持连续性。
+
+        Returns
+        -------
+        dict : {field: updated_count}
+        """
+        fields = ["open", "high", "low", "volume", "amount"]
+        raw_dir = self.qlib_dir.parent / "raw_data"
+        cal_file = self.qlib_dir / "calendars" / "day.txt"
+        features_dir = self.qlib_dir / "features"
+
+        if not raw_dir.exists() or not cal_file.exists() or not features_dir.exists():
+            logger.warning("缺少 raw_data / 日历 / features 目录，跳过 OHLCV bin 更新")
+            return {}
+
+        # 读取日历
+        cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
+        cal_dates = cal["date"].dt.normalize()
+        date_to_idx = {d: i for i, d in enumerate(cal_dates)}
+        cal_last_idx = len(cal) - 1
+
+        counts = {f: 0 for f in fields}
+        raw_files = sorted(raw_dir.glob("*.parquet"))
+
+        for raw_path in raw_files:
+            inst = raw_path.stem  # e.g. sz000001
+            inst_dir = features_dir / inst
+            if not inst_dir.exists():
+                continue
+
+            try:
+                df = pd.read_parquet(raw_path, columns=["date"] + fields)
+            except Exception:
+                continue
+
+            df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+            df = df.dropna(subset=["date"])
+            df = df[df["date"].isin(date_to_idx)]
+            if df.empty:
+                continue
+            df["cal_idx"] = df["date"].map(date_to_idx)
+
+            for field in fields:
+                bin_file = inst_dir / f"{field}.day.bin"
+                if not bin_file.exists():
+                    continue
+
+                raw = np.fromfile(bin_file, dtype="<f4")
+                if len(raw) < 2 or np.isnan(raw[0]):
+                    continue
+
+                bin_end_idx = int(raw[0]) + len(raw) - 2
+                if bin_end_idx >= cal_last_idx:
+                    continue  # 已是最新
+
+                # 构建该字段的 cal_idx → value 查找表
+                field_data = df[["cal_idx", field]].dropna(subset=[field])
+                if field_data.empty:
+                    continue
+                val_map = dict(zip(field_data["cal_idx"], field_data[field]))
+
+                # splice-point 调整比例：仅对价格字段（open/high/low）适用
+                # volume/amount 不做复权缩放
+                if field in ("open", "high", "low"):
+                    bin_last_val = float(raw[-1])
+                    db_last_val = val_map.get(bin_end_idx, None)
+                    if db_last_val and db_last_val != 0:
+                        adj = bin_last_val / db_last_val
+                    else:
+                        adj = 1.0
+                else:
+                    adj = 1.0  # volume/amount 不缩放
+
+                new_vals = []
+                for idx in range(bin_end_idx + 1, cal_last_idx + 1):
+                    v = val_map.get(idx, None)
+                    if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                        new_vals.append(float(v) * adj)
+                    else:
+                        new_vals.append(np.nan)
+
+                if not new_vals:
+                    continue
+
+                with open(bin_file, "ab") as fp:
+                    np.array(new_vals, dtype="<f4").tofile(fp)
+                counts[field] += 1
+
+        logger.info(
+            f"OHLCV bin 更新完成: "
+            + ", ".join(f"{f}={counts[f]}" for f in fields)
+        )
+        return counts
+
     def save(self, df: pd.DataFrame, filename: str = "factor_data.parquet"):
         """保存（增量模式）"""
         path = self.qlib_dir / filename

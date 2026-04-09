@@ -19,6 +19,9 @@ from modules.data.tushare_to_qlib import TushareToQlibConverter
 logger = logging.getLogger(__name__)
 
 
+PROVIDER_PRECHECK_KEYWORD = "Qlib provider 字段不一致"
+
+
 def get_tushare_pro():
     """
     获取 Tushare API 客户端
@@ -794,13 +797,22 @@ class DataUpdater:
 
             converter.save(df)
 
-            # 2. 更新 close.day.bin
+            # 2. 先更新日历，再修复 / 追加价格字段，避免漏掉最新交易日
+            self._update_calendar()
+
+            repair_stats = converter.repair_price_provider()
+            if any(v > 0 for v in repair_stats.values()):
+                logger.info(f"Provider 修复完成: {repair_stats}")
+
+            # 3. 更新 close.day.bin
             n = converter.update_close_bins()
             if n > 0:
                 logger.info(f"价格 bin 已更新 {n} 只股票")
 
-            # 3. 更新日历
-            self._update_calendar()
+            # 4. 更新 open/high/low/volume/amount 的 bin 文件
+            ohlcv_counts = converter.update_ohlcv_bins()
+            if any(v > 0 for v in ohlcv_counts.values()):
+                logger.info(f"OHLCV bin 已更新: {ohlcv_counts}")
 
             return True
 
@@ -920,6 +932,9 @@ class DataUpdater:
         precheck_before = run_data_precheck(universe="csi300", require_st_history=True)
         need_market_update = self.check_update_needed()
         need_reference_update = not precheck_before.ok
+        need_provider_repair = any(
+            PROVIDER_PRECHECK_KEYWORD in msg for msg in precheck_before.errors
+        )
         need_index_daily_refresh = need_market_update or any(
             "index_daily" in msg for msg in precheck_before.errors
         )
@@ -985,7 +1000,7 @@ class DataUpdater:
 
         # 3. 转换 Tushare → Qlib 格式 + 更新日历
         print(f"\n[3/5] 转换数据格式...")
-        if need_market_update:
+        if need_market_update or need_provider_repair:
             if self.convert_to_qlib():
                 print("      Tushare → Qlib 转换 ✓")
                 results["converted"] = True

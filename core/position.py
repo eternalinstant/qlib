@@ -63,6 +63,18 @@ class AllocationResult:
     trend_score: float
 
 
+@dataclass
+class MarketGateConfig:
+    csi300_symbol: str = "sz399300"
+    csi500_symbol: str = "sz000905"
+    ma_window: int = 60
+    strong_stock_pct: float = 0.90
+    mixed_stock_pct: float = 0.60
+    weak_stock_pct: float = 0.30
+    bond_annual_return: float = 0.03
+    qlib_data_path: str = None
+
+
 # ============================================================
 # 控制器
 # ============================================================
@@ -233,6 +245,133 @@ class MarketPositionController:
             opportunity_level=opp_level,
             market_drawdown=dd_val,
             trend_score=ratio_val,
+        )
+
+    def get_bond_daily_return(self) -> float:
+        return self.config.bond_annual_return / 252
+
+
+def _load_qlib_close_series(data_root: Path, instrument: str) -> pd.Series:
+    cal_path = data_root / "calendars" / "day.txt"
+    close_path = data_root / "features" / instrument / "close.day.bin"
+
+    if not close_path.exists():
+        raise FileNotFoundError(f"指数数据不存在: {close_path}")
+
+    cal_all = pd.read_csv(cal_path, header=None, names=["date"], parse_dates=["date"])
+
+    with open(close_path, "rb") as f:
+        raw = f.read()
+    n_floats = len(raw) // 4
+    values = struct.unpack(f"<{n_floats}f", raw)
+
+    start_idx = int(values[0])
+    data_values = values[1:]
+    n_data = len(data_values)
+
+    global_cal_len = start_idx + n_data
+    local_offset = global_cal_len - len(cal_all)
+
+    series_data = {}
+    for i, row in cal_all.iterrows():
+        data_pos = (local_offset + i) - start_idx
+        if 0 <= data_pos < n_data:
+            val = data_values[data_pos]
+            if val != 0 and not np.isnan(val):
+                series_data[row["date"]] = val
+
+    return pd.Series(series_data, dtype=float).sort_index()
+
+
+class MarketGatePositionController:
+    """双指数 MA60 仓位闸门。
+
+    只做仓位上限控制，不做抄底加仓：
+    - 两个指数都在 MA60 上：0.90
+    - 一个在上、一个在下：0.60
+    - 两个都在下：0.30
+    """
+
+    def __init__(self, config: MarketGateConfig = None):
+        self.config = config or MarketGateConfig()
+        if self.config.qlib_data_path is None:
+            from config.config import CONFIG
+            self.config.qlib_data_path = Path(
+                CONFIG.get("paths.qlib_data", "~/code/qlib/data/qlib_data/cn_data")
+            ).expanduser()
+
+        self.csi300_close: pd.Series = None
+        self.csi500_close: pd.Series = None
+        self.csi300_ma: pd.Series = None
+        self.csi500_ma: pd.Series = None
+        self._min_date: pd.Timestamp = None
+        self._max_date: pd.Timestamp = None
+
+    def load_market_data(self) -> None:
+        data_root = Path(self.config.qlib_data_path)
+        self.csi300_close = _load_qlib_close_series(data_root, self.config.csi300_symbol)
+        self.csi500_close = _load_qlib_close_series(data_root, self.config.csi500_symbol)
+        self.csi300_ma = self.csi300_close.rolling(self.config.ma_window, min_periods=1).mean()
+        self.csi500_ma = self.csi500_close.rolling(self.config.ma_window, min_periods=1).mean()
+        self._min_date = max(self.csi300_close.index.min(), self.csi500_close.index.min())
+        self._max_date = min(self.csi300_close.index.max(), self.csi500_close.index.max())
+
+    @staticmethod
+    def _prev_value(series: pd.Series, date) -> float:
+        available = series.loc[:pd.Timestamp(date)]
+        if available.empty:
+            return np.nan
+        return float(available.iloc[-2] if len(available) >= 2 else available.iloc[-1])
+
+    def _signal_snapshot(self, date):
+        c300 = self._prev_value(self.csi300_close, date)
+        m300 = self._prev_value(self.csi300_ma, date)
+        c500 = self._prev_value(self.csi500_close, date)
+        m500 = self._prev_value(self.csi500_ma, date)
+
+        above_300 = bool(np.isfinite(c300) and np.isfinite(m300) and c300 >= m300)
+        above_500 = bool(np.isfinite(c500) and np.isfinite(m500) and c500 >= m500)
+        score = int(above_300) + int(above_500)
+        return above_300, above_500, score
+
+    def get_allocation(self, date, is_rebalance_day=False):
+        ts = pd.Timestamp(date)
+        if self._min_date is None or self._max_date is None:
+            raise RuntimeError("MarketGatePositionController 尚未加载市场数据")
+
+        if ts < self._min_date or ts > self._max_date:
+            stock_pct = self.config.mixed_stock_pct
+            return AllocationResult(
+                stock_pct=round(stock_pct, 4),
+                cash_pct=round(1 - stock_pct, 4),
+                regime="gate_unknown",
+                opportunity_level="gate",
+                market_drawdown=0.0,
+                trend_score=0.0,
+            )
+
+        above_300, above_500, score = self._signal_snapshot(ts)
+        if above_300 and above_500:
+            stock_pct = self.config.strong_stock_pct
+            regime = "gate_strong"
+        elif above_300 or above_500:
+            stock_pct = self.config.mixed_stock_pct
+            regime = "gate_mixed"
+        else:
+            stock_pct = self.config.weak_stock_pct
+            regime = "gate_weak"
+
+        peak = self.csi300_close.loc[:ts].cummax()
+        dd_series = (self.csi300_close.loc[:ts] - peak) / peak
+        market_drawdown = self._prev_value(dd_series, ts)
+
+        return AllocationResult(
+            stock_pct=round(stock_pct, 4),
+            cash_pct=round(1 - stock_pct, 4),
+            regime=regime,
+            opportunity_level="gate",
+            market_drawdown=market_drawdown if np.isfinite(market_drawdown) else 0.0,
+            trend_score=float(score),
         )
 
     def get_bond_daily_return(self) -> float:
