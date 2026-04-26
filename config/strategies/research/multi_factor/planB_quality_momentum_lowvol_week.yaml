@@ -1,0 +1,56 @@
+description: 方案B：质量50%+动量20%+低波30%，周频
+factors:
+  alpha:
+  - expression: roa_fina
+    ir: 0.30
+    name: roa
+    source: parquet
+  - expression: ebit_to_mv
+    ir: 0.33
+    name: ebit_to_mv
+    source: parquet
+  - expression: retained_earnings
+    ir: 0.33
+    name: retained_earnings
+    source: parquet
+  risk:
+  - expression: "Std(($close - Ref($close, 1)) / Ref($close, 1), 20)"
+    ir: 0.31
+    name: vol_std_20d
+    negate: true
+    source: qlib
+  enhance:
+  - expression: "$close / ((Mean($close, 3) + Mean($close, 6) + Mean($close, 12) + Mean($close, 24)) / 4) - 1"
+    ir: 0.26
+    name: bbi_momentum
+    source: qlib
+name: research/multi_factor/planB_quality_momentum_lowvol_week
+position:
+  model: fixed
+  stock_pct: 0.88
+rebalance:
+  freq: week
+selection:
+  exclude_new_days: 120
+  exclude_st: true
+  min_market_cap: 80
+  mode: stoploss_replace
+  neutralize_industry: true
+  replacement_pool_size: 30
+  score_smoothing_days: 5
+  stoploss_drawdown: 0.2
+  stoploss_lookback_days: 20
+  topk: 15
+  universe: all
+trading:
+  block_limit_down_sell: true
+  block_limit_up_buy: true
+  buy_commission_rate: 0.0003
+  impact_bps: 2
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+weights:
+  alpha: 0.5
+  enhance: 0.2
+  risk: 0.3

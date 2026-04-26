@@ -1,0 +1,117 @@
+data:
+  alpha158:
+    kbar: {}
+    price:
+      feature:
+      - OPEN
+      - HIGH
+      - LOW
+      - VWAP
+      windows:
+      - 0
+    rolling:
+      include:
+      - ROC
+      - MA
+      - STD
+      - BETA
+      - RSQR
+      - RESI
+      - MAX
+      - LOW
+      - RANK
+      - RSV
+      - IMAX
+      - IMIN
+      - IMXD
+      - CORR
+      - CORD
+      - CNTP
+      - CNTD
+      - SUMP
+      - VSTD
+      - WVMA
+      - VSUMD
+      windows:
+      - 10
+      - 20
+      - 60
+  alpha158_feature_columns:
+  - ROC20
+  - RSV20
+  - RANK20
+  - CORD20
+  - VSUMD20
+  alpha158_universe: csi300
+  end_date: '2026-04-15'
+  feature_columns:
+  - ROC20
+  - RSV20
+  - RANK20
+  - CORD20
+  - VSUMD20
+  parquet_feature_columns:
+  - roe_fina
+  - qvf_core_interaction
+  - n_cashflow_act
+  source: hybrid
+  start_date: '2019-01-01'
+label:
+  horizon_days: 20
+model:
+  params:
+    learning_rate: 0.05
+    max_depth: 4
+    min_child_samples: 32
+    n_estimators: 320
+    random_state: 42
+    verbosity: -1
+  preferred_backend: lightgbm
+name: hybrid8_alpha3fund_k6d2
+output:
+  root: results/model_signals/hybrid8_alpha3fund_k6d2
+overlay:
+  dd_hard: 0.048
+  dd_soft: 0.022
+  enabled: true
+  exposure_max: 1.0
+  exposure_min: 0.0
+  hard_exposure: 0.46
+  soft_exposure: 0.81
+  target_vol: 0.19
+  trend_exposure: 0.74
+  trend_lookback: 20
+  vol_lookback: 20
+position:
+  model: fixed
+  params:
+    stock_pct: 0.8
+scoring:
+  end_date: '2026-04-15'
+  start_date: '2019-01-01'
+selection:
+  buffer: 1
+  churn_limit: 0
+  exclude_new_days: 120
+  exclude_st: true
+  freq: biweek
+  margin_stable: false
+  min_market_cap: 120
+  score_smoothing_days: 1
+  sticky: 0
+  threshold: 0.0
+  topk: 6
+  universe: csi300
+trading:
+  buy_commission_rate: 0.0003
+  impact_bps: 5.0
+  min_buy_commission: 5.0
+  min_sell_commission: 5.0
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5.0
+training:
+  train_end: '2022-12-31'
+  train_start: '2019-01-01'
+  valid_end: '2023-12-31'
+  valid_start: '2023-01-01'

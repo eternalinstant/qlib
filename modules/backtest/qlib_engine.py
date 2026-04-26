@@ -19,6 +19,7 @@ from core.selection import SELECTION_CSV
 from core.qlib_init import init_qlib, load_features_safe
 from core.universe import filter_instruments, is_st_on_date
 from modules.backtest.base import BacktestResult, BacktestEngine
+from modules.modeling.portfolio_overlay import compute_inverse_vol_weights
 from utils.logger import setup_logger, TradeLogger
 
 
@@ -344,6 +345,223 @@ def _compute_rebalance_day(
     }
 
 
+def _as_positive_float(value, default: float) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    if not np.isfinite(out):
+        return float(default)
+    return max(out, 0.0)
+
+
+def _as_positive_int(value, default: int, minimum: int = 1) -> int:
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        out = int(default)
+    return max(out, int(minimum))
+
+
+def _equal_weight_series(symbols) -> pd.Series:
+    symbols = sorted(set(symbols))
+    if not symbols:
+        return pd.Series(dtype=float)
+    return pd.Series(1.0 / len(symbols), index=symbols, dtype=float)
+
+
+def _parse_vol_norm_params(strategy) -> dict:
+    params = dict(getattr(strategy, "position_params", {}) or {})
+    return {
+        "vol_method": str(params.get("vol_method", "inverse_sqrt")),
+        "vol_lookback": _as_positive_int(params.get("vol_lookback", 20), default=20, minimum=2),
+        "cap_max_weight": _as_positive_float(params.get("cap_max_weight", 0.0), default=0.0),
+    }
+
+
+def _compute_annualized_volatility_frame(df_px: pd.DataFrame, lookback: int) -> pd.Series:
+    if df_px.empty or lookback <= 1:
+        return pd.Series(dtype=float)
+    rolling_std = (
+        df_px["daily_ret"]
+        .groupby(level="instrument")
+        .rolling(window=int(lookback), min_periods=int(lookback))
+        .std(ddof=0)
+        .droplevel(0)
+    )
+    annualized_vol = rolling_std * np.sqrt(252)
+    annualized_vol = annualized_vol.replace([np.inf, -np.inf], np.nan)
+    return annualized_vol.rename("annualized_vol")
+
+
+def _compute_vol_norm_target_weights(
+    selected_symbols: set,
+    vol_series: pd.Series,
+    method: str,
+    cap_max_weight: float,
+) -> pd.Series:
+    equal_weights = _equal_weight_series(selected_symbols)
+    if equal_weights.empty:
+        return equal_weights
+    if vol_series is None or len(vol_series) == 0:
+        return equal_weights
+
+    vols = pd.Series(vol_series, dtype=float).reindex(equal_weights.index)
+    valid = vols.notna() & np.isfinite(vols) & (vols > 0)
+    # vol 缺失时整组回退等权，避免局部缺失导致权重失真。
+    if not bool(valid.all()):
+        return equal_weights
+
+    weights = compute_inverse_vol_weights(
+        vols,
+        method=method,
+        cap_max_weight=float(cap_max_weight),
+    ).reindex(equal_weights.index)
+    if weights.empty:
+        return equal_weights
+    weights = weights.replace([np.inf, -np.inf], np.nan).fillna(0.0).clip(lower=0.0)
+    total = float(weights.sum())
+    if total <= 0:
+        return equal_weights
+    return weights / total
+
+
+def _normalize_weight_map(weight_map: dict, allowed_symbols=None) -> dict:
+    out = {}
+    allowed = set(allowed_symbols) if allowed_symbols is not None else None
+    for symbol, weight in (weight_map or {}).items():
+        if allowed is not None and symbol not in allowed:
+            continue
+        try:
+            w = float(weight)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(w) and w > 0:
+            out[str(symbol)] = w
+    total = float(sum(out.values()))
+    if total > 1.0 + 1e-12:
+        scale = 1.0 / total
+        out = {symbol: weight * scale for symbol, weight in out.items()}
+    return out
+
+
+def _compose_post_rebalance_symbol_weights(
+    prev_symbol_weights: dict,
+    target_symbol_weights: pd.Series,
+    held_symbols: set,
+) -> dict:
+    held = set(held_symbols or set())
+    if not held:
+        return {}
+
+    prev = _normalize_weight_map(prev_symbol_weights, allowed_symbols=held)
+    target = pd.Series(target_symbol_weights, dtype=float) if target_symbol_weights is not None else pd.Series(dtype=float)
+    target = target.reindex(sorted(held)).fillna(0.0).clip(lower=0.0)
+    target = target[target > 0]
+
+    blocked_symbols = sorted(held - set(target.index))
+    blocked_weights = {symbol: prev.get(symbol, 0.0) for symbol in blocked_symbols}
+    blocked_total = float(sum(blocked_weights.values()))
+    if blocked_total > 1.0 + 1e-12:
+        scale = 1.0 / blocked_total
+        blocked_weights = {symbol: weight * scale for symbol, weight in blocked_weights.items()}
+        blocked_total = 1.0
+
+    result = {symbol: weight for symbol, weight in blocked_weights.items() if weight > 0}
+    remaining = max(1.0 - blocked_total, 0.0)
+    target_total = float(target.sum())
+    if target_total > 0 and remaining > 0:
+        scaled_target = target / target_total * remaining
+        for symbol, weight in scaled_target.items():
+            if weight > 0:
+                result[symbol] = float(weight)
+
+    result = _normalize_weight_map(result, allowed_symbols=held)
+    return result
+
+
+def _compute_weighted_stock_return(
+    day_px: pd.DataFrame,
+    symbol_weights: dict,
+    penalized_missing=None,
+):
+    weight_map = _normalize_weight_map(symbol_weights)
+    if not weight_map:
+        return 0.0, 0
+
+    if isinstance(day_px, pd.Series):
+        day_values = day_px
+    else:
+        day_values = day_px["daily_ret"]
+
+    total = 0.0
+    missing_symbols = set()
+    for symbol, weight in weight_map.items():
+        if symbol not in day_values.index:
+            missing_symbols.add(symbol)
+            continue
+        value = day_values.loc[symbol]
+        if isinstance(value, pd.Series):
+            value = value.iloc[-1]
+        ret = float(value)
+        if not np.isfinite(ret):
+            # NaN/Inf 收益视为停牌（收益为0），不触发 penalized_missing
+            # 与 _sum_symbol_returns 行为一致：NaN 不算 missing
+            continue
+        total += weight * ret
+
+    if penalized_missing is not None:
+        newly_missing = missing_symbols - penalized_missing
+        total -= float(sum(weight_map.get(symbol, 0.0) for symbol in newly_missing))
+        penalized_missing.update(newly_missing)
+
+    return total, len(missing_symbols)
+
+
+def _compute_weight_delta_fee(
+    pre_fee_value: float,
+    current_stock_pct: float,
+    target_stock_pct: float,
+    prev_symbol_weights: dict,
+    target_symbol_weights: dict,
+    buy_commission_rate: float,
+    sell_commission_rate: float,
+    sell_stamp_tax_rate: float,
+    min_buy_commission: float,
+    min_sell_commission: float,
+    execution_cost_rate: float,
+):
+    if pre_fee_value <= 0:
+        return 0.0, 0, 0
+
+    prev = _normalize_weight_map(prev_symbol_weights)
+    target = _normalize_weight_map(target_symbol_weights)
+    symbols = sorted(set(prev) | set(target))
+
+    buy_amounts = []
+    sell_amounts = []
+    current_pct = max(float(current_stock_pct), 0.0)
+    target_pct = max(float(target_stock_pct), 0.0)
+
+    for symbol in symbols:
+        prev_notional = pre_fee_value * current_pct * prev.get(symbol, 0.0)
+        target_notional = pre_fee_value * target_pct * target.get(symbol, 0.0)
+        delta = target_notional - prev_notional
+        if delta > 1e-8:
+            buy_amounts.append(float(delta))
+        elif delta < -1e-8:
+            sell_amounts.append(float(-delta))
+
+    buy_fee = sum(max(amount * buy_commission_rate, min_buy_commission) for amount in buy_amounts)
+    sell_fee = sum(
+        max(amount * sell_commission_rate, min_sell_commission) + amount * sell_stamp_tax_rate
+        for amount in sell_amounts
+    )
+    execution_fee = (sum(buy_amounts) + sum(sell_amounts)) * execution_cost_rate
+    fee_amount = buy_fee + sell_fee + execution_fee
+    return fee_amount, len(buy_amounts), len(sell_amounts)
+
+
 def _resolve_target_allocation(strategy, controller, signal_date):
     """解析某个信号日对应的目标仓位。
 
@@ -360,9 +578,9 @@ def _resolve_target_allocation(strategy, controller, signal_date):
             alloc.market_drawdown,
         )
 
-    if strategy is not None and getattr(strategy, "position_model", None) == "fixed":
+    if strategy is not None and getattr(strategy, "position_model", None) in {"fixed", "vol_norm"}:
         stock_pct = float(getattr(strategy, "position_params", {}).get("stock_pct", 0.8))
-        return stock_pct, "fixed", "none", 0.0
+        return stock_pct, str(getattr(strategy, "position_model", "fixed")), "none", 0.0
 
     return 1.0, "full", "none", 0.0
 
@@ -470,7 +688,23 @@ class QlibBacktestEngine(BacktestEngine):
             raw_quotes = _load_raw_trade_quotes(required_instruments, start_date, end_date)
         raw_quotes_by_date = _split_by_datetime(raw_quotes)
 
+        position_model = str(getattr(strategy, "position_model", "") or "").lower()
+        enable_vol_norm = bool(strategy is not None and position_model == "vol_norm")
+        vol_norm_params = _parse_vol_norm_params(strategy) if enable_vol_norm else {}
+        vol_by_date = {}
+        if enable_vol_norm:
+            vol_method = str(vol_norm_params["vol_method"])
+            vol_lookback = int(vol_norm_params["vol_lookback"])
+            cap_max_weight = float(vol_norm_params["cap_max_weight"])
+            vol_frame = _compute_annualized_volatility_frame(df_px, lookback=vol_lookback)
+            vol_by_date = _split_by_datetime(vol_frame)
+            logger.info(
+                "[VOL_NORM] 已启用个股波动率归一化: "
+                f"method={vol_method}, lookback={vol_lookback}, cap={cap_max_weight:.2f}"
+            )
+
         current_held_symbols = set()  # 上一个收盘后真实持仓（调仓失败后会偏离 target）
+        current_symbol_weights = {}
         current_cash_slot_count = topk
         current_stock_pct = 0.0  # T+1 close 口径：首个可交易日白天仍视为现金/债券仓
         current_regime = "cash"
@@ -517,21 +751,30 @@ class QlibBacktestEngine(BacktestEngine):
                 blocked_sell_count = 0
                 blocked_buy_count = 0
                 missing_count = 0
-                held_sum, _, held_missing = _sum_symbol_returns(
-                    day_returns,
-                    current_held_symbols,
-                    "daily_ret",
-                    penalized_missing=penalized_missing,
-                )
-                stock_slot_return = held_sum / topk if topk > 0 else 0.0
-                missing_count = len(held_missing)
 
                 # 获取当天的国债ETF收益率（如果有数据）
                 bond_daily_ret = bond_etf_map.get(hd, default_bond_daily_ret)
 
-                stock_return_component = stock_slot_return + (
-                    current_cash_slot_count / topk * bond_daily_ret if topk > 0 else 0.0
-                )
+                if enable_vol_norm:
+                    stock_slot_return, missing_count = _compute_weighted_stock_return(
+                        day_returns,
+                        current_symbol_weights,
+                        penalized_missing=penalized_missing,
+                    )
+                    current_cash_weight = max(1.0 - float(sum(current_symbol_weights.values())), 0.0)
+                    stock_return_component = stock_slot_return + current_cash_weight * bond_daily_ret
+                else:
+                    held_sum, _, held_missing = _sum_symbol_returns(
+                        day_returns,
+                        current_held_symbols,
+                        "daily_ret",
+                        penalized_missing=penalized_missing,
+                    )
+                    stock_slot_return = held_sum / topk if topk > 0 else 0.0
+                    missing_count = len(held_missing)
+                    stock_return_component = stock_slot_return + (
+                        current_cash_slot_count / topk * bond_daily_ret if topk > 0 else 0.0
+                    )
 
                 gross_port_ret = (
                     current_stock_pct * stock_return_component
@@ -543,6 +786,7 @@ class QlibBacktestEngine(BacktestEngine):
                 cost_deduction = 0.0
                 next_held_symbols = current_held_symbols.copy()
                 next_cash_slot_count = current_cash_slot_count
+                next_symbol_weights = current_symbol_weights.copy()
                 if is_rebal:
                     raw_day_quotes = None
                     if block_limit_up_buy or block_limit_down_sell:
@@ -566,28 +810,54 @@ class QlibBacktestEngine(BacktestEngine):
                     blocked_sell_count = rebal_result["blocked_sell_count"]
                     blocked_buy_count = rebal_result["blocked_buy_count"]
 
-                    per_position_value = (
-                        pre_fee_value * target_stock_pct / topk if topk > 0 else 0.0
-                    )
-                    buy_fee_per_order = (
-                        max(per_position_value * buy_commission_rate, min_buy_commission)
-                        if buy_count > 0
-                        else 0.0
-                    )
-                    sell_commission_per_order = (
-                        max(per_position_value * sell_commission_rate, min_sell_commission)
-                        if sell_count > 0
-                        else 0.0
-                    )
-                    sell_stamp_tax_per_order = (
-                        per_position_value * sell_stamp_tax_rate if sell_count > 0 else 0.0
-                    )
-                    execution_cost_per_order = per_position_value * (slippage_rate + impact_rate)
-                    fee_amount = (
-                        buy_count * buy_fee_per_order
-                        + sell_count * (sell_commission_per_order + sell_stamp_tax_per_order)
-                        + (buy_count + sell_count) * execution_cost_per_order
-                    )
+                    if enable_vol_norm:
+                        target_symbol_weights = _compute_vol_norm_target_weights(
+                            target_selected,
+                            vol_by_date.get(hd),
+                            method=vol_norm_params["vol_method"],
+                            cap_max_weight=vol_norm_params["cap_max_weight"],
+                        )
+                        next_symbol_weights = _compose_post_rebalance_symbol_weights(
+                            prev_symbol_weights=current_symbol_weights,
+                            target_symbol_weights=target_symbol_weights,
+                            held_symbols=next_held_symbols,
+                        )
+                        fee_amount, buy_count, sell_count = _compute_weight_delta_fee(
+                            pre_fee_value=pre_fee_value,
+                            current_stock_pct=current_stock_pct,
+                            target_stock_pct=target_stock_pct,
+                            prev_symbol_weights=current_symbol_weights,
+                            target_symbol_weights=next_symbol_weights,
+                            buy_commission_rate=buy_commission_rate,
+                            sell_commission_rate=sell_commission_rate,
+                            sell_stamp_tax_rate=sell_stamp_tax_rate,
+                            min_buy_commission=min_buy_commission,
+                            min_sell_commission=min_sell_commission,
+                            execution_cost_rate=slippage_rate + impact_rate,
+                        )
+                    else:
+                        per_position_value = (
+                            pre_fee_value * target_stock_pct / topk if topk > 0 else 0.0
+                        )
+                        buy_fee_per_order = (
+                            max(per_position_value * buy_commission_rate, min_buy_commission)
+                            if buy_count > 0
+                            else 0.0
+                        )
+                        sell_commission_per_order = (
+                            max(per_position_value * sell_commission_rate, min_sell_commission)
+                            if sell_count > 0
+                            else 0.0
+                        )
+                        sell_stamp_tax_per_order = (
+                            per_position_value * sell_stamp_tax_rate if sell_count > 0 else 0.0
+                        )
+                        execution_cost_per_order = per_position_value * (slippage_rate + impact_rate)
+                        fee_amount = (
+                            buy_count * buy_fee_per_order
+                            + sell_count * (sell_commission_per_order + sell_stamp_tax_per_order)
+                            + (buy_count + sell_count) * execution_cost_per_order
+                        )
                     cost_deduction = fee_amount / current_value if current_value > 0 else 0.0
 
                 end_value = pre_fee_value - fee_amount
@@ -619,6 +889,8 @@ class QlibBacktestEngine(BacktestEngine):
 
                 if is_rebal:
                     current_held_symbols = next_held_symbols.copy()
+                    if enable_vol_norm:
+                        current_symbol_weights = next_symbol_weights.copy()
                     current_cash_slot_count = next_cash_slot_count
                     current_stock_pct = target_stock_pct
                     current_regime = target_regime

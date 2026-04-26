@@ -97,3 +97,13 @@ def reset_factor_registry():
     default_registry.clear()
     for f in original.values():
         default_registry.register(f)
+
+
+def make_pytest_wrapper(func):
+    """将 check_* 函数包装为 test_* 供 pytest 发现，同时保留 CLI main() 调用能力。"""
+    def _wrapper():
+        func()
+
+    _wrapper.__name__ = func.__name__.replace("check_", "test_", 1)
+    _wrapper.__doc__ = func.__doc__
+    return _wrapper

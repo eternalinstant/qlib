@@ -14,7 +14,7 @@ FAIL = "\033[91m[FAIL]\033[0m"
 WARN = "\033[93m[WARN]\033[0m"
 
 
-def test_fix1_qlib_negate():
+def check_fix1_qlib_negate():
     """验证: Qlib source 因子 negate 现在已生效"""
     print("\n" + "="*70)
     print("Fix#1: Qlib source 因子 negate")
@@ -40,7 +40,7 @@ def test_fix1_qlib_negate():
         return False
 
 
-def test_fix2_st_no_lookahead():
+def check_fix2_st_no_lookahead():
     """验证: 选股和回测中关闭ST过滤"""
     print("\n" + "="*70)
     print("Fix#2: ST名单前视偏差")
@@ -64,7 +64,7 @@ def test_fix2_st_no_lookahead():
         return False
 
 
-def test_fix3_position_prev_day():
+def check_fix3_position_prev_day():
     """验证: 仓位控制使用前一天数据"""
     print("\n" + "="*70)
     print("Fix#3: 仓位控制前视偏差")
@@ -88,7 +88,7 @@ def test_fix3_position_prev_day():
         return False
 
 
-def test_fix5_ann_date_delay():
+def check_fix5_ann_date_delay():
     """验证: 财报公告日加1天延迟"""
     print("\n" + "="*70)
     print("Fix#5: 财报公告日延迟")
@@ -109,7 +109,7 @@ def test_fix5_ann_date_delay():
         return False
 
 
-def test_fix6_cost_not_scaled():
+def check_fix6_cost_not_scaled():
     """验证: 交易成本不再被仓位缩小"""
     print("\n" + "="*70)
     print("Fix#6: 交易成本计算")
@@ -141,7 +141,7 @@ def test_fix6_cost_not_scaled():
         return False
 
 
-def test_fix7_first_rebal_cost():
+def check_fix7_first_rebal_cost():
     """验证: 首次建仓扣买入成本"""
     print("\n" + "="*70)
     print("Fix#7: 首次建仓成本")
@@ -167,7 +167,7 @@ def test_fix7_first_rebal_cost():
         return False
 
 
-def test_fix9_delist_penalty():
+def check_fix9_delist_penalty():
     """验证: 退市股票有惩罚"""
     print("\n" + "="*70)
     print("Fix#9: 退市股票处理")
@@ -190,16 +190,27 @@ def test_fix9_delist_penalty():
         return False
 
 
+from tests.conftest import make_pytest_wrapper
+
+test_fix1_qlib_negate = make_pytest_wrapper(check_fix1_qlib_negate)
+test_fix2_st_no_lookahead = make_pytest_wrapper(check_fix2_st_no_lookahead)
+test_fix3_position_prev_day = make_pytest_wrapper(check_fix3_position_prev_day)
+test_fix5_ann_date_delay = make_pytest_wrapper(check_fix5_ann_date_delay)
+test_fix6_cost_not_scaled = make_pytest_wrapper(check_fix6_cost_not_scaled)
+test_fix7_first_rebal_cost = make_pytest_wrapper(check_fix7_first_rebal_cost)
+test_fix9_delist_penalty = make_pytest_wrapper(check_fix9_delist_penalty)
+
+
 def main():
     results = {}
     tests = [
-        ("Fix#1: qlib因子negate", test_fix1_qlib_negate),
-        ("Fix#2: ST前视偏差", test_fix2_st_no_lookahead),
-        ("Fix#3: 仓位控制前视偏差", test_fix3_position_prev_day),
-        ("Fix#5: 公告日延迟", test_fix5_ann_date_delay),
-        ("Fix#6: 交易成本计算", test_fix6_cost_not_scaled),
-        ("Fix#7: 首次建仓成本", test_fix7_first_rebal_cost),
-        ("Fix#9: 退市股票处理", test_fix9_delist_penalty),
+        ("Fix#1: qlib因子negate", check_fix1_qlib_negate),
+        ("Fix#2: ST前视偏差", check_fix2_st_no_lookahead),
+        ("Fix#3: 仓位控制前视偏差", check_fix3_position_prev_day),
+        ("Fix#5: 公告日延迟", check_fix5_ann_date_delay),
+        ("Fix#6: 交易成本计算", check_fix6_cost_not_scaled),
+        ("Fix#7: 首次建仓成本", check_fix7_first_rebal_cost),
+        ("Fix#9: 退市股票处理", check_fix9_delist_penalty),
     ]
 
     for name, func in tests:

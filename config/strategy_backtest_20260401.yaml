@@ -1,0 +1,27 @@
+# 回测专用全局配置
+# 仅用于在本地数据最新日期为 2026-04-01 时通过数据预检
+
+weights:
+  alpha: 0.20
+  risk: 0.55
+  enhance: 0.25
+
+selection:
+  topk: 15
+  universe: csi300
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 60
+
+rebalance:
+  freq: "week"
+
+stability:
+  sticky: 5
+  threshold: 0.3
+  churn_limit: 5
+  margin_stable: true
+
+backtest_period:
+  start_date: "2019-01-01"
+  end_date: "2026-04-01"

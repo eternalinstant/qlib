@@ -6,13 +6,54 @@
 2. 用 Qlib / PyBroker 两套引擎回测策略
 3. 沉淀研究结果、选股快照和回测输出
 
-当前仓库已经从早期示例策略演进到 `top15_*` 这一批研究策略，README 以当前实际代码和数据要求为准。
+当前仓库已经完成阶段一策略研究归档。README 以“阶段一最终主备组合”为优先口径；早期 `top15_*` 和 `config/strategies` 体系保留为历史研究与对照。
+
+## 阶段一最终优选策略
+
+当前优选策略定为 **主备 `60/40` 组合**，目标是提高实盘形成概率，而不是追求历史回测最高年化。
+
+- 主策略：`alpha158_momentum_volume_k6_dd10_overlay`
+- 备策略：`push25_cq10_v3_vol_norm`
+- 默认配比：主策略 `60%`，备策略 `40%`
+- 股票池：沪深300历史成分
+- 调仓节奏：子策略双周调仓，组合层按日合成收益
+- 成本口径：买卖佣金 `0.03%`，卖出印花税 `0.10%`，滑点 `5bps`，冲击成本 `5bps`
+- 默认仿真脚本：[scripts/historical_allocation_sim.py](/Users/sxt/code/qlib/scripts/historical_allocation_sim.py)
+
+子策略定位：
+
+- 主策略偏行为金融/量价进攻：`ROC20 / RSV20 / RANK20 / CORD20 / VSUMD20`
+- 备策略偏质量、价值、现金流和波动归一：`ocf_to_ev / fcff_to_mv / roe_fina / current_ratio_fina / n_cashflow_act / rank_value_profit_core / rank_balance_core / qvf_core_interaction / ROC20 / CORD20`
+- 组合逻辑：主策略吃趋势、量价扩散和情绪惯性；备策略提供基本面质量和现金流安全垫，降低单一风格失效风险。
+
+阶段一最终仿真口径：
+
+- 区间：`2019-01-07` 至 `2026-04-15`
+- 组合年化：`23.19%`
+- 最大回撤：`-7.81%`
+- 夏普：`1.849`
+- 沪深300同期年化：`6.23%`
+- 沪深300同期最大回撤：`-45.60%`
+
+关键结果文件：
+
+- 汇总：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json)
+- 每日明细：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_daily.csv](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_daily.csv)
+- 逐年对比：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv)
+
+执行方式：
+
+```bash
+python3 scripts/historical_allocation_sim.py
+```
+
+阶段一归档结论：默认实盘从 `60/40` 开始；市场趋势明确且主策略持续跑赢备策略时可临时升到 `70/30`；组合或主策略失效时降到 `50/50` 或 `40/60`。`80/20` 仅作为进攻观察档，不再作为默认优选。
 
 ## 当前目录
 
 ```text
 qlib/
-├── config/                    # 全局配置 + 单策略 YAML
+├── config/                    # 全局配置 + config/models + 旧策略 YAML
 ├── core/                      # 策略核心：因子、选股、股票池、仓位
 ├── modules/
 │   ├── backtest/              # 回测引擎（Qlib / PyBroker）
@@ -31,12 +72,17 @@ qlib/
 
 - [main.py](/Users/sxt/code/qlib/main.py)：命令行主入口
 - [config/strategy.yaml](/Users/sxt/code/qlib/config/strategy.yaml)：全局默认策略参数
+- [config/models](/Users/sxt/code/qlib/config/models)：当前模型信号策略配置目录
 - [core/strategy.py](/Users/sxt/code/qlib/core/strategy.py)：策略 YAML 加载与生成选股入口
 - [core/selection.py](/Users/sxt/code/qlib/core/selection.py)：因子加载、信号计算、Top-K 选股
 - [core/universe.py](/Users/sxt/code/qlib/core/universe.py)：股票池过滤，包括历史沪深300成分过滤
 - [modules/backtest/qlib_engine.py](/Users/sxt/code/qlib/modules/backtest/qlib_engine.py)：Qlib 回测引擎
 - [modules/backtest/pybroker_engine.py](/Users/sxt/code/qlib/modules/backtest/pybroker_engine.py)：PyBroker 回测引擎
 - [modules/data/tushare_downloader.py](/Users/sxt/code/qlib/modules/data/tushare_downloader.py)：Tushare 数据下载
+- [modules/modeling/predictive_signal.py](/Users/sxt/code/qlib/modules/modeling/predictive_signal.py)：模型信号训练、打分与回测配置加载
+- [scripts/generate_model_scores.py](/Users/sxt/code/qlib/scripts/generate_model_scores.py)：按 `config/models` 生成模型分数
+- [scripts/backtest_model_signal.py](/Users/sxt/code/qlib/scripts/backtest_model_signal.py)：按模型分数执行 Qlib/PyBroker 回测
+- [scripts/historical_allocation_sim.py](/Users/sxt/code/qlib/scripts/historical_allocation_sim.py)：阶段一最终主备组合历史仿真
 
 ## 策略分层管理
 
@@ -45,20 +91,22 @@ qlib/
 - 兼容旧结构：`config/strategies/<strategy>.yaml`
 - 推荐新结构：`config/strategies/<layer>/<group>/<strategy>.yaml`
 
-当前约定：
+`config/strategies` 旧框架约定：
 
-- 根目录平铺文件：最终 `Top5` 优胜策略，方便直接挑主力候选
+- 根目录平铺文件：早期 `Top5` 优胜策略，作为历史候选和对照组保留
 - `fixed/`：固定策略，作为长期基线和正式对照组
 - `experimental/`：实验策略，按主题继续扩展
 - `research/`：研究归档策略，按主题收纳历史方案和未晋级版本
 
-当前根目录保留的 `Top5` 策略：
+当前根目录保留的早期 `Top5` 策略：
 
 - `test_bullbear_constrained_all`
 - `top15_core_trend`
 - `top15_amp_day`
 - `test_low_drawdown_constrained_all`
 - `top15_core_day`
+
+说明：这批 `Top5` 不再代表当前最终优选；阶段一最终优选以 README 顶部的主备 `60/40` 组合为准。
 
 当前推荐目录示例：
 
@@ -92,43 +140,124 @@ qlib/
 export TUSHARE_TOKEN=your_token_here
 ```
 
-### 1. 列出策略
+### 1. 跑阶段一最终组合仿真
 
 ```bash
-python main.py backtest --list
+python3 scripts/historical_allocation_sim.py
 ```
 
-### 2. 生成选股
+默认读取：
+
+- 主策略结果：`results/model_signals/alpha158_search_runs/alpha158_small_factor_csi300_v3/alpha158_momentum_volume_k6_dd10_overlay/overlay_results.csv`
+- 备策略结果：`results/model_signals/push25_cq10_v3_vol_norm/overlay_results.csv`
+- 输出目录：`results/analysis/phase1_final_main_backup_60_40`
+
+### 2. 重新生成阶段一子策略结果
 
 ```bash
-python main.py select -s top15_core_trend
+python3 scripts/generate_model_scores.py --config config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml
+python3 scripts/backtest_model_signal.py --config config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml --engine qlib
+
+python3 scripts/generate_model_scores.py --config config/models/push25_cq10_v3_vol_norm.yaml
+python3 scripts/backtest_model_signal.py --config config/models/push25_cq10_v3_vol_norm.yaml --engine qlib
 ```
 
-### 3. 跑单策略回测
+如果只需要复核最终主备组合，不必每次重跑子策略；直接运行第 1 步即可。
 
-```bash
-python main.py backtest -s top15_core_trend -e qlib
-python main.py backtest -s top15_core_trend -e pybroker
-python main.py backtest -s experimental/regime/bullbear_regime_guard_all -e qlib
-```
-
-### 4. 跑多策略对比
-
-```bash
-python main.py compare -s top15_core_trend,top15_core_day,top15_amp_day --no-benchmark
-```
-
-### 5. 更新数据
+### 3. 更新数据
 
 ```bash
 python main.py update
 ```
 
-正式 `select / backtest / compare` 前会自动执行数据预检；如果缺少历史沪深300成分或历史 ST 数据，会直接失败，不会再静默降级。
+正式数据更新会检查必要数据，缺少历史沪深300成分或历史 ST 数据时会失败，不会静默降级。
+
+### 4. 旧框架策略对照
+
+```bash
+python main.py backtest --list
+python main.py backtest -s experimental/regime/bullbear_regime_guard_all -e qlib
+python main.py compare -s top15_core_trend,top15_core_day,top15_amp_day --no-benchmark
+```
+
+旧 `select / backtest / compare` 仍用于 `config/strategies` 体系的历史策略对照；阶段一最终优选不再通过 `top15_*` 口径表达。
 
 ## 策略配置
 
-每个策略一个 YAML。当前支持的关键字段包括：
+当前有两套策略配置体系：
+
+- `config/models/`：当前阶段一最终策略使用的模型信号体系，输出到 `results/model_signals/`。
+- `config/strategies/`：早期手工因子策略体系，仍可用于历史研究、基线和对照。
+
+### `config/models` 模型策略
+
+阶段一最终主备策略都在 [config/models](/Users/sxt/code/qlib/config/models) 下：
+
+- [alpha158_momentum_volume_k6_dd10_overlay.yaml](/Users/sxt/code/qlib/config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml)
+- [push25_cq10_v3_vol_norm.yaml](/Users/sxt/code/qlib/config/models/push25_cq10_v3_vol_norm.yaml)
+
+模型策略 YAML 的关键字段：
+
+```yaml
+name: alpha158_momentum_volume_k6_dd10_overlay
+
+data:
+  source: alpha158
+  feature_columns:
+    - ROC20
+    - RSV20
+    - RANK20
+    - CORD20
+    - VSUMD20
+
+label:
+  horizon_days: 20
+
+training:
+  train_start: "2019-01-01"
+  train_end: "2022-12-31"
+  valid_start: "2023-01-01"
+  valid_end: "2023-12-31"
+
+selection:
+  freq: biweek
+  topk: 6
+  universe: csi300
+  min_market_cap: 120
+  exclude_st: true
+  exclude_new_days: 120
+
+position:
+  model: fixed
+  params:
+    stock_pct: 0.80
+
+overlay:
+  enabled: true
+  target_vol: 0.15
+  dd_soft: 0.02
+  dd_hard: 0.03
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5.0
+  impact_bps: 5.0
+```
+
+常用命令：
+
+```bash
+python3 scripts/generate_model_scores.py --config config/models/<model>.yaml
+python3 scripts/backtest_model_signal.py --config config/models/<model>.yaml --engine qlib
+```
+
+只调整阶段一最终策略时，优先改 `config/models` 或 [scripts/historical_allocation_sim.py](/Users/sxt/code/qlib/scripts/historical_allocation_sim.py)，不要去改早期 `top15_*` 策略。
+
+### `config/strategies` 旧策略
+
+旧框架每个策略一个 YAML。当前支持的关键字段包括：
 
 ```yaml
 name: top15_example
@@ -221,9 +350,9 @@ composition:
 - 如果同时配置 `validity.apply_in_backtest: true`，组合层会按近期表现动态缩放总暴露，回测结果里会额外写出 `raw_return` 与 `exposure_factor`
 - `python main.py backtest -s fixed/portfolio/dual_guard_18 -e qlib` 可直接回测组合策略
 
-## 添加策略
+## 添加旧框架策略
 
-新增策略通常只需要新增一个 YAML 文件，不需要改回测引擎或选股框架。
+新增旧框架策略通常只需要新增一个 YAML 文件，不需要改回测引擎或选股框架。
 
 如果只是换因子、调权重、调 `topk`，继续沿用 `selection.mode: factor_topk` 即可。
 只有当策略本身需要“持仓股跌破近期高点才换仓”这种执行逻辑时，才需要切到 `selection.mode: stoploss_replace`。
@@ -235,7 +364,7 @@ composition:
 2. 只写和 [config/strategy.yaml](/Users/sxt/code/qlib/config/strategy.yaml) 不同的字段
 3. 运行 `python main.py select -s <layer>/<group>/<strategy_name>`
 4. 运行 `python main.py backtest -s <layer>/<group>/<strategy_name> -e qlib`
-5. 需要横向对比时，运行 `python main.py compare -s <layer>/<group>/<strategy_name>,top15_core_trend --no-benchmark`
+5. 需要横向对比时，运行 `python main.py compare -s <layer>/<group>/<strategy_name>,experimental/regime/bullbear_regime_guard_all --no-benchmark`
 
 ### 最小模板
 
@@ -281,16 +410,24 @@ position:
 - `validity` 是实盘监控规则，不会直接改写历史回测收益；它用于判断“最近一段时间策略是否失效，以及建议 review / reduce / pause”。
 - `selection.mode: factor_topk` 是默认研究模式；`selection.mode: stoploss_replace` 是执行模式，会在保持当前持仓的前提下，仅对触发止损条件的股票做因子池替换。
 
-### 分层建议
+### 旧框架分层建议
 
-- 根目录：只放当前最终晋级的 `Top5` 主策略，不再堆历史文件。
+- 根目录：保留早期 `Top5` 历史候选，作为对照组，不再代表当前最终优选。
 - `fixed/`：只放已经验过多轮、作为正式比较基线的策略。
 - `experimental/`：只放正在验证的新思路，建议至少按主题再分一层，如 `safety / regime / validity`。
 - `research/`：放历史研究、失败路线、阶段性候选，建议按主题细分，例如 `amplitude / bullbear / drawdown / mix / close_only / all_market`。
 
-### 什么时候只改 YAML
+### 什么时候只改配置
 
-这些场景只改 [config/strategies](/Users/sxt/code/qlib/config/strategies) 下的策略文件：
+这些场景只改 [config/models](/Users/sxt/code/qlib/config/models) 下的模型策略文件：
+
+- 改阶段一子策略因子列
+- 改 `train / valid / scoring` 时间窗口
+- 改 LightGBM / CatBoost 参数
+- 改模型选股 `topk / freq / min_market_cap`
+- 改模型层 `position / overlay / trading`
+
+这些场景只改 [config/strategies](/Users/sxt/code/qlib/config/strategies) 下的旧策略文件：
 
 - 改因子权重
 - 改 `topk / buffer / sticky / rebalance.freq`
@@ -299,6 +436,12 @@ position:
 - 改 `position.model` 或仓位参数
 - 改 `validity` 有效性阈值
 - 改交易成本和是否启用 `block_limit_up_buy / block_limit_down_sell`
+
+这些场景只改 [scripts/historical_allocation_sim.py](/Users/sxt/code/qlib/scripts/historical_allocation_sim.py) 或运行参数：
+
+- 改最终主备比例，例如 `60/40` 调成 `70/30`
+- 改主备动态切换阈值，例如 `stress_dd / severe_dd / recover_dd`
+- 改最终组合仿真的输出目录或基准指数
 
 ### 什么时候要改代码
 
@@ -316,6 +459,7 @@ position:
 
 - [data/selections](/Users/sxt/code/qlib/data/selections) 下的 CSV
 - [results](/Users/sxt/code/qlib/results) 下的回测结果
+- [results/model_signals](/Users/sxt/code/qlib/results/model_signals) 下的模型分数、选股和 overlay 结果
 - [main.py](/Users/sxt/code/qlib/main.py)
 - [core/selection.py](/Users/sxt/code/qlib/core/selection.py)
 
@@ -384,7 +528,12 @@ python3 scripts/audit_price_fields.py --sample-size 20 --days 10
 - [data/selections](/Users/sxt/code/qlib/data/selections)：策略选股快照
 - [results](/Users/sxt/code/qlib/results)：回测 CSV、图表、研究记录
 
-当前口径优先看这几份：
+阶段一最终口径优先看这几份：
+
+- [results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json)
+- [results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv)
+
+早期 `top15_*` 阶段研究快照：
 
 - [results/top15_historical_csi300_research_20260322.md](/Users/sxt/code/qlib/results/top15_historical_csi300_research_20260322.md)
 - [results/tradability_constraint_compare_20260322_185830.md](/Users/sxt/code/qlib/results/tradability_constraint_compare_20260322_185830.md)
@@ -415,6 +564,9 @@ python3 -m pytest -q
 
 这个仓更适合“研究与验证”，不是开箱即用的实盘系统。当前已经具备：
 
+- 阶段一最终主备 `60/40` 组合归档
+- `config/models` 模型信号训练、打分、回测链路
+- 主备组合历史仿真与逐年沪深300对比
 - 多策略 YAML 配置
 - 双回测引擎
 - 历史沪深300股票池闭环
@@ -425,6 +577,7 @@ python3 -m pytest -q
 
 还在持续补强的部分主要是：
 
+- 实盘执行链路和组合层自动调仓
 - `$high/$low` 字段的独立质量复核与替代方案
 - 更完整的撮合、滑点和成交冲击模型
 - PyBroker 与 Qlib 的成交约束口径统一

@@ -1,0 +1,112 @@
+name: alpha158_momentum_volume_k6_dd10_overlay
+
+data:
+  source: alpha158
+  start_date: "2019-01-01"
+  end_date: "2026-04-15"
+  feature_columns:
+    - ROC20
+    - RSV20
+    - RANK20
+    - CORD20
+    - VSUMD20
+  alpha158:
+    kbar: {}
+    price:
+      windows: [0]
+      feature: [OPEN, HIGH, LOW, VWAP]
+    rolling:
+      windows: [10, 20, 60]
+      include:
+        - ROC
+        - MA
+        - STD
+        - BETA
+        - RSQR
+        - RESI
+        - MAX
+        - LOW
+        - RANK
+        - RSV
+        - IMAX
+        - IMIN
+        - IMXD
+        - CORR
+        - CORD
+        - CNTP
+        - CNTD
+        - SUMP
+        - VSTD
+        - WVMA
+        - VSUMD
+
+label:
+  horizon_days: 20
+
+training:
+  train_start: "2019-01-01"
+  train_end: "2022-12-31"
+  valid_start: "2023-01-01"
+  valid_end: "2023-12-31"
+
+scoring:
+  start_date: "2019-01-01"
+  end_date: "2026-04-15"
+
+model:
+  preferred_backend: lightgbm
+  params:
+    learning_rate: 0.05
+    n_estimators: 320
+    max_depth: 4
+    min_child_samples: 32
+    random_state: 42
+    verbosity: -1
+
+selection:
+  freq: biweek
+  topk: 6
+  universe: csi300
+  min_market_cap: 120
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  threshold: 0.0
+  churn_limit: 0
+  margin_stable: false
+  buffer: 1
+  score_smoothing_days: 1
+
+position:
+  model: fixed
+  params:
+    stock_pct: 0.80
+
+overlay:
+  enabled: true
+  target_vol: 0.15
+  vol_lookback: 20
+  trend_lookback: 20
+  trend_exposure: 0.70
+  dd_soft: 0.02
+  dd_hard: 0.03
+  soft_exposure: 0.80
+  hard_exposure: 0.30
+  exposure_min: 0.0
+  exposure_max: 1.0
+  market_trend_lookback: 60
+  market_trend_min_return: 0.03
+  market_trend_exposure_floor: 0.58
+  market_trend_max_strategy_drawdown: 0.10
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  min_buy_commission: 5.0
+  min_sell_commission: 5.0
+  slippage_bps: 5.0
+  impact_bps: 5.0
+
+output:
+  root: "results/model_signals/alpha158_search_runs/alpha158_small_factor_csi300_v3/alpha158_momentum_volume_k6_dd10_overlay"

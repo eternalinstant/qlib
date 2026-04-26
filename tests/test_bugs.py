@@ -13,7 +13,7 @@ FAIL = "\033[91m[FAIL]\033[0m"
 WARN = "\033[93m[WARN]\033[0m"
 
 
-def test_bug1_qlib_negate_not_applied():
+def check_bug1_qlib_negate_not_applied():
     """Bug#1: Qlib source 因子的 negate 未在 load_factor_data 中生效"""
     print("\n" + "="*70)
     print("Bug#1: Qlib source 因子 negate 未生效")
@@ -70,7 +70,7 @@ def test_bug1_qlib_negate_not_applied():
         return True
 
 
-def test_bug2_st_lookahead():
+def check_bug2_st_lookahead():
     """Bug#2: ST名单前视偏差 — 用当前名单过滤历史"""
     print("\n" + "="*70)
     print("Bug#2: ST名单前视偏差")
@@ -113,7 +113,7 @@ def test_bug2_st_lookahead():
         return True
 
 
-def test_bug3_position_lookahead():
+def check_bug3_position_lookahead():
     """Bug#3: 仓位控制用当天收盘价决定当天仓位"""
     print("\n" + "="*70)
     print("Bug#3: 仓位控制使用当天收盘价（前视偏差）")
@@ -143,7 +143,7 @@ def test_bug3_position_lookahead():
         return True
 
 
-def test_bug4_report_type_not_filtered():
+def check_bug4_report_type_not_filtered():
     """Bug#4: 财务数据未过滤 report_type"""
     print("\n" + "="*70)
     print("Bug#4: 财务数据未过滤 report_type")
@@ -180,7 +180,7 @@ def test_bug4_report_type_not_filtered():
     return True
 
 
-def test_bug5_ann_date_no_delay():
+def check_bug5_ann_date_no_delay():
     """Bug#5: 财报公告日当天即可用，缺少1天延迟"""
     print("\n" + "="*70)
     print("Bug#5: 财报公告日无延迟")
@@ -207,7 +207,7 @@ def test_bug5_ann_date_no_delay():
         return True
 
 
-def test_bug6_cost_scaled_by_position():
+def check_bug6_cost_scaled_by_position():
     """Bug#6: 交易成本被仓位比例缩小"""
     print("\n" + "="*70)
     print("Bug#6: 交易成本被仓位比例缩小")
@@ -254,7 +254,7 @@ def test_bug6_cost_scaled_by_position():
         return True
 
 
-def test_bug7_first_rebal_no_cost():
+def check_bug7_first_rebal_no_cost():
     """Bug#7: 首次建仓不扣买入成本"""
     print("\n" + "="*70)
     print("Bug#7: 首次建仓不扣买入成本")
@@ -283,7 +283,7 @@ def test_bug7_first_rebal_no_cost():
         return True
 
 
-def test_bug8_biweek_crossyear():
+def check_bug8_biweek_crossyear():
     """Bug#8: biweek 分组键跨年不连续"""
     print("\n" + "="*70)
     print("Bug#8: biweek 分组跨年问题")
@@ -313,7 +313,7 @@ def test_bug8_biweek_crossyear():
         return True
 
 
-def test_bug9_delisted_stocks():
+def check_bug9_delisted_stocks():
     """Bug#9: 退市股票被静默排除"""
     print("\n" + "="*70)
     print("Bug#9: 退市股票静默排除（幸存者偏差）")
@@ -342,18 +342,31 @@ def test_bug9_delisted_stocks():
         return True
 
 
+from tests.conftest import make_pytest_wrapper
+
+test_bug1_qlib_negate_not_applied = make_pytest_wrapper(check_bug1_qlib_negate_not_applied)
+test_bug2_st_lookahead = make_pytest_wrapper(check_bug2_st_lookahead)
+test_bug3_position_lookahead = make_pytest_wrapper(check_bug3_position_lookahead)
+test_bug4_report_type_not_filtered = make_pytest_wrapper(check_bug4_report_type_not_filtered)
+test_bug5_ann_date_no_delay = make_pytest_wrapper(check_bug5_ann_date_no_delay)
+test_bug6_cost_scaled_by_position = make_pytest_wrapper(check_bug6_cost_scaled_by_position)
+test_bug7_first_rebal_no_cost = make_pytest_wrapper(check_bug7_first_rebal_no_cost)
+test_bug8_biweek_crossyear = make_pytest_wrapper(check_bug8_biweek_crossyear)
+test_bug9_delisted_stocks = make_pytest_wrapper(check_bug9_delisted_stocks)
+
+
 def main():
     results = {}
     tests = [
-        ("Bug#1: qlib因子negate未生效", test_bug1_qlib_negate_not_applied),
-        ("Bug#2: ST名单前视偏差", test_bug2_st_lookahead),
-        ("Bug#3: 仓位控制前视偏差", test_bug3_position_lookahead),
-        ("Bug#4: report_type未过滤", test_bug4_report_type_not_filtered),
-        ("Bug#5: 公告日无延迟", test_bug5_ann_date_no_delay),
-        ("Bug#6: 交易成本被仓位缩小", test_bug6_cost_scaled_by_position),
-        ("Bug#7: 首次建仓不扣成本", test_bug7_first_rebal_no_cost),
-        ("Bug#8: biweek跨年问题", test_bug8_biweek_crossyear),
-        ("Bug#9: 退市股票静默排除", test_bug9_delisted_stocks),
+        ("Bug#1: qlib因子negate未生效", check_bug1_qlib_negate_not_applied),
+        ("Bug#2: ST名单前视偏差", check_bug2_st_lookahead),
+        ("Bug#3: 仓位控制前视偏差", check_bug3_position_lookahead),
+        ("Bug#4: report_type未过滤", check_bug4_report_type_not_filtered),
+        ("Bug#5: 公告日无延迟", check_bug5_ann_date_no_delay),
+        ("Bug#6: 交易成本被仓位缩小", check_bug6_cost_scaled_by_position),
+        ("Bug#7: 首次建仓不扣成本", check_bug7_first_rebal_no_cost),
+        ("Bug#8: biweek跨年问题", check_bug8_biweek_crossyear),
+        ("Bug#9: 退市股票静默排除", check_bug9_delisted_stocks),
     ]
 
     for name, func in tests:

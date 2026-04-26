@@ -8,7 +8,10 @@
 再用 adj_ratio * raw_field 得到正确的前复权值。
 volume/amount 直接写 raw 值，不做复权缩放。
 
-同时扩展 close.bin 到日历末端（用 daily_basic + splice-point ratio）。
+对已有历史的处理规则：
+1. raw_data 覆盖范围之前，保留现有 bin 历史
+2. raw_data 覆盖范围及之后，用权威 close + raw_data 重建
+3. close.bin 继续扩展到日历末端
 """
 import logging
 import sys
@@ -60,6 +63,15 @@ def write_bin(bin_file: Path, start_idx: int, values):
     payload[1:] = values
     payload.tofile(bin_file)
     return True
+
+
+def _map_from_bin(bin_file: Path):
+    """将 bin 文件读成 {cal_idx: value} 查找表。"""
+    meta = read_bin(bin_file)
+    if meta is None:
+        return {}
+    start_idx, values = meta
+    return dict(zip(range(start_idx, start_idx + len(values)), values.tolist()))
 
 
 def load_daily_basic_close(date_to_idx):
@@ -145,34 +157,61 @@ def fix_all():
             skipped += 1
             continue
 
-        # 3. 扩展 close.bin 到日历末端（如果需要）
-        if close_end < cal_last_idx:
-            # splice-point ratio
-            bin_last_close = float(close_vals[-1])
-            db_last_close = db_close_map.get(inst, {}).get(close_end, None)
-            if db_last_close and db_last_close > 0:
-                adj_ratio_splice = bin_last_close / db_last_close
-            else:
-                adj_ratio_splice = 1.0
+        # 3. 构建权威 close 映射：
+        # raw 覆盖之前保留旧历史；raw 覆盖及之后改用 daily_basic/raw close。
+        inst_db = db_close_map.get(inst, {})
+        overlap_start = min(raw_close_map) if raw_close_map else None
+        if overlap_start is not None:
+            close_map = dict(zip(
+                range(close_start, close_start + len(close_vals)),
+                close_vals.tolist(),
+            ))
+            authoritative_close = dict(close_map)
+            close_replaced = False
+            for idx in range(overlap_start, cal_last_idx + 1):
+                v = inst_db.get(idx, raw_close_map.get(idx))
+                if v is not None and np.isfinite(v) and v > 0:
+                    authoritative_close[idx] = float(v)
+                    if idx <= close_end:
+                        close_replaced = True
 
-            inst_db = db_close_map.get(inst, {})
-            new_close_vals = []
-            for idx in range(close_end + 1, cal_last_idx + 1):
-                v = inst_db.get(idx)
-                if v is not None and v > 0:
-                    new_close_vals.append(float(v) * adj_ratio_splice)
-                else:
-                    new_close_vals.append(np.nan)
-
-            if new_close_vals:
-                # 追加到 close.bin
-                close_vals = np.concatenate([close_vals, np.array(new_close_vals, dtype="<f4")])
-                close_end = cal_last_idx
+            if close_replaced:
                 close_extended += 1
 
-        # 4. 构建 close 的完整查找表
-        close_idx_range = np.arange(close_start, close_end + 1)
-        close_map = dict(zip(close_idx_range.tolist(), close_vals.tolist()))
+            final_close_start = min(authoritative_close)
+            final_close_end = max(authoritative_close)
+            close_vals = np.array(
+                [authoritative_close.get(idx, np.nan) for idx in range(final_close_start, final_close_end + 1)],
+                dtype="<f4",
+            )
+            close_start = final_close_start
+            close_end = final_close_end
+            close_map = authoritative_close
+        else:
+            # 无 raw 覆盖时，仅保留既有 close，并按旧逻辑扩展到日历末端。
+            if close_end < cal_last_idx:
+                bin_last_close = float(close_vals[-1])
+                db_last_close = inst_db.get(close_end, None)
+                if db_last_close and db_last_close > 0:
+                    adj_ratio_splice = bin_last_close / db_last_close
+                else:
+                    adj_ratio_splice = 1.0
+
+                new_close_vals = []
+                for idx in range(close_end + 1, cal_last_idx + 1):
+                    v = inst_db.get(idx)
+                    if v is not None and v > 0:
+                        new_close_vals.append(float(v) * adj_ratio_splice)
+                    else:
+                        new_close_vals.append(np.nan)
+
+                if new_close_vals:
+                    close_vals = np.concatenate([close_vals, np.array(new_close_vals, dtype="<f4")])
+                    close_end = cal_last_idx
+                    close_extended += 1
+
+            close_idx_range = np.arange(close_start, close_end + 1)
+            close_map = dict(zip(close_idx_range.tolist(), close_vals.tolist()))
 
         # 5. 逐日计算 adj_ratio 并重建 price fields
         for fld in PRICE_FIELDS:
@@ -180,11 +219,15 @@ def fix_all():
             if not raw_fld_map and not raw_close_map:
                 continue
 
+            existing_field_map = _map_from_bin(inst_dir / f"{fld}.day.bin")
+
             target_start = close_start
             # 也考虑 raw 数据的起始点
             if raw_fld_map:
                 raw_fld_start = min(raw_fld_map)
                 target_start = min(target_start, raw_fld_start)
+            if existing_field_map:
+                target_start = min(target_start, min(existing_field_map))
 
             rebuilt_vals = []
             for idx in range(target_start, close_end + 1):
@@ -204,7 +247,11 @@ def fix_all():
                     adj_ratio = float(bin_close) / float(raw_close)
                     derived = float(raw_val) * adj_ratio
                 else:
-                    derived = np.nan
+                    existing_val = existing_field_map.get(idx)
+                    if existing_val is not None and np.isfinite(existing_val):
+                        derived = float(existing_val)
+                    else:
+                        derived = np.nan
                 rebuilt_vals.append(derived)
 
             if rebuilt_vals:
@@ -213,17 +260,28 @@ def fix_all():
         # 6. 重建 volume/amount（直接用 raw 值，不做复权）
         for fld in VOLUME_FIELDS:
             raw_fld_map = raw_maps.get(fld, {})
-            if not raw_fld_map:
+            existing_field_map = _map_from_bin(inst_dir / f"{fld}.day.bin")
+            if not raw_fld_map and not existing_field_map:
                 continue
 
             target_start = close_start
-            raw_fld_start = min(raw_fld_map)
-            target_start = min(target_start, raw_fld_start)
+            if raw_fld_map:
+                raw_fld_start = min(raw_fld_map)
+                target_start = min(target_start, raw_fld_start)
+            if existing_field_map:
+                target_start = min(target_start, min(existing_field_map))
 
             rebuilt_vals = []
             for idx in range(target_start, close_end + 1):
                 v = raw_fld_map.get(idx)
-                rebuilt_vals.append(float(v) if v is not None and np.isfinite(v) else np.nan)
+                if v is not None and np.isfinite(v):
+                    rebuilt_vals.append(float(v))
+                    continue
+                existing_val = existing_field_map.get(idx)
+                if existing_val is not None and np.isfinite(existing_val):
+                    rebuilt_vals.append(float(existing_val))
+                else:
+                    rebuilt_vals.append(np.nan)
 
             if rebuilt_vals:
                 write_bin(inst_dir / f"{fld}.day.bin", target_start, rebuilt_vals)
