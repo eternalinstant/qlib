@@ -86,6 +86,25 @@ class TestDataUpdaterRemoteDate:
             result = updater.get_remote_latest_date()
             assert result is None
 
+    def test_get_remote_latest_date_retries_transient_error(self, tmp_path):
+        """trade_cal 短暂失败时应等待重试。"""
+        from modules.data.updater import DataUpdater
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+
+        mock_pro = Mock()
+        mock_pro.trade_cal.side_effect = [
+            Exception("temporary network error"),
+            pd.DataFrame({"cal_date": ["20260302"], "is_open": ["1"]}),
+        ]
+
+        with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro), \
+             patch("modules.data.updater.time.sleep", return_value=None):
+            result = updater.get_remote_latest_date()
+
+        assert result == datetime(2026, 3, 2)
+        assert mock_pro.trade_cal.call_count == 2
+
 
 class TestDataUpdaterDownload:
     """测试数据下载逻辑"""
@@ -175,6 +194,22 @@ class TestDataUpdaterDownload:
         assert result is True
         assert mock_pro.daily_basic.call_args.kwargs["start_date"] == "20260201"
 
+    def test_download_daily_basic_bootstrap_uses_full_history_start(self, tmp_path):
+        """首次 bootstrap 时应从全量历史起点下载 daily_basic。"""
+        from modules.data.updater import BOOTSTRAP_MARKET_START, DataUpdater
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+
+        mock_pro = Mock()
+        mock_pro.daily_basic.return_value = pd.DataFrame()
+
+        with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro):
+            result = updater.download_daily_basic(start_date=BOOTSTRAP_MARKET_START)
+
+        assert result is True
+        assert mock_pro.daily_basic.call_args.kwargs["start_date"] == BOOTSTRAP_MARKET_START
+
     def test_download_handles_api_error(self, tmp_path):
         """API 错误时优雅降级"""
         from modules.data.updater import DataUpdater
@@ -189,6 +224,60 @@ class TestDataUpdaterDownload:
             result = updater.download_daily_basic()
 
         assert result is False
+
+    def test_download_daily_basic_retries_transient_error(self, tmp_path):
+        """daily_basic 短暂失败时应等待重试，而不是直接留下缺口。"""
+        from modules.data.updater import DataUpdater
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+
+        mock_pro = Mock()
+        mock_pro.daily_basic.side_effect = [
+            Exception("temporary network error"),
+            pd.DataFrame(
+                {
+                    "ts_code": ["000001.SZ"],
+                    "trade_date": ["20260228"],
+                    "close": [11.0],
+                    "pe_ttm": [8.5],
+                }
+            ),
+        ]
+
+        with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro), \
+             patch("modules.data.updater.time.sleep", return_value=None):
+            result = updater.download_daily_basic()
+
+        assert result is True
+        assert mock_pro.daily_basic.call_count == 2
+        combined = pd.read_parquet(tmp_path / "daily_basic.parquet")
+        assert combined["trade_date"].tolist() == ["20260228"]
+
+    def test_download_adj_factor_rewinds_recent_window(self, tmp_path):
+        """adj_factor 增量更新应回补最近窗口，避免尾部缺口永久保留。"""
+        from modules.data.updater import DataUpdater
+
+        pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "trade_date": ["20260228"],
+                "adj_factor": [1.0],
+            }
+        ).to_parquet(tmp_path / "adj_factor.parquet", index=False)
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+
+        mock_pro = Mock()
+        mock_pro.adj_factor.return_value = pd.DataFrame()
+
+        with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro), \
+             patch("modules.data.updater.time.sleep", return_value=None):
+            result = updater.download_adj_factor()
+
+        assert result is True
+        assert mock_pro.adj_factor.call_args_list[0].kwargs["start_date"] == "20260128"
 
     def test_update_raw_data_quotes_incremental(self, tmp_path):
         """按交易日增量更新 raw_data。"""
@@ -240,6 +329,57 @@ class TestDataUpdaterDownload:
         assert pd.to_datetime(sh["date"]).max() == pd.Timestamp("2026-02-28")
         assert len(sz) == 1
         assert sz.iloc[0]["symbol"] == "000001.SZ"
+
+    def test_update_raw_data_quotes_bootstrap_backfills_full_history(self, tmp_path):
+        """首次 bootstrap 没有 raw_data 文件时，应按 daily_basic 全历史回补。"""
+        from modules.data.updater import DataUpdater
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+        updater.raw_data_dir = tmp_path / "raw_data"
+        updater.raw_data_dir.mkdir(parents=True)
+
+        pd.DataFrame({"trade_date": ["20260102", "20260331"]}).to_parquet(
+            tmp_path / "daily_basic.parquet",
+            index=False,
+        )
+
+        mock_pro = Mock()
+        mock_pro.daily.side_effect = [
+            pd.DataFrame(
+                {
+                    "ts_code": ["600000.SH"],
+                    "trade_date": ["20260102"],
+                    "open": [10.0],
+                    "high": [10.5],
+                    "low": [9.9],
+                    "close": [10.2],
+                    "vol": [1000.0],
+                    "amount": [10000.0],
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "ts_code": ["600000.SH"],
+                    "trade_date": ["20260331"],
+                    "open": [11.0],
+                    "high": [11.5],
+                    "low": [10.8],
+                    "close": [11.2],
+                    "vol": [1200.0],
+                    "amount": [12000.0],
+                }
+            ),
+        ]
+
+        with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro), \
+             patch("modules.data.updater.time.sleep", return_value=None):
+            result = updater.update_raw_data_quotes()
+
+        assert result is True
+        assert mock_pro.daily.call_count == 2
+        assert mock_pro.daily.call_args_list[0].kwargs["trade_date"] == "20260102"
+        assert mock_pro.daily.call_args_list[1].kwargs["trade_date"] == "20260331"
 
     def test_download_index_daily_incremental_month_boundary(self, tmp_path):
         """跨月增量下载 index_daily 时起始日期应为下一个自然日。"""
@@ -456,6 +596,64 @@ class TestDataUpdaterConvert:
         assert '2026-02-27' in updated_cal
         assert len(updated_cal) >= 3  # 25, 26, 27
 
+    def test_convert_to_qlib_bootstraps_provider_structure(self, tmp_path):
+        """首次转换时应自动创建 provider 目录骨架并初始化前复权 bin。"""
+        from modules.data.updater import DataUpdater
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path / "cn_data"))
+        updater.tushare_dir = tmp_path / "tushare"
+        updater.tushare_dir.mkdir(parents=True)
+        updater.raw_data_dir = tmp_path / "raw_data"
+        updater.raw_data_dir.mkdir(parents=True)
+
+        pd.DataFrame(
+            {
+                "trade_date": ["20260102", "20260105"],
+                "ts_code": ["600000.SH", "600000.SH"],
+            }
+        ).to_parquet(updater.tushare_dir / "daily_basic.parquet", index=False)
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-05")],
+                "open": [10.0, 10.2],
+                "high": [10.5, 10.7],
+                "low": [9.9, 10.1],
+                "close": [10.3, 10.4],
+                "volume": [1000.0, 1100.0],
+                "amount": [10000.0, 11000.0],
+                "symbol": ["600000.SH", "600000.SH"],
+            }
+        ).to_parquet(updater.raw_data_dir / "sh600000.parquet", index=False)
+
+        adjusted = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-05")],
+                "open": [10.0, 10.2],
+                "high": [10.5, 10.7],
+                "low": [9.9, 10.1],
+                "close": [10.3, 10.4],
+                "volume": [1000.0, 1100.0],
+                "amount": [10000.0, 11000.0],
+            }
+        )
+
+        mock_converter = Mock()
+        mock_converter.convert.return_value = pd.DataFrame({"instrument": ["sh600000"]})
+        mock_converter.compute_forward_adjusted_prices.return_value = {"sh600000": adjusted}
+        mock_converter.write_adjusted_bins.return_value = 1
+        mock_converter.repair_price_provider.return_value = {}
+        mock_converter.update_close_bins.return_value = 0
+        mock_converter.update_ohlcv_bins.return_value = {}
+
+        with patch("modules.data.updater.TushareToQlibConverter", return_value=mock_converter):
+            result = updater.convert_to_qlib()
+
+        assert result is True
+        assert (updater.qlib_data_path / "features" / "sh600000").exists()
+        assert (updater.qlib_data_path / "instruments" / "all.txt").exists()
+        assert mock_converter.compute_forward_adjusted_prices.called
+        assert mock_converter.write_adjusted_bins.called
+
     def test_convert_to_qlib_handles_converter_failure(self, tmp_path):
         """转换失败时返回 False"""
         from modules.data.updater import DataUpdater
@@ -501,6 +699,55 @@ class TestDataUpdaterConvert:
         mock_convert.assert_called_once()
         assert result['success'] is True
         assert result['converted'] is True
+
+    def test_update_daily_bootstrap_forces_full_history_download(self, tmp_path):
+        """首次 bootstrap 时，即使 check_update_needed=False 也应走全量历史初始化。"""
+        from modules.data.updater import BOOTSTRAP_MARKET_START, DataUpdater
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+
+        initial_precheck = SimpleNamespace(ok=False, errors=["缺少文件: factor_data.parquet"])
+        ok_precheck = SimpleNamespace(ok=True, errors=[])
+
+        with patch.object(updater, "_needs_bootstrap", return_value=True), \
+             patch.object(updater, "check_update_needed", return_value=False), \
+             patch("modules.data.updater.run_data_precheck", side_effect=[initial_precheck, ok_precheck]), \
+             patch.object(updater, "download_daily_basic", return_value=True) as mock_daily_basic, \
+             patch.object(updater, "download_stock_basic", return_value=True), \
+             patch.object(updater, "download_financial_data", return_value=True), \
+             patch.object(updater, "update_raw_data_quotes", return_value=True) as mock_raw_data, \
+             patch.object(updater, "download_adj_factor", return_value=True), \
+             patch.object(updater, "download_index_daily", return_value=True), \
+             patch.object(updater, "download_index_weight", return_value=True), \
+             patch.object(updater, "download_namechange", return_value=True), \
+             patch.object(updater, "convert_to_qlib", return_value=True), \
+             patch.object(updater, "regenerate_selections", return_value=True):
+
+            result = updater.update_daily()
+
+        assert result["success"] is True
+        assert mock_daily_basic.call_args.kwargs["start_date"] == BOOTSTRAP_MARKET_START
+        assert mock_raw_data.call_args.kwargs["start_date"] == BOOTSTRAP_MARKET_START
+
+    def test_update_daily_fails_fast_when_tushare_unavailable(self, tmp_path):
+        """需要更新但 Tushare 不可用时，应直接报清晰错误。"""
+        from modules.data.updater import DataUpdater
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+
+        initial_precheck = SimpleNamespace(ok=False, errors=["缺少文件: factor_data.parquet"])
+
+        with patch.object(updater, "_needs_bootstrap", return_value=True), \
+             patch.object(updater, "check_update_needed", return_value=False), \
+             patch("modules.data.updater.run_data_precheck", return_value=initial_precheck), \
+             patch("modules.data.updater.get_tushare_pro", return_value=None):
+
+            result = updater.update_daily()
+
+        assert result["success"] is False
+        assert "Tushare API 不可用" in result["message"]
 
     def test_update_daily_repairs_provider_when_market_data_is_current(self, tmp_path):
         """仅 provider 脏时也应触发转换修复。"""
@@ -647,7 +894,7 @@ class TestDataUpdaterConvert:
         open_bin = np.fromfile(features_dir / "open.day.bin", dtype="<f4")
         volume_bin = np.fromfile(features_dir / "volume.day.bin", dtype="<f4")
 
-        assert stats["truncated_files"] == 1
+        assert stats["close_rebuilt_files"] == 1
         assert stats["repaired_instruments"] == 1
         assert int(close_bin[0]) == 0
         assert close_bin[1:].tolist() == pytest.approx([10.0, 11.0, 12.0])
@@ -655,6 +902,51 @@ class TestDataUpdaterConvert:
         assert open_bin[1:].tolist() == pytest.approx([9.0, 10.0, 11.0])
         assert int(volume_bin[0]) == 0
         assert volume_bin[1:].tolist() == pytest.approx([1000.0, 1100.0, 1200.0])
+
+    def test_repair_price_provider_rebuilds_compressed_close_span(self, tmp_path):
+        """close.bin 若把停牌日压缩掉，应按 raw_data 跨度重建并补 NaN。"""
+        from modules.data.tushare_to_qlib import TushareToQlibConverter
+
+        qlib_root = tmp_path / "cn_data"
+        features_dir = qlib_root / "features" / "sz000001"
+        features_dir.mkdir(parents=True)
+        cal_dir = qlib_root / "calendars"
+        cal_dir.mkdir(parents=True)
+        (cal_dir / "day.txt").write_text("2026-01-02\n2026-01-05\n2026-01-06\n")
+
+        raw_dir = tmp_path / "raw_data"
+        raw_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-06")],
+                "open": [9.0, 11.0],
+                "high": [10.2, 12.2],
+                "low": [8.8, 10.8],
+                "close": [10.0, 12.0],
+                "volume": [1000.0, 1200.0],
+                "amount": [10000.0, 13000.0],
+            }
+        ).to_parquet(raw_dir / "sz000001.parquet", index=False)
+
+        np.array([0.0, 10.0, 12.0], dtype="<f4").tofile(features_dir / "close.day.bin")
+        np.array([0.0, 9.0, 11.0], dtype="<f4").tofile(features_dir / "open.day.bin")
+        np.array([0.0, 10.2, 12.2], dtype="<f4").tofile(features_dir / "high.day.bin")
+        np.array([0.0, 8.8, 10.8], dtype="<f4").tofile(features_dir / "low.day.bin")
+        np.array([0.0, 1000.0, 1200.0], dtype="<f4").tofile(features_dir / "volume.day.bin")
+        np.array([0.0, 10000.0, 13000.0], dtype="<f4").tofile(features_dir / "amount.day.bin")
+
+        converter = TushareToQlibConverter(tushare_dir=str(tmp_path), qlib_dir=str(qlib_root))
+        stats = converter.repair_price_provider()
+
+        assert stats["close_rebuilt_files"] == 1
+        close_bin = np.fromfile(features_dir / "close.day.bin", dtype="<f4")
+        open_bin = np.fromfile(features_dir / "open.day.bin", dtype="<f4")
+        assert len(close_bin) == 4
+        assert close_bin[1] == pytest.approx(10.0)
+        assert np.isnan(close_bin[2])
+        assert close_bin[3] == pytest.approx(12.0)
+        assert np.isnan(open_bin[2])
+        assert open_bin[3] == pytest.approx(11.0)
 
 
 class TestGetTusharePro:

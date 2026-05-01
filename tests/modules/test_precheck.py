@@ -51,6 +51,10 @@ def test_run_data_precheck_requires_index_weight_and_namechange(monkeypatch, tmp
     tushare_root = tmp_path / "tushare"
     _prepare_qlib_root(qlib_root)
     _prepare_tushare_root(tushare_root)
+    (qlib_root / "calendars" / "day.txt").write_text(
+        "2019-01-02\n2026-03-18\n2026-03-19\n2026-03-20\n",
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(precheck, "_qlib_root", lambda: qlib_root)
     monkeypatch.setattr(precheck, "_tushare_root", lambda: tushare_root)
@@ -145,6 +149,69 @@ def test_run_data_precheck_detects_provider_inconsistency(monkeypatch, tmp_path)
     np.array([0.0, 9.7, 10.7], dtype="<f4").tofile(inst_dir / "low.day.bin")
     np.array([0.0, 1000.0, 1200.0], dtype="<f4").tofile(inst_dir / "volume.day.bin")
     np.array([0.0, 10000.0, 12000.0], dtype="<f4").tofile(inst_dir / "amount.day.bin")
+
+    monkeypatch.setattr(precheck, "_qlib_root", lambda: qlib_root)
+    monkeypatch.setattr(precheck, "_tushare_root", lambda: tushare_root)
+    monkeypatch.setattr(precheck, "_iter_index_weight_paths", lambda: [tushare_root / "index_weight.parquet"])
+    monkeypatch.setattr(precheck, "_iter_namechange_paths", lambda: [tushare_root / "namechange.parquet"])
+    monkeypatch.setattr(
+        precheck,
+        "_backtest_period",
+        lambda: (pd.Timestamp("2019-01-01"), pd.Timestamp("2026-03-20")),
+    )
+
+    result = precheck.run_data_precheck(universe="csi300", require_st_history=True)
+
+    assert result.ok is False
+    assert any("Qlib provider 字段不一致" in err for err in result.errors)
+
+
+def test_run_data_precheck_detects_compressed_close_coverage(monkeypatch, tmp_path):
+    from modules.data import precheck
+
+    qlib_root = tmp_path / "qlib"
+    tushare_root = tmp_path / "tushare"
+    _prepare_qlib_root(qlib_root)
+    _prepare_tushare_root(tushare_root)
+
+    pd.DataFrame(
+        {
+            "index_code": ["000300.SH"],
+            "con_code": ["000001.SZ"],
+            "trade_date": ["20260320"],
+        }
+    ).to_parquet(tushare_root / "index_weight.parquet", index=False)
+    pd.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "name": ["ST平安"],
+            "start_date": ["20180101"],
+            "end_date": ["20190101"],
+        }
+    ).to_parquet(tushare_root / "namechange.parquet", index=False)
+
+    raw_dir = tmp_path / "raw_data"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2026-03-18"), pd.Timestamp("2026-03-20")],
+            "open": [9.8, 10.8],
+            "high": [10.2, 11.2],
+            "low": [9.7, 10.7],
+            "close": [10.0, 11.0],
+            "volume": [1000.0, 1200.0],
+            "amount": [10000.0, 12000.0],
+        }
+    ).to_parquet(raw_dir / "sz000001.parquet", index=False)
+
+    inst_dir = qlib_root / "features" / "sz000001"
+    inst_dir.mkdir(parents=True, exist_ok=True)
+    np.array([1.0, 10.0, 11.0], dtype="<f4").tofile(inst_dir / "close.day.bin")
+    np.array([1.0, 9.8, 10.8], dtype="<f4").tofile(inst_dir / "open.day.bin")
+    np.array([1.0, 10.2, 11.2], dtype="<f4").tofile(inst_dir / "high.day.bin")
+    np.array([1.0, 9.7, 10.7], dtype="<f4").tofile(inst_dir / "low.day.bin")
+    np.array([1.0, 1000.0, 1200.0], dtype="<f4").tofile(inst_dir / "volume.day.bin")
+    np.array([1.0, 10000.0, 12000.0], dtype="<f4").tofile(inst_dir / "amount.day.bin")
 
     monkeypatch.setattr(precheck, "_qlib_root", lambda: qlib_root)
     monkeypatch.setattr(precheck, "_tushare_root", lambda: tushare_root)

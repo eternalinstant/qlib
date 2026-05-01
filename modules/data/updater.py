@@ -13,6 +13,7 @@ from typing import Optional, List
 import numpy as np
 import pandas as pd
 
+from config.config import CONFIG
 from modules.data.precheck import run_data_precheck
 from modules.data.tushare_to_qlib import TushareToQlibConverter
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 PROVIDER_PRECHECK_KEYWORD = "Qlib provider 字段不一致"
+BOOTSTRAP_MARKET_START = "20160101"
 
 
 def get_tushare_pro():
@@ -50,9 +52,17 @@ def get_tushare_pro():
 class DataUpdater:
     """数据更新器"""
 
+    API_RETRY_COUNT = 3
+    API_RETRY_BASE_SLEEP = 0.8
+
     def __init__(self, qlib_data_path: str = None):
-        self.qlib_data_path = qlib_data_path or "~/code/qlib/data/qlib_data/cn_data"
+        configured_qlib_path = CONFIG.get(
+            "paths.data.qlib_data",
+            CONFIG.get("qlib_data_path", "~/code/qlib/data/qlib_data/cn_data"),
+        )
+        self.qlib_data_path = qlib_data_path or configured_qlib_path or "~/code/qlib/data/qlib_data/cn_data"
         self.qlib_data_path = Path(self.qlib_data_path).expanduser()
+        self.qlib_data_path.mkdir(parents=True, exist_ok=True)
 
         # Tushare 数据目录 (与 qlib_data 同级)
         # qlib_data_path = .../data/qlib_data/cn_data → parent.parent = .../data
@@ -109,6 +119,101 @@ class DataUpdater:
 
         return (datetime.strptime(date_str, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
 
+    @staticmethod
+    def _rewind_calendar_date_str(date_value, days: int) -> str:
+        """将 YYYYMMDD 回退指定自然日，用于增量回补窗口。"""
+        if pd.isna(date_value):
+            raise ValueError("date_value 不能为空")
+        if days < 0:
+            raise ValueError("days 不能为负数")
+
+        date_str = str(date_value)
+        if date_str.isdigit():
+            date_str = f"{int(date_str):08d}"
+        else:
+            date_str = pd.Timestamp(date_value).strftime("%Y%m%d")
+
+        return (datetime.strptime(date_str, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
+
+    def _call_tushare_api(
+        self,
+        api_callable,
+        call_name: str,
+        retry_count: int = None,
+        base_sleep: float = None,
+        **kwargs,
+    ):
+        """统一的 Tushare API 调用包装：网络/频控异常时等待重试。"""
+        retry_count = retry_count or self.API_RETRY_COUNT
+        base_sleep = base_sleep or self.API_RETRY_BASE_SLEEP
+        last_exc = None
+
+        for attempt in range(1, retry_count + 1):
+            try:
+                return api_callable(**kwargs)
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= retry_count:
+                    break
+                wait_seconds = base_sleep * attempt
+                logger.warning(
+                    "%s 失败，第 %s/%s 次重试前等待 %.1fs: %s",
+                    call_name,
+                    attempt,
+                    retry_count,
+                    wait_seconds,
+                    exc,
+                )
+                time.sleep(wait_seconds)
+
+        raise last_exc
+
+    def _needs_bootstrap(self) -> bool:
+        """判断当前环境是否缺少首次构建所需的核心文件。"""
+        required_paths = [
+            self.qlib_data_path / "calendars" / "day.txt",
+            self.qlib_data_path / "instruments" / "all.txt",
+            self.qlib_data_path / "factor_data.parquet",
+            self.tushare_dir / "daily_basic.parquet",
+            self.tushare_dir / "adj_factor.parquet",
+        ]
+        if any(not path.exists() for path in required_paths):
+            return True
+        return not any(self.raw_data_dir.glob("*.parquet"))
+
+    def _ensure_provider_structure(self) -> int:
+        """根据 raw_data 和日历补齐 Qlib provider 目录结构。"""
+        cal_file = self.qlib_data_path / "calendars" / "day.txt"
+        if not cal_file.exists():
+            return 0
+
+        features_dir = self.qlib_data_path / "features"
+        instruments_dir = self.qlib_data_path / "instruments"
+        features_dir.mkdir(parents=True, exist_ok=True)
+        instruments_dir.mkdir(parents=True, exist_ok=True)
+
+        raw_files = sorted(self.raw_data_dir.glob("*.parquet"))
+        if not raw_files:
+            return 0
+
+        cal_lines = [line.strip() for line in cal_file.read_text().splitlines() if line.strip()]
+        if not cal_lines:
+            return 0
+        cal_start = cal_lines[0]
+        cal_end = cal_lines[-1]
+
+        instruments = []
+        for raw_path in raw_files:
+            inst = raw_path.stem
+            (features_dir / inst).mkdir(exist_ok=True)
+            instruments.append(inst)
+
+        with open(instruments_dir / "all.txt", "w") as fp:
+            for inst in sorted(instruments):
+                fp.write(f"{inst}\t{cal_start}\t{cal_end}\n")
+
+        return len(instruments)
+
     def get_last_trading_date(self) -> datetime:
         """获取本地最新交易日"""
         cal_file = self.qlib_data_path / "calendars" / "day.txt"
@@ -141,7 +246,9 @@ class DataUpdater:
             end_date = datetime.now().strftime("%Y%m%d")
             start_date = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d")
 
-            df = pro.trade_cal(
+            df = self._call_tushare_api(
+                pro.trade_cal,
+                "trade_cal",
                 start_date=start_date,
                 end_date=end_date,
                 is_open="1",  # 只要开市日
@@ -168,7 +275,7 @@ class DataUpdater:
 
         return remote_date.date() > local_date.date()
 
-    def download_daily_basic(self) -> bool:
+    def download_daily_basic(self, start_date: str = None) -> bool:
         """
         下载每日基础数据（增量）
 
@@ -189,10 +296,14 @@ class DataUpdater:
                 max_date = existing["trade_date"].max()
                 start_date = self._next_calendar_date_str(max_date)
             else:
-                start_date = "20200101"
+                start_date = start_date or BOOTSTRAP_MARKET_START
 
             # 下载新数据
-            df = pro.daily_basic(start_date=start_date)
+            df = self._call_tushare_api(
+                pro.daily_basic,
+                f"daily_basic start={start_date}",
+                start_date=start_date,
+            )
 
             if df is not None and len(df) > 0:
                 if output_path.exists():
@@ -235,7 +346,12 @@ class DataUpdater:
 
         # 获取股票列表
         try:
-            stock_df = pro.stock_basic(list_status="L", fields="ts_code")
+            stock_df = self._call_tushare_api(
+                pro.stock_basic,
+                "stock_basic:list_status=L",
+                list_status="L",
+                fields="ts_code",
+            )
             ts_codes = stock_df["ts_code"].tolist()
         except Exception as e:
             logger.error(f"获取股票列表失败: {e}")
@@ -270,7 +386,12 @@ class DataUpdater:
                 batch = ts_codes[i : i + batch_size]
                 try:
                     api_func = getattr(pro, api_name)
-                    df = api_func(ts_code=",".join(batch), start_date=start_date)
+                    df = self._call_tushare_api(
+                        api_func,
+                        f"{api_name} batch={i // batch_size + 1}",
+                        ts_code=",".join(batch),
+                        start_date=start_date,
+                    )
                     if df is not None and len(df) > 0:
                         all_data.append(df)
                 except Exception as e:
@@ -302,14 +423,19 @@ class DataUpdater:
             return False
 
         try:
-            df = pro.stock_basic(exchange="", list_status="L", fields="ts_code,name,industry")
+            df = self._call_tushare_api(
+                pro.stock_basic,
+                "stock_basic:industry",
+                exchange="",
+                list_status="L",
+                fields="ts_code,name,industry",
+            )
             output_path = self.tushare_dir / "stock_basic.csv"
             df.to_csv(output_path, index=False)
 
             # 同时保存行业数据
             industry_path = self.tushare_dir / "stock_industry.csv"
-            if not industry_path.exists():
-                df[["ts_code", "industry"]].to_csv(industry_path, index=False)
+            df[["ts_code", "industry"]].to_csv(industry_path, index=False)
 
             return True
 
@@ -337,7 +463,9 @@ class DataUpdater:
             end_date = datetime.now().strftime("%Y%m%d")
             all_data = []
             for index_code in indices:
-                df = pro.index_daily(
+                df = self._call_tushare_api(
+                    pro.index_daily,
+                    f"index_daily {index_code}",
                     ts_code=index_code,
                     start_date=start_date,
                     end_date=end_date,
@@ -380,24 +508,19 @@ class DataUpdater:
             all_data = []
             for index_code in indices:
                 for win_start, win_end in self._date_windows(start_date, end_date, step_days=366):
-                    last_exc = None
-                    for _ in range(3):
-                        try:
-                            df = pro.index_weight(
-                                index_code=index_code,
-                                start_date=win_start,
-                                end_date=win_end,
-                            )
-                            if df is not None and len(df) > 0:
-                                all_data.append(df)
-                            last_exc = None
-                            break
-                        except Exception as exc:
-                            last_exc = exc
-                            time.sleep(0.5)
-                    if last_exc is not None:
+                    try:
+                        df = self._call_tushare_api(
+                            pro.index_weight,
+                            f"index_weight {index_code} {win_start}-{win_end}",
+                            index_code=index_code,
+                            start_date=win_start,
+                            end_date=win_end,
+                        )
+                        if df is not None and len(df) > 0:
+                            all_data.append(df)
+                    except Exception as exc:
                         logger.warning(
-                            f"index_weight {index_code} {win_start}-{win_end} 失败: {last_exc}"
+                            f"index_weight {index_code} {win_start}-{win_end} 失败: {exc}"
                         )
                     time.sleep(0.05)
 
@@ -437,19 +560,17 @@ class DataUpdater:
 
             all_data = []
             for win_start, win_end in self._date_windows(start_date, end_date, step_days=365):
-                last_exc = None
-                for _ in range(3):
-                    try:
-                        df = pro.namechange(start_date=win_start, end_date=win_end)
-                        if df is not None and len(df) > 0:
-                            all_data.append(df)
-                        last_exc = None
-                        break
-                    except Exception as exc:
-                        last_exc = exc
-                        time.sleep(0.5)
-                if last_exc is not None:
-                    logger.warning(f"namechange {win_start}-{win_end} 失败: {last_exc}")
+                try:
+                    df = self._call_tushare_api(
+                        pro.namechange,
+                        f"namechange {win_start}-{win_end}",
+                        start_date=win_start,
+                        end_date=win_end,
+                    )
+                    if df is not None and len(df) > 0:
+                        all_data.append(df)
+                except Exception as exc:
+                    logger.warning(f"namechange {win_start}-{win_end} 失败: {exc}")
                 time.sleep(0.08)
 
             if not all_data:
@@ -478,11 +599,11 @@ class DataUpdater:
         output_path = self.tushare_dir / "adj_factor.parquet"
 
         try:
-            # 确定起始日期：从现有文件最大日期的下一天开始
+            # 确定起始日期：回补最近一个窗口，避免尾部缺口永久保留
             if output_path.exists():
                 existing = pd.read_parquet(output_path, columns=["trade_date"])
                 max_date = str(existing["trade_date"].max())
-                start_date = self._next_calendar_date_str(max_date)
+                start_date = max("20160101", self._rewind_calendar_date_str(max_date, days=31))
             else:
                 start_date = "20160101"
 
@@ -493,22 +614,17 @@ class DataUpdater:
 
             all_data = []
             for win_start, win_end in self._date_windows(start_date, end_date, step_days=90):
-                last_exc = None
-                for _ in range(3):
-                    try:
-                        df = pro.adj_factor(
-                            start_date=win_start,
-                            end_date=win_end,
-                        )
-                        if df is not None and len(df) > 0:
-                            all_data.append(df)
-                        last_exc = None
-                        break
-                    except Exception as exc:
-                        last_exc = exc
-                        time.sleep(0.5)
-                if last_exc is not None:
-                    logger.warning(f"adj_factor {win_start}-{win_end} 失败: {last_exc}")
+                try:
+                    df = self._call_tushare_api(
+                        pro.adj_factor,
+                        f"adj_factor {win_start}-{win_end}",
+                        start_date=win_start,
+                        end_date=win_end,
+                    )
+                    if df is not None and len(df) > 0:
+                        all_data.append(df)
+                except Exception as exc:
+                    logger.warning(f"adj_factor {win_start}-{win_end} 失败: {exc}")
                 time.sleep(0.12)
 
             if not all_data:
@@ -616,7 +732,11 @@ class DataUpdater:
         for i, (cal_idx, date) in enumerate(zip(missing_idxs, missing_dates)):
             date_str = date.strftime("%Y%m%d")
             try:
-                df = pro.daily(trade_date=date_str)
+                df = self._call_tushare_api(
+                    pro.daily,
+                    f"daily trade_date={date_str}",
+                    trade_date=date_str,
+                )
             except Exception as e:
                 logger.warning(f"daily {date_str} 失败: {e}")
                 time.sleep(1)
@@ -756,9 +876,13 @@ class DataUpdater:
 
         end_ts = pd.Timestamp(end_date) if end_date else trade_dates.max()
         if start_date is None:
+            has_existing_raw = any(self.raw_data_dir.glob("*.parquet"))
             # 不用“全局最新文件日期”推断增量起点；少量新文件会掩盖大批陈旧文件。
             # 每次固定回补最近一段交易日，既能修复漏更，也能控制 API 开销。
-            start_ts = max(trade_dates.min(), end_ts - timedelta(days=45))
+            if has_existing_raw:
+                start_ts = max(trade_dates.min(), end_ts - timedelta(days=45))
+            else:
+                start_ts = trade_dates.min()
         else:
             start_ts = pd.Timestamp(start_date)
 
@@ -771,7 +895,9 @@ class DataUpdater:
         for i, trade_date in enumerate(target_dates, 1):
             date_str = trade_date.strftime("%Y%m%d")
             try:
-                df = pro.daily(
+                df = self._call_tushare_api(
+                    pro.daily,
+                    f"raw_data daily {date_str}",
                     trade_date=date_str,
                     fields="ts_code,trade_date,open,high,low,close,vol,amount",
                 )
@@ -838,7 +964,9 @@ class DataUpdater:
 
             ts_code = f"{instrument[2:]}.{instrument[:2].upper()}"
             try:
-                df = pro.daily(
+                df = self._call_tushare_api(
+                    pro.daily,
+                    f"bootstrap raw_data {instrument}",
                     ts_code=ts_code,
                     start_date=start_date,
                     end_date=end_date,
@@ -888,17 +1016,45 @@ class DataUpdater:
 
             # 2. 先更新日历，再修复 / 追加价格字段，避免漏掉最新交易日
             self._update_calendar()
+            provider_count = self._ensure_provider_structure()
+            if provider_count > 0:
+                logger.info(f"Provider 目录已同步: {provider_count} 只股票")
+
+            # 3. 首次 bootstrap 或缺失 bin 时，先整批写入前复权 OHLCVA
+            features_dir = self.qlib_data_path / "features"
+            missing_close_bins = []
+            if features_dir.exists():
+                for raw_path in sorted(self.raw_data_dir.glob("*.parquet")):
+                    close_bin = features_dir / raw_path.stem / "close.day.bin"
+                    if not close_bin.exists():
+                        missing_close_bins.append(raw_path.stem)
+            if missing_close_bins:
+                adjusted = converter.compute_forward_adjusted_prices()
+                bootstrapped = converter.write_adjusted_bins(
+                    {inst: adjusted[inst] for inst in missing_close_bins if inst in adjusted}
+                )
+                if bootstrapped != len(missing_close_bins):
+                    preview = ", ".join(sorted(set(missing_close_bins) - set(adjusted))[:10])
+                    suffix = " ..." if len(missing_close_bins) - len(adjusted) > 10 else ""
+                    logger.error(
+                        "前复权 bin 初始化不完整，缺少 adj_factor 的股票数=%s: %s%s",
+                        len(missing_close_bins) - bootstrapped,
+                        preview,
+                        suffix,
+                    )
+                    return False
+                logger.info(f"前复权 bin 初始化完成: {bootstrapped} 只股票")
 
             repair_stats = converter.repair_price_provider()
             if any(v > 0 for v in repair_stats.values()):
                 logger.info(f"Provider 修复完成: {repair_stats}")
 
-            # 3. 更新 close.day.bin
+            # 4. 更新 close.day.bin
             n = converter.update_close_bins()
             if n > 0:
                 logger.info(f"价格 bin 已更新 {n} 只股票")
 
-            # 4. 更新 open/high/low/volume/amount 的 bin 文件
+            # 5. 更新 open/high/low/volume/amount 的 bin 文件
             ohlcv_counts = converter.update_ohlcv_bins()
             if any(v > 0 for v in ohlcv_counts.values()):
                 logger.info(f"OHLCV bin 已更新: {ohlcv_counts}")
@@ -1016,15 +1172,16 @@ class DataUpdater:
         }
 
         # 1. 检查是否需要更新
+        bootstrap_needed = self._needs_bootstrap()
         local_date = self.get_last_trading_date()
         remote_date = self.get_remote_latest_date()
         precheck_before = run_data_precheck(universe="csi300", require_st_history=True)
-        need_market_update = self.check_update_needed()
-        need_reference_update = not precheck_before.ok
-        need_provider_repair = any(
+        need_market_update = bootstrap_needed or self.check_update_needed()
+        need_reference_update = bootstrap_needed or not precheck_before.ok
+        need_provider_repair = bootstrap_needed or any(
             PROVIDER_PRECHECK_KEYWORD in msg for msg in precheck_before.errors
         )
-        need_index_daily_refresh = need_market_update or any(
+        need_index_daily_refresh = bootstrap_needed or need_market_update or any(
             "index_daily" in msg for msg in precheck_before.errors
         )
 
@@ -1032,6 +1189,8 @@ class DataUpdater:
         print(f"      本地最新: {local_date.strftime('%Y-%m-%d')}")
         if remote_date:
             print(f"      远程最新: {remote_date.strftime('%Y-%m-%d')}")
+        if bootstrap_needed:
+            print("      检测到首次 bootstrap，缺少核心数据文件，将执行全量历史初始化")
         if precheck_before.errors:
             print("      预检缺口:")
             for msg in precheck_before.errors:
@@ -1041,13 +1200,19 @@ class DataUpdater:
             print("      数据已是最新，无需更新")
             return {"success": True, "message": "数据已是最新"}
 
+        if get_tushare_pro() is None:
+            message = "Tushare API 不可用，请先安装 `pip install -e .[full]` 并设置 `TUSHARE_TOKEN`。"
+            print(f"      {message}")
+            return {"success": False, "message": message}
+
         # 2. 下载 Tushare 数据
         print(f"\n[2/5] 下载 Tushare 数据...")
         if self.download_stock_basic():
             print("      股票基本信息 ✓")
 
         if need_market_update:
-            if self.download_daily_basic():
+            market_start = BOOTSTRAP_MARKET_START if bootstrap_needed else None
+            if self.download_daily_basic(start_date=market_start):
                 print("      每日基础数据 ✓")
                 results["data_updated"] = True
             else:
@@ -1063,7 +1228,7 @@ class DataUpdater:
             else:
                 print("      财务数据 (跳过)")
 
-            if self.update_raw_data_quotes():
+            if self.update_raw_data_quotes(start_date=market_start):
                 print("      raw_data 原始行情 ✓")
                 results["raw_data_updated"] = True
             else:

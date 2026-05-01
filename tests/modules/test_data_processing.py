@@ -33,6 +33,44 @@ class TestTushareToQlibConverter:
         assert str(converter.tushare_dir) == "/custom/tushare"
         assert str(converter.qlib_dir) == "/custom/qlib"
 
+    def test_write_adjusted_bins_preserves_calendar_gaps(self, tmp_path):
+        """前复权 bin 写入必须按交易日历补 NaN，不能压缩停牌日。"""
+        from modules.data.tushare_to_qlib import TushareToQlibConverter
+
+        qlib_dir = tmp_path / "cn_data"
+        features_dir = qlib_dir / "features" / "sz000001"
+        features_dir.mkdir(parents=True)
+        cal_dir = qlib_dir / "calendars"
+        cal_dir.mkdir(parents=True)
+        (cal_dir / "day.txt").write_text("2026-01-02\n2026-01-05\n2026-01-06\n")
+
+        converter = TushareToQlibConverter(tushare_dir=str(tmp_path), qlib_dir=str(qlib_dir))
+        adjusted = {
+            "sz000001": pd.DataFrame(
+                {
+                    "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-06")],
+                    "close": [10.0, 12.0],
+                    "open": [9.0, 11.0],
+                    "high": [10.2, 12.2],
+                    "low": [8.8, 10.8],
+                    "volume": [1000.0, 1200.0],
+                    "amount": [10000.0, 13000.0],
+                }
+            )
+        }
+
+        written = converter.write_adjusted_bins(adjusted)
+
+        assert written == 1
+        close_bin = np.fromfile(features_dir / "close.day.bin", dtype="<f4")
+        volume_bin = np.fromfile(features_dir / "volume.day.bin", dtype="<f4")
+        assert int(close_bin[0]) == 0
+        assert close_bin[1] == pytest.approx(10.0)
+        assert np.isnan(close_bin[2])
+        assert close_bin[3] == pytest.approx(12.0)
+        assert np.isnan(volume_bin[2])
+        assert volume_bin[3] == pytest.approx(1200.0)
+
 
 class TestTushareDownloader:
     """TushareDownloader 测试"""

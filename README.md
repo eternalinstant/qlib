@@ -92,6 +92,18 @@ qlib/
 export TUSHARE_TOKEN=your_token_here
 ```
 
+新机器首次启动，先执行：
+
+```bash
+pip install -e .[full]
+python main.py update
+```
+
+这条命令现在同时承担两件事：
+
+- 首次 bootstrap：从 `2016-01-01` 拉历史 Tushare 数据，生成 Qlib provider，并重算选股
+- 后续更新：只做增量更新和必要修复
+
 ### 1. 列出策略
 
 ```bash
@@ -124,7 +136,7 @@ python main.py compare -s top15_core_trend,top15_core_day,top15_amp_day --no-ben
 python main.py update
 ```
 
-正式 `select / backtest / compare` 前会自动执行数据预检；如果缺少历史沪深300成分或历史 ST 数据，会直接失败，不会再静默降级。
+正式 `select / backtest / compare` 前会自动执行数据预检；如果缺少历史沪深300成分或历史 ST 数据，会直接失败，不会再静默降级。新环境首次执行 `python main.py update` 就会自动补这批历史数据。
 
 ## 策略配置
 
@@ -349,6 +361,12 @@ position:
 如果缺少这两份历史数据，策略在生成选股和回测前会直接报错，不会偷偷回退到全市场，也不会把 ST 过滤降级成 no-op。
 
 ### 下载历史指数成分和名称变更
+
+```bash
+python main.py update
+```
+
+如果只是单独排查下载问题，才需要手工调用下载器：
 
 ```bash
 python modules/data/tushare_downloader.py --type index_weight --start 20160101

@@ -7,12 +7,17 @@ volume/amount 保持原始值，不做复权缩放。
 import logging
 import numpy as np
 import pandas as pd
+import sys
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from modules.data.tushare_to_qlib import write_dense_bin_file
+
 QLIB_DIR = PROJECT_ROOT / "data" / "qlib_data" / "cn_data"
 RAW_DIR = PROJECT_ROOT / "data" / "qlib_data" / "raw_data"
 TUSHARE_DIR = PROJECT_ROOT / "data" / "tushare"
@@ -110,30 +115,35 @@ def rebuild_all():
         for fld in PRICE_FIELDS:
             if fld not in df.columns:
                 continue
-            fld_data = df[["cal_idx", fld, "adj_ratio"]].dropna(subset=[fld]).sort_values("cal_idx")
+            fld_data = (
+                df[["cal_idx", fld, "adj_ratio"]]
+                .dropna(subset=[fld])
+                .drop_duplicates(subset=["cal_idx"], keep="last")
+                .sort_values("cal_idx")
+            )
             if fld_data.empty:
                 continue
-            start_idx = int(fld_data["cal_idx"].min())
             valid_ratio = fld_data["adj_ratio"].notna() & np.isfinite(fld_data["adj_ratio"])
             valid_price = np.isfinite(fld_data[fld])
             vals = np.where(
                 valid_ratio & valid_price,
                 fld_data[fld] * fld_data["adj_ratio"],
-                fld_data[fld],
+                np.nan,
             ).astype(np.float32)
-            out = np.concatenate([[np.float32(start_idx)], vals])
-            out.tofile(inst_dir / f"{fld}.day.bin")
+            write_dense_bin_file(inst_dir / f"{fld}.day.bin", fld_data["cal_idx"], vals)
 
         for fld in VOLUME_FIELDS:
             if fld not in df.columns:
                 continue
-            fld_data = df[["cal_idx", fld]].dropna(subset=[fld]).sort_values("cal_idx")
+            fld_data = (
+                df[["cal_idx", fld]]
+                .dropna(subset=[fld])
+                .drop_duplicates(subset=["cal_idx"], keep="last")
+                .sort_values("cal_idx")
+            )
             if fld_data.empty:
                 continue
-            start_idx = int(fld_data["cal_idx"].min())
-            vals = fld_data[fld].values.astype(np.float32)
-            out = np.concatenate([[np.float32(start_idx)], vals])
-            out.tofile(inst_dir / f"{fld}.day.bin")
+            write_dense_bin_file(inst_dir / f"{fld}.day.bin", fld_data["cal_idx"], fld_data[fld])
 
         rebuilt += 1
         if rebuilt % 500 == 0:

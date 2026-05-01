@@ -20,6 +20,50 @@ def _ts_code_to_instrument(ts_code_series: pd.Series) -> pd.Series:
     )
 
 
+def build_dense_bin_payload(cal_idx, values):
+    """按交易日索引构建连续 bin payload，缺口补 NaN。"""
+    if cal_idx is None or values is None:
+        return None
+
+    idx_series = pd.Series(cal_idx).dropna()
+    value_series = pd.Series(values)
+    if idx_series.empty:
+        return None
+    if len(idx_series) != len(value_series):
+        raise ValueError("cal_idx 与 values 长度不一致")
+
+    dense_series = pd.Series(
+        value_series.to_numpy(dtype=np.float32, copy=False),
+        index=idx_series.astype(int).to_numpy(),
+        dtype=np.float32,
+    )
+    dense_series = dense_series[~dense_series.index.duplicated(keep="last")].sort_index()
+    if dense_series.empty:
+        return None
+
+    start_idx = int(dense_series.index.min())
+    end_idx = int(dense_series.index.max())
+    dense_vals = np.full(end_idx - start_idx + 1, np.nan, dtype=np.float32)
+    dense_vals[dense_series.index.to_numpy(dtype=int) - start_idx] = dense_series.to_numpy(
+        dtype=np.float32,
+        copy=False,
+    )
+
+    payload = np.empty(dense_vals.size + 1, dtype="<f4")
+    payload[0] = np.float32(start_idx)
+    payload[1:] = dense_vals
+    return payload
+
+
+def write_dense_bin_file(bin_file: Path, cal_idx, values) -> bool:
+    """将带交易日索引的序列写成连续 bin，缺口补 NaN。"""
+    payload = build_dense_bin_payload(cal_idx, values)
+    if payload is None:
+        return False
+    payload.tofile(bin_file)
+    return True
+
+
 class TushareToQlibConverter:
     """Tushare 数据转 Qlib 格式转换器"""
 
@@ -156,15 +200,19 @@ class TushareToQlibConverter:
             for fld in fields:
                 if fld not in df.columns:
                     continue
-                fld_data = df[["cal_idx", fld]].dropna(subset=[fld]).sort_values("cal_idx")
+                fld_data = (
+                    df[["cal_idx", fld]]
+                    .dropna(subset=[fld])
+                    .drop_duplicates(subset=["cal_idx"], keep="last")
+                    .sort_values("cal_idx")
+                )
                 if fld_data.empty:
                     continue
-                start_idx = int(fld_data["cal_idx"].min())
-                vals = fld_data[fld].values.astype(np.float32)
-                payload = np.empty(vals.size + 1, dtype="<f4")
-                payload[0] = np.float32(start_idx)
-                payload[1:] = vals
-                payload.tofile(inst_dir / f"{fld}.day.bin")
+                write_dense_bin_file(
+                    inst_dir / f"{fld}.day.bin",
+                    fld_data["cal_idx"],
+                    fld_data[fld],
+                )
 
             written += 1
 
@@ -488,6 +536,7 @@ class TushareToQlibConverter:
 
         stats = {
             "truncated_files": 0,
+            "close_rebuilt_files": 0,
             "repaired_instruments": 0,
             "unresolved_instruments": 0,
         }
@@ -521,9 +570,6 @@ class TushareToQlibConverter:
                 if field_end > cal_last_idx or field_end != close_end:
                     inconsistent = True
 
-            if not inconsistent:
-                continue
-
             raw_path = raw_dir / f"{inst}.parquet"
             raw_df = None
             raw_last_idx = None
@@ -547,40 +593,68 @@ class TushareToQlibConverter:
                     raw_last_idx = None
 
             raw_close_map = raw_maps.get("close", {})
-            target_close_end = min(close_end, cal_last_idx)
-            if raw_last_idx is not None:
-                target_close_end = min(target_close_end, raw_last_idx)
-
             inst_adj = adj_map.get(inst, {})
+            expected_close_start = min(raw_close_map) if raw_close_map else close_start
+            expected_close_end = min(cal_last_idx, raw_last_idx) if raw_last_idx is not None else close_end
+            close_rebuild_required = bool(raw_close_map) and (
+                close_start != expected_close_start or close_end != expected_close_end
+            )
 
-            if target_close_end < close_start:
-                if not raw_close_map:
-                    stats["unresolved_instruments"] += 1
-                    continue
+            inconsistent = inconsistent or close_rebuild_required
+            if not inconsistent:
+                continue
 
-                close_start = min(raw_close_map)
-                close_end = min(cal_last_idx, raw_last_idx)
+            if close_rebuild_required:
+                close_start = expected_close_start
+                close_end = expected_close_end
                 close_values_list = []
                 for idx in range(close_start, close_end + 1):
                     raw_c = raw_close_map.get(idx, np.nan)
                     if inst_adj:
                         d = idx_to_date.get(idx)
                         ratio = inst_adj.get(d) if d else None
-                        if not np.isnan(raw_c) and ratio is not None:
+                        if np.isfinite(raw_c) and ratio is not None:
                             close_values_list.append(float(raw_c) * float(ratio))
                         else:
                             close_values_list.append(np.nan)
                     else:
-                        close_values_list.append(float(raw_c) if not np.isnan(raw_c) else np.nan)
+                        close_values_list.append(float(raw_c) if np.isfinite(raw_c) else np.nan)
                 close_values = np.asarray(close_values_list, dtype="<f4")
                 if self._write_bin_file(close_path, close_start, close_values):
-                    stats["truncated_files"] += 1
-            elif target_close_end < original_close_end:
-                keep = target_close_end - close_start + 1
-                close_values = close_values[:keep]
-                if self._write_bin_file(close_path, close_start, close_values):
-                    stats["truncated_files"] += 1
-                close_end = target_close_end
+                    stats["close_rebuilt_files"] += 1
+            else:
+                target_close_end = min(close_end, cal_last_idx)
+                if raw_last_idx is not None:
+                    target_close_end = min(target_close_end, raw_last_idx)
+
+                if target_close_end < close_start:
+                    if not raw_close_map:
+                        stats["unresolved_instruments"] += 1
+                        continue
+
+                    close_start = min(raw_close_map)
+                    close_end = min(cal_last_idx, raw_last_idx)
+                    close_values_list = []
+                    for idx in range(close_start, close_end + 1):
+                        raw_c = raw_close_map.get(idx, np.nan)
+                        if inst_adj:
+                            d = idx_to_date.get(idx)
+                            ratio = inst_adj.get(d) if d else None
+                            if not np.isnan(raw_c) and ratio is not None:
+                                close_values_list.append(float(raw_c) * float(ratio))
+                            else:
+                                close_values_list.append(np.nan)
+                        else:
+                            close_values_list.append(float(raw_c) if not np.isnan(raw_c) else np.nan)
+                    close_values = np.asarray(close_values_list, dtype="<f4")
+                    if self._write_bin_file(close_path, close_start, close_values):
+                        stats["close_rebuilt_files"] += 1
+                elif target_close_end < original_close_end:
+                    keep = target_close_end - close_start + 1
+                    close_values = close_values[:keep]
+                    if self._write_bin_file(close_path, close_start, close_values):
+                        stats["truncated_files"] += 1
+                    close_end = target_close_end
 
             if close_start != original_close_start or close_end != original_close_end:
                 existing_meta["close"] = (close_start, close_end, close_values)
@@ -624,6 +698,7 @@ class TushareToQlibConverter:
                     continue
 
                 target_start = min(start_candidates)
+                raw_backed_rebuild = bool(raw_field_map) or (field in price_fields and bool(raw_close_map))
                 rebuilt_values = []
                 for idx in range(target_start, close_end + 1):
                     derived = None
@@ -652,20 +727,21 @@ class TushareToQlibConverter:
                         derived = float(raw_val)
 
                     if derived is None:
-                        derived = existing_map.get(idx, np.nan)
+                        derived = np.nan if raw_backed_rebuild else existing_map.get(idx, np.nan)
                     rebuilt_values.append(derived)
 
                 if self._write_bin_file(bin_path, target_start, rebuilt_values):
                     repaired = True
 
-            if repaired or target_close_end < original_close_end:
+            if repaired or close_rebuild_required or close_end < original_close_end:
                 stats["repaired_instruments"] += 1
             elif raw_path.exists():
                 stats["unresolved_instruments"] += 1
 
         logger.info(
-            "Provider 修复完成: truncated_files=%s, repaired_instruments=%s, unresolved_instruments=%s",
+            "Provider 修复完成: truncated_files=%s, close_rebuilt_files=%s, repaired_instruments=%s, unresolved_instruments=%s",
             stats["truncated_files"],
+            stats["close_rebuilt_files"],
             stats["repaired_instruments"],
             stats["unresolved_instruments"],
         )

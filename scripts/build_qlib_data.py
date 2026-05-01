@@ -24,6 +24,8 @@ from datetime import datetime
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from modules.data.tushare_to_qlib import write_dense_bin_file
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -121,10 +123,6 @@ def step_download_raw_data(start_date: str, end_date: str, workers: int):
 
     logger.info(f"[2/4] Raw data: 已有 {len(existing)} 只, 缺失 {len(missing)} 只")
 
-    if not missing and existing:
-        logger.info("  raw_data 已完整，跳过下载")
-        return True
-
     import tushare as ts
     token = os.environ.get("TUSHARE_TOKEN")
     if not token:
@@ -209,13 +207,15 @@ def step_build_qlib_data(start_date: str, end_date: str, force: bool = False):
     # 3b. 合并基本面+财务数据
     factor_path = QLIB_DIR / "factor_data.parquet"
     if factor_path.exists() and not force:
-        logger.info(f"  3b. factor_data 已存在 ({factor_path.stat().st_size // 1024 // 1024}MB)，跳过")
+        logger.info(
+            f"  3b. factor_data 已存在 ({factor_path.stat().st_size // 1024 // 1024}MB)，执行增量合并..."
+        )
     else:
         logger.info("  3b. 合并基本面+财务数据...")
-        factor_df = converter.convert()
-        if factor_df is not None:
-            converter.save(factor_df)
-            del factor_df
+    factor_df = converter.convert()
+    if factor_df is not None:
+        converter.save(factor_df)
+        del factor_df
 
     # 3c. 为 raw_data 中的每只股票创建 features 目录 + instruments.txt
     logger.info("  3c. 创建 features 目录 + instruments.txt...")
@@ -252,8 +252,16 @@ def step_build_qlib_data(start_date: str, end_date: str, force: bool = False):
                if d.is_dir() and (d / "close.day.bin").exists()}
     no_bin = [f for f in raw_files if f.stem not in has_bin]
     if no_bin:
-        logger.info(f"  3e. 写入未复权 bin: {len(no_bin)} 只股票 (无 adj_factor)...")
-        _write_bins_for(no_bin)
+        preview = ", ".join(f.stem for f in no_bin[:10])
+        suffix = " ..." if len(no_bin) > 10 else ""
+        logger.error(
+            "  3e. 发现 %s 只股票缺少前复权 bin，拒绝回退到未复权数据: %s%s",
+            len(no_bin),
+            preview,
+            suffix,
+        )
+        logger.error("  请先补齐 adj_factor 后再重新构建。")
+        return False
 
     logger.info("  Qlib 数据构建完成")
     return True
@@ -305,15 +313,19 @@ def _write_bins_for(raw_files: list):
         for fld in FIELDS:
             if fld not in df.columns:
                 continue
-            fld_data = df[["cal_idx", fld]].dropna(subset=[fld]).sort_values("cal_idx")
+            fld_data = (
+                df[["cal_idx", fld]]
+                .dropna(subset=[fld])
+                .drop_duplicates(subset=["cal_idx"], keep="last")
+                .sort_values("cal_idx")
+            )
             if fld_data.empty:
                 continue
-            start_idx = int(fld_data["cal_idx"].min())
-            vals = fld_data[fld].values.astype(np.float32)
-            payload = np.empty(vals.size + 1, dtype="<f4")
-            payload[0] = np.float32(start_idx)
-            payload[1:] = vals
-            payload.tofile(inst_dir / f"{fld}.day.bin")
+            write_dense_bin_file(
+                inst_dir / f"{fld}.day.bin",
+                fld_data["cal_idx"],
+                fld_data[fld],
+            )
 
         written += 1
 

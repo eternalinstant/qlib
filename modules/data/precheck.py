@@ -217,6 +217,9 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
         import numpy as np
 
         _OHLCV_FIELDS = ["close", "open", "high", "low", "volume", "amount"]
+        raw_root = qlib_root.parent / "raw_data"
+        cal_date_set = set(cal_dates)
+        cal_idx_map = {d: i for i, d in enumerate(cal_dates)}
         tracked_instruments = set()
         instruments_path = qlib_root / "instruments" / "all.txt"
         if instruments_path.exists():
@@ -260,6 +263,25 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
                     mismatch_details.append(
                         f"{inst}: close end_idx={close_end} 超出 calendar end_idx={cal_last_idx}"
                     )
+
+            raw_path = raw_root / f"{inst}.parquet"
+            if raw_path.exists():
+                try:
+                    raw_df = pd.read_parquet(raw_path, columns=["date"])
+                    raw_dates = pd.to_datetime(raw_df["date"], errors="coerce").dropna().dt.normalize()
+                    raw_dates = raw_dates[raw_dates.isin(cal_date_set)]
+                    if not raw_dates.empty:
+                        raw_idx = raw_dates.map(cal_idx_map).dropna().astype(int)
+                        raw_start = int(raw_idx.min())
+                        raw_end = int(raw_idx.max())
+                        if close_start != raw_start or close_end != raw_end:
+                            mismatch_count += 1
+                            if len(mismatch_details) < 5:
+                                mismatch_details.append(
+                                    f"{inst}: close 覆盖 {close_start}-{close_end} ≠ raw_data 覆盖 {raw_start}-{raw_end}"
+                                )
+                except Exception as exc:
+                    warnings.append(f"{raw_path} 日期覆盖检查失败: {exc}")
 
             for fld in _OHLCV_FIELDS:
                 if fld == "close":
