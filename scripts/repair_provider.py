@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 QLIB_DIR = PROJECT_ROOT / "data" / "qlib_data" / "cn_data"
 RAW_DIR = PROJECT_ROOT / "data" / "qlib_data" / "raw_data"
+TUSHARE_DIR = PROJECT_ROOT / "data" / "tushare"
 FIELDS = ["open", "high", "low", "close", "volume", "amount"]
 
 
@@ -80,10 +81,40 @@ def _is_consistent(inst_dir: Path) -> bool:
     return len(ends) <= 1
 
 
+def _load_adj_ratio_map(date_to_idx) -> dict:
+    """加载 adj_factor 并返回 {instrument: {cal_idx: adj_ratio}}"""
+    adj_path = TUSHARE_DIR / "adj_factor.parquet"
+    if not adj_path.exists():
+        return {}
+
+    adj_df = pd.read_parquet(adj_path, columns=["ts_code", "trade_date", "adj_factor"])
+    adj_df["date"] = pd.to_datetime(adj_df["trade_date"], format="%Y%m%d").dt.normalize()
+    adj_df = adj_df[adj_df["date"].isin(date_to_idx)]
+    adj_df["instrument"] = adj_df["ts_code"].apply(
+        lambda x: x.split(".")[1].lower() + x.split(".")[0] if "." in x else x.lower()
+    )
+
+    result = {}
+    for inst, grp in adj_df.groupby("instrument"):
+        grp = grp.sort_values("date")
+        latest_adj = grp["adj_factor"].iloc[-1]
+        if latest_adj <= 0:
+            continue
+        ratios = grp["adj_factor"] / latest_adj
+        cal_idxs = grp["date"].map(date_to_idx)
+        result[inst] = dict(zip(cal_idxs, ratios))
+    return result
+
+
 def rebuild_from_raw_data():
-    """从 raw_data 全量重建 OHLCVA 字段不一致的股票"""
+    """从 raw_data 全量重建 OHLCVA 字段不一致的股票（前复权）"""
     date_to_idx, cal_last_idx = _load_calendar()
     features = QLIB_DIR / "features"
+
+    idx_to_date = {i: d for d, i in date_to_idx.items()}
+    adj_maps = _load_adj_ratio_map(date_to_idx)
+    PRICE_FIELDS = {"open", "high", "low", "close"}
+
     rebuilt = 0
 
     for inst_dir in features.iterdir():
@@ -98,7 +129,6 @@ def rebuild_from_raw_data():
         if _is_consistent(inst_dir):
             continue
 
-        # 不一致，从 raw_data 重建
         raw_file = RAW_DIR / f"{inst}.parquet"
         if not raw_file.exists():
             continue
@@ -119,18 +149,27 @@ def rebuild_from_raw_data():
         df = df.dropna(subset=["cal_idx"])
         df["cal_idx"] = df["cal_idx"].astype(int)
 
+        inst_adj = adj_maps.get(inst, {})
+
         for fld in FIELDS:
             fld_data = df[["cal_idx", fld]].dropna(subset=[fld]).sort_values("cal_idx")
             if fld_data.empty:
                 continue
             start_idx = int(fld_data["cal_idx"].min())
-            vals = fld_data[fld].values.astype(np.float32)
+
+            if fld in PRICE_FIELDS and inst_adj:
+                ratios = fld_data["cal_idx"].map(inst_adj)
+                valid = ratios.notna() & np.isfinite(ratios) & np.isfinite(fld_data[fld])
+                vals = np.where(valid, fld_data[fld] * ratios, fld_data[fld]).astype(np.float32)
+            else:
+                vals = fld_data[fld].values.astype(np.float32)
+
             out = np.concatenate([[np.float32(start_idx)], vals])
             out.tofile(inst_dir / f"{fld}.day.bin")
 
         rebuilt += 1
 
-    logger.info(f"从 raw_data 重建: {rebuilt} 只股票")
+    logger.info(f"从 raw_data 前复权重建: {rebuilt} 只股票")
     return rebuilt
 
 

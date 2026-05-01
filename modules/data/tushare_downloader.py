@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 class TushareDownloader:
     """Tushare Pro 数据下载器 (多线程版)"""
 
-    MAX_WORKERS = 8  # 并发线程数
+    MAX_WORKERS = 4  # 并发线程数
+    RETRY_COUNT = 3  # 单次请求重试次数
 
     def __init__(self, token: str = None, data_dir: str = None):
         self.token = token or os.environ.get("TUSHARE_TOKEN")
@@ -64,35 +65,42 @@ class TushareDownloader:
             if self._counter % 100 == 0:
                 logger.info(f"进度: {self._counter}/{self._total}")
 
-    def download_daily_basic(self, start_date: str = "20160101", end_date: str = None):
-        """下载每日基本面数据 (换手率、市值等)"""
-        end_date = end_date or datetime.now().strftime("%Y%m%d")
-        output_file = self.data_dir / "daily_basic.parquet"
+    def _download_stocks_batch(self, stocks, api_func, api_name, start_date, end_date):
+        """通用批量下载方法，带重试和限流
 
-        logger.info(f"下载每日基本面数据: {start_date} ~ {end_date}")
+        Parameters
+        ----------
+        stocks : list of str
+            股票代码列表
+        api_func : callable
+            接受 (stock, start_date, end_date) 返回 DataFrame 的函数
+        api_name : str
+            API 名称，用于日志
+        start_date, end_date : str
+            日期范围
 
-        stocks = self.get_all_stocks()
+        Returns
+        -------
+        tuple : (all_data: list[DataFrame], failed: list[str])
+        """
         self._counter = 0
         self._total = len(stocks)
         all_data = []
         failed = []
 
         def download_one(stock):
-            try:
-                df = self.pro.daily_basic(
-                    ts_code=stock,
-                    start_date=start_date,
-                    end_date=end_date,
-                    fields='ts_code,trade_date,close,turnover_rate,turnover_rate_f,'
-                           'volume_ratio,pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,'
-                           'total_mv,circ_mv,free_mv,total_share,float_share,free_share'
-                )
-                self._update_progress()
-                return df if df is not None and len(df) > 0 else None
-            except Exception as e:
-                with self._lock:
-                    failed.append(stock)
-                return None
+            for attempt in range(self.RETRY_COUNT):
+                try:
+                    df = api_func(stock, start_date, end_date)
+                    self._update_progress()
+                    return df if df is not None and len(df) > 0 else None
+                except Exception as e:
+                    if attempt < self.RETRY_COUNT - 1:
+                        time.sleep(0.5 * (attempt + 1))
+                    else:
+                        with self._lock:
+                            failed.append(stock)
+                        return None
 
         logger.info(f"使用 {self.MAX_WORKERS} 线程并发下载...")
 
@@ -102,6 +110,29 @@ class TushareDownloader:
                 result = future.result()
                 if result is not None:
                     all_data.append(result)
+
+        return all_data, failed
+
+    def download_daily_basic(self, start_date: str = "20160101", end_date: str = None):
+        """下载每日基本面数据 (换手率、市值等)"""
+        end_date = end_date or datetime.now().strftime("%Y%m%d")
+        output_file = self.data_dir / "daily_basic.parquet"
+
+        logger.info(f"下载每日基本面数据: {start_date} ~ {end_date}")
+
+        stocks = self.get_all_stocks()
+
+        def api_call(stock, sd, ed):
+            return self.pro.daily_basic(
+                ts_code=stock,
+                start_date=sd,
+                end_date=ed,
+                fields='ts_code,trade_date,close,turnover_rate,turnover_rate_f,'
+                       'volume_ratio,pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,'
+                       'total_mv,circ_mv,free_mv,total_share,float_share,free_share'
+            )
+
+        all_data, failed = self._download_stocks_batch(stocks, api_call, 'daily_basic', start_date, end_date)
 
         if all_data:
             result = pd.concat(all_data, ignore_index=True)
@@ -119,37 +150,24 @@ class TushareDownloader:
         logger.info(f"下载利润表数据: {start_date} ~ {end_date}")
 
         stocks = self.get_all_stocks()
-        self._counter = 0
-        self._total = len(stocks)
-        all_data = []
 
-        def download_one(stock):
-            try:
-                df = self.pro.income(
-                    ts_code=stock,
-                    start_date=start_date,
-                    end_date=end_date,
-                    fields='ts_code,ann_date,f_ann_date,end_date,report_type,'
-                           'total_revenue,revenue,n_income,n_income_attr_p,'
-                           'oper_cost,total_cogs,admin_exp,fin_exp,'
-                           'sell_exp,operate_profit,total_profit'
-                )
-                self._update_progress()
-                return df if df is not None and len(df) > 0 else None
-            except:
-                return None
+        def api_call(stock, sd, ed):
+            return self.pro.income(
+                ts_code=stock,
+                start_date=sd,
+                end_date=ed,
+                fields='ts_code,ann_date,f_ann_date,end_date,report_type,'
+                       'total_revenue,revenue,n_income,n_income_attr_p,'
+                       'oper_cost,total_cogs,admin_exp,fin_exp,'
+                       'sell_exp,operate_profit,total_profit'
+            )
 
-        with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
-            futures = {executor.submit(download_one, stock): stock for stock in stocks}
-            for future in as_completed(futures):
-                result = future.result()
-                if result is not None:
-                    all_data.append(result)
+        all_data, failed = self._download_stocks_batch(stocks, api_call, 'income', start_date, end_date)
 
         if all_data:
             result = pd.concat(all_data, ignore_index=True)
             result.to_parquet(output_file, index=False)
-            logger.info(f"利润表数据已保存: {output_file}, 共 {len(result)} 条")
+            logger.info(f"利润表数据已保存: {output_file}, 共 {len(result)} 条, 失败 {len(failed)} 只")
             return result
         return None
 
@@ -161,39 +179,26 @@ class TushareDownloader:
         logger.info(f"下载资产负债表数据: {start_date} ~ {end_date}")
 
         stocks = self.get_all_stocks()
-        self._counter = 0
-        self._total = len(stocks)
-        all_data = []
 
-        def download_one(stock):
-            try:
-                df = self.pro.balancesheet(
-                    ts_code=stock,
-                    start_date=start_date,
-                    end_date=end_date,
-                    fields='ts_code,ann_date,end_date,report_type,'
-                           'total_assets,total_liab,total_hldr_eqy_exc_min_int,'
-                           'total_hldr_eqy_inc_min_int,cap_rese,'
-                           'surplus_rese,undistr_porfit,money_cap,'
-                           'accounts_receiv,inventory,total_cur_assets,'
-                           'total_nca,total_cur_liab,total_ncl'
-                )
-                self._update_progress()
-                return df if df is not None and len(df) > 0 else None
-            except:
-                return None
+        def api_call(stock, sd, ed):
+            return self.pro.balancesheet(
+                ts_code=stock,
+                start_date=sd,
+                end_date=ed,
+                fields='ts_code,ann_date,end_date,report_type,'
+                       'total_assets,total_liab,total_hldr_eqy_exc_min_int,'
+                       'total_hldr_eqy_inc_min_int,cap_rese,'
+                       'surplus_rese,undistr_porfit,money_cap,'
+                       'accounts_receiv,inventory,total_cur_assets,'
+                       'total_nca,total_cur_liab,total_ncl'
+            )
 
-        with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
-            futures = {executor.submit(download_one, stock): stock for stock in stocks}
-            for future in as_completed(futures):
-                result = future.result()
-                if result is not None:
-                    all_data.append(result)
+        all_data, failed = self._download_stocks_batch(stocks, api_call, 'balancesheet', start_date, end_date)
 
         if all_data:
             result = pd.concat(all_data, ignore_index=True)
             result.to_parquet(output_file, index=False)
-            logger.info(f"资产负债表数据已保存: {output_file}, 共 {len(result)} 条")
+            logger.info(f"资产负债表数据已保存: {output_file}, 共 {len(result)} 条, 失败 {len(failed)} 只")
             return result
         return None
 
@@ -205,36 +210,23 @@ class TushareDownloader:
         logger.info(f"下载现金流量表数据: {start_date} ~ {end_date}")
 
         stocks = self.get_all_stocks()
-        self._counter = 0
-        self._total = len(stocks)
-        all_data = []
 
-        def download_one(stock):
-            try:
-                df = self.pro.cashflow(
-                    ts_code=stock,
-                    start_date=start_date,
-                    end_date=end_date,
-                    fields='ts_code,ann_date,end_date,report_type,'
-                           'n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,'
-                           'c_fr_sale_sg,c_pay_for_tax,free_cashflow'
-                )
-                self._update_progress()
-                return df if df is not None and len(df) > 0 else None
-            except:
-                return None
+        def api_call(stock, sd, ed):
+            return self.pro.cashflow(
+                ts_code=stock,
+                start_date=sd,
+                end_date=ed,
+                fields='ts_code,ann_date,end_date,report_type,'
+                       'n_cashflow_act,n_cashflow_inv_act,n_cash_flows_fnc_act,'
+                       'c_fr_sale_sg,c_pay_for_tax,free_cashflow'
+            )
 
-        with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
-            futures = {executor.submit(download_one, stock): stock for stock in stocks}
-            for future in as_completed(futures):
-                result = future.result()
-                if result is not None:
-                    all_data.append(result)
+        all_data, failed = self._download_stocks_batch(stocks, api_call, 'cashflow', start_date, end_date)
 
         if all_data:
             result = pd.concat(all_data, ignore_index=True)
             result.to_parquet(output_file, index=False)
-            logger.info(f"现金流量表数据已保存: {output_file}, 共 {len(result)} 条")
+            logger.info(f"现金流量表数据已保存: {output_file}, 共 {len(result)} 条, 失败 {len(failed)} 只")
             return result
         return None
 
@@ -246,40 +238,27 @@ class TushareDownloader:
         logger.info(f"下载财务指标数据: {start_date} ~ {end_date}")
 
         stocks = self.get_all_stocks()
-        self._counter = 0
-        self._total = len(stocks)
-        all_data = []
 
-        def download_one(stock):
-            try:
-                df = self.pro.fina_indicator(
-                    ts_code=stock,
-                    start_date=start_date,
-                    end_date=end_date,
-                    fields='ts_code,ann_date,end_date,'
-                           'roe,roe_dt,roa,npta,'
-                           'profit_dedt,op_yoy,ebt_yoy,'
-                           'current_ratio,quick_ratio,cash_ratio,'
-                           'ar_turn,inv_turn,ca_turn,'
-                           'debt_to_assets,assets_to_eq,'
-                           'ebit,ebitda,fcff'
-                )
-                self._update_progress()
-                return df if df is not None and len(df) > 0 else None
-            except:
-                return None
+        def api_call(stock, sd, ed):
+            return self.pro.fina_indicator(
+                ts_code=stock,
+                start_date=sd,
+                end_date=ed,
+                fields='ts_code,ann_date,end_date,'
+                       'roe,roe_dt,roa,npta,'
+                       'profit_dedt,op_yoy,ebt_yoy,'
+                       'current_ratio,quick_ratio,cash_ratio,'
+                       'ar_turn,inv_turn,ca_turn,'
+                       'debt_to_assets,assets_to_eq,'
+                       'ebit,ebitda,fcff'
+            )
 
-        with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
-            futures = {executor.submit(download_one, stock): stock for stock in stocks}
-            for future in as_completed(futures):
-                result = future.result()
-                if result is not None:
-                    all_data.append(result)
+        all_data, failed = self._download_stocks_batch(stocks, api_call, 'fina_indicator', start_date, end_date)
 
         if all_data:
             result = pd.concat(all_data, ignore_index=True)
             result.to_parquet(output_file, index=False)
-            logger.info(f"财务指标数据已保存: {output_file}, 共 {len(result)} 条")
+            logger.info(f"财务指标数据已保存: {output_file}, 共 {len(result)} 条, 失败 {len(failed)} 只")
             return result
         return None
 
@@ -387,6 +366,27 @@ class TushareDownloader:
             return result
         return None
 
+    def download_adj_factor(self, start_date: str = "20160101", end_date: str = None):
+        """下载复权因子数据 (adj_factor)"""
+        end_date = end_date or datetime.now().strftime("%Y%m%d")
+        output_file = self.data_dir / "adj_factor.parquet"
+
+        logger.info(f"下载复权因子数据: {start_date} ~ {end_date}")
+
+        stocks = self.get_all_stocks()
+
+        def api_call(stock, sd, ed):
+            return self.pro.adj_factor(ts_code=stock, start_date=sd, end_date=ed)
+
+        all_data, failed = self._download_stocks_batch(stocks, api_call, 'adj_factor', start_date, end_date)
+
+        if all_data:
+            result = pd.concat(all_data, ignore_index=True)
+            result.to_parquet(output_file, index=False)
+            logger.info(f"复权因子数据已保存: {output_file}, 共 {len(result)} 条, 失败 {len(failed)} 只")
+            return result
+        return None
+
     def download_daily_quotes(self, ts_codes: List[str] = None, start_date: str = "20160101", end_date: str = None):
         """下载日线行情数据 (OHLCV)"""
         end_date = end_date or datetime.now().strftime("%Y%m%d")
@@ -411,7 +411,7 @@ class TushareDownloader:
                 )
                 self._update_progress()
                 return df if df is not None and len(df) > 0 else None
-            except:
+            except Exception:
                 return None
 
         with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
@@ -437,6 +437,7 @@ class TushareDownloader:
 
         results = {}
         results['daily_basic'] = self.download_daily_basic(start_date, end_date)
+        results['adj_factor'] = self.download_adj_factor(start_date, end_date)
         results['income'] = self.download_income(start_date, end_date)
         results['balancesheet'] = self.download_balancesheet(start_date, end_date)
         results['cashflow'] = self.download_cashflow(start_date, end_date)
@@ -468,7 +469,7 @@ def main():
     parser.add_argument("--token", default=None, help="Tushare Token")
     parser.add_argument("--workers", type=int, default=8, help="并发线程数")
     parser.add_argument("--type", default="all",
-                        choices=["all", "daily_basic", "income", "balancesheet", "cashflow",
+                        choices=["all", "daily_basic", "adj_factor", "income", "balancesheet", "cashflow",
                                  "fina_indicator", "index_daily", "index_weight", "namechange"],
                         help="下载数据类型")
 
@@ -481,6 +482,7 @@ def main():
     method_map = {
         "all": "download_all",
         "daily_basic": "download_daily_basic",
+        "adj_factor": "download_adj_factor",
         "income": "download_income",
         "balancesheet": "download_balancesheet",
         "cashflow": "download_cashflow",

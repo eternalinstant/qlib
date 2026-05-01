@@ -9,9 +9,8 @@ from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-PROJECT_ROOT = Path(__file__).parent.parent
-
-from modules.data.tushare_downloader import TushareDownloader
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+import sys; sys.path.insert(0, str(PROJECT_ROOT))
 
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "qlib_data" / "raw_data"
 TUSHARE_DIR = PROJECT_ROOT / "data" / "tushare"

@@ -469,6 +469,60 @@ class DataUpdater:
             logger.error(f"下载 namechange 失败: {e}")
             return False
 
+    def download_adj_factor(self) -> bool:
+        """增量下载复权因子 adj_factor（按交易日批量拉取）"""
+        pro = get_tushare_pro()
+        if pro is None:
+            return False
+
+        output_path = self.tushare_dir / "adj_factor.parquet"
+
+        try:
+            # 确定起始日期：从现有文件最大日期的下一天开始
+            if output_path.exists():
+                existing = pd.read_parquet(output_path, columns=["trade_date"])
+                max_date = str(existing["trade_date"].max())
+                start_date = self._next_calendar_date_str(max_date)
+            else:
+                start_date = "20160101"
+
+            end_date = datetime.now().strftime("%Y%m%d")
+            if start_date > end_date:
+                logger.info("adj_factor 已是最新")
+                return True
+
+            all_data = []
+            for win_start, win_end in self._date_windows(start_date, end_date, step_days=90):
+                last_exc = None
+                for _ in range(3):
+                    try:
+                        df = pro.adj_factor(
+                            start_date=win_start,
+                            end_date=win_end,
+                        )
+                        if df is not None and len(df) > 0:
+                            all_data.append(df)
+                        last_exc = None
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        time.sleep(0.5)
+                if last_exc is not None:
+                    logger.warning(f"adj_factor {win_start}-{win_end} 失败: {last_exc}")
+                time.sleep(0.12)
+
+            if not all_data:
+                logger.info("adj_factor 无新数据")
+                return output_path.exists()
+
+            result = pd.concat(all_data, ignore_index=True)
+            self._merge_and_save(output_path, result, ["ts_code", "trade_date"])
+            logger.info(f"已更新 adj_factor: {len(result)} 条")
+            return True
+        except Exception as e:
+            logger.error(f"下载 adj_factor 失败: {e}")
+            return False
+
     def _get_last_bin_date(self) -> Optional[datetime]:
         """返回 close.day.bin 中最旧的最后日期（采样检测，判断是否有股票需要更新）"""
         cal_file = self.qlib_data_path / "calendars" / "day.txt"
@@ -497,8 +551,7 @@ class DataUpdater:
     def update_price_bins(self) -> bool:
         """从 Tushare daily API 补全 qlib 价格二进制文件
 
-        通过 pro.daily(trade_date=...) 按日期批量拉取，
-        对每只股票计算调整比例（splice point ratio）后追加到 bin 文件。
+        优先使用 adj_factor 前复权。如果 adj_factor 不可用，回退到 splice-point ratio。
         """
         cal_file = self.qlib_data_path / "calendars" / "day.txt"
         features_dir = self.qlib_data_path / "features"
@@ -506,7 +559,9 @@ class DataUpdater:
             return False
 
         cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
+        cal_dates = cal["date"].dt.normalize()
         cal_last_idx_global = len(cal) - 1
+        idx_to_date = {i: d for i, d in enumerate(cal_dates)}
 
         # 扫描全部股票，找到最小的 last_bin_idx（排除极短历史新股）
         min_last_bin_idx = cal_last_idx_global
@@ -515,7 +570,7 @@ class DataUpdater:
             if not bin_f.exists():
                 continue
             raw0 = np.fromfile(bin_f, dtype="<f4")
-            if len(raw0) < 252 or np.isnan(raw0[0]):  # 至少一年数据
+            if len(raw0) < 252 or np.isnan(raw0[0]):
                 continue
             idx = int(raw0[0]) + len(raw0) - 2
             if idx < min_last_bin_idx:
@@ -534,6 +589,28 @@ class DataUpdater:
             logger.warning("Tushare API 不可用，跳过价格 bin 更新")
             return False
 
+        # 尝试加载 adj_factor
+        adj_path = self.tushare_dir / "adj_factor.parquet"
+        adj_map = {}  # {instrument: {cal_idx: adj_ratio}}
+        if adj_path.exists():
+            try:
+                adj_df = pd.read_parquet(adj_path, columns=["ts_code", "trade_date", "adj_factor"])
+                adj_df["date"] = pd.to_datetime(adj_df["trade_date"], format="%Y%m%d").dt.normalize()
+                adj_df = adj_df[adj_df["date"].isin(set(cal_dates))]
+                adj_df["cal_idx"] = adj_df["date"].map({d: i for i, d in enumerate(cal_dates)})
+                adj_df["instrument"] = adj_df["ts_code"].apply(
+                    lambda x: x.split(".")[1].lower() + x.split(".")[0] if "." in x else x.lower()
+                )
+                for inst, grp in adj_df.groupby("instrument"):
+                    grp = grp.sort_values("cal_idx")
+                    latest_adj = grp["adj_factor"].iloc[-1]
+                    if latest_adj > 0:
+                        adj_map[inst] = dict(zip(grp["cal_idx"], grp["adj_factor"] / latest_adj))
+                logger.info(f"加载 adj_factor: {len(adj_map)} 只股票用于价格 bin 更新")
+            except Exception as e:
+                logger.warning(f"加载 adj_factor 失败，回退到 splice-point: {e}")
+                adj_map = {}
+
         # 按日期批量拉取（每次一个交易日，覆盖全市场）
         daily_map: dict = {}  # instrument -> {cal_idx: {field: value}}
         for i, (cal_idx, date) in enumerate(zip(missing_idxs, missing_dates)):
@@ -551,7 +628,7 @@ class DataUpdater:
                 if "." not in ts:
                     continue
                 code, exch = ts.split(".")
-                inst = exch.lower() + code  # 000001.SZ -> sz000001
+                inst = exch.lower() + code
                 if inst not in daily_map:
                     daily_map[inst] = {}
                 daily_map[inst][cal_idx] = {
@@ -588,21 +665,27 @@ class DataUpdater:
             if len(raw_c) < 2 or np.isnan(raw_c[0]):
                 continue
 
-            # 逐股确定自己的 end_idx 和需要写入的 cal_idxs
             stock_end_idx = int(raw_c[0]) + len(raw_c) - 2
             if stock_end_idx >= cal_last_idx:
-                continue  # 该股已是最新，跳过
+                continue
 
             stock_missing_idxs = list(range(stock_end_idx + 1, cal_last_idx + 1))
+            inst_adj = adj_map.get(inst, {})
+            use_adj = bool(inst_adj)
 
-            # splice-point 调整比例
-            bin_last_close = float(raw_c[-1])
-            first_new_cal = stock_missing_idxs[0]
-            first_pre = date_data.get(first_new_cal, {}).get("pre_close", np.nan)
-            if first_pre and not np.isnan(first_pre) and first_pre > 0:
-                adj = bin_last_close / first_pre
+            # 计算复权比例：优先 adj_factor，否则 splice-point
+            if use_adj:
+                # adj_factor 模式：无需 splice-point，直接用 ratio
+                pass
             else:
-                adj = 1.0
+                # splice-point fallback
+                bin_last_close = float(raw_c[-1])
+                first_new_cal = stock_missing_idxs[0]
+                first_pre = date_data.get(first_new_cal, {}).get("pre_close", np.nan)
+                if first_pre and not np.isnan(first_pre) and first_pre > 0:
+                    splice_adj = bin_last_close / first_pre
+                else:
+                    splice_adj = 1.0
 
             try:
                 for field in fields_price + fields_vol:
@@ -620,8 +703,14 @@ class DataUpdater:
                     new_vals = []
                     for cal_idx in f_missing:
                         v = date_data.get(cal_idx, {}).get(field, np.nan)
-                        if not np.isnan(v) and v > 0 and field in fields_price:
-                            v = v * adj
+                        if not np.isnan(v) and field in fields_price:
+                            if use_adj:
+                                ratio = inst_adj.get(cal_idx)
+                                if ratio is not None:
+                                    v = v * float(ratio)
+                            else:
+                                if v > 0:
+                                    v = v * splice_adj
                         new_vals.append(v)
 
                     new_arr = np.array(new_vals, dtype="<f4")
@@ -636,7 +725,7 @@ class DataUpdater:
 
             updated += 1
 
-        logger.info(f"已更新 {updated} 只股票的价格 bin 数据")
+        logger.info(f"已更新 {updated} 只股票的价格 bin 数据 ({'adj_factor' if adj_map else 'splice-point'})")
         return updated > 0
 
     def update_raw_data_quotes(self, start_date: str = None, end_date: str = None) -> bool:
@@ -963,6 +1052,11 @@ class DataUpdater:
                 results["data_updated"] = True
             else:
                 print("      每日基础数据 (跳过)")
+
+            if self.download_adj_factor():
+                print("      复权因子 ✓")
+            else:
+                print("      复权因子 (跳过)")
 
             if self.download_financial_data():
                 print("      财务数据 ✓")
