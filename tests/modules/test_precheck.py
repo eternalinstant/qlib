@@ -281,3 +281,41 @@ def test_run_data_precheck_ignores_orphan_feature_dirs(monkeypatch, tmp_path):
 
     assert result.ok is True
     assert result.errors == []
+
+
+def test_run_data_precheck_missing_calendar_does_not_crash(monkeypatch, tmp_path):
+    from modules.data import precheck
+
+    qlib_root = tmp_path / "qlib"
+    tushare_root = tmp_path / "tushare"
+    _prepare_tushare_root(tushare_root)
+
+    (qlib_root / "instruments").mkdir(parents=True, exist_ok=True)
+    (qlib_root / "features" / "sz000001").mkdir(parents=True, exist_ok=True)
+    (qlib_root / "instruments" / "all.txt").write_text(
+        "sz000001\t2010-01-01\t2099-12-31\n",
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        {
+            "datetime": ["2026-03-20"],
+            "instrument": ["sz000001"],
+            "close": [10.0],
+        }
+    ).to_parquet(qlib_root / "factor_data.parquet", index=False)
+    np.array([0.0, 10.0], dtype="<f4").tofile(qlib_root / "features" / "sz000001" / "close.day.bin")
+
+    monkeypatch.setattr(precheck, "_qlib_root", lambda: qlib_root)
+    monkeypatch.setattr(precheck, "_tushare_root", lambda: tushare_root)
+    monkeypatch.setattr(precheck, "_iter_index_weight_paths", lambda: [tushare_root / "index_weight.parquet"])
+    monkeypatch.setattr(precheck, "_iter_namechange_paths", lambda: [tushare_root / "namechange.parquet"])
+    monkeypatch.setattr(
+        precheck,
+        "_backtest_period",
+        lambda: (pd.Timestamp("2019-01-01"), pd.Timestamp("2026-03-20")),
+    )
+
+    result = precheck.run_data_precheck(universe="all", require_st_history=False)
+
+    assert result.ok is False
+    assert any("calendars/day.txt" in err for err in result.errors)

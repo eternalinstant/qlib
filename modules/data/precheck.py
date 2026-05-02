@@ -104,6 +104,7 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
     _check_exists(errors, resolved, "qlib_instruments", qlib_root / "instruments" / "all.txt")
     _check_exists(errors, resolved, "qlib_factor_data", qlib_root / "factor_data.parquet")
     cal_path = qlib_root / "calendars" / "day.txt"
+    cal_dates = pd.DatetimeIndex([])
     cal_last_idx = None
     if cal_path.exists():
         try:

@@ -199,18 +199,38 @@ class DataUpdater:
         cal_lines = [line.strip() for line in cal_file.read_text().splitlines() if line.strip()]
         if not cal_lines:
             return 0
-        cal_start = cal_lines[0]
-        cal_end = cal_lines[-1]
+        cal_start = pd.Timestamp(cal_lines[0])
+        cal_end = pd.Timestamp(cal_lines[-1])
 
         instruments = []
         for raw_path in raw_files:
             inst = raw_path.stem
             (features_dir / inst).mkdir(exist_ok=True)
-            instruments.append(inst)
+            try:
+                raw_df = pd.read_parquet(raw_path, columns=["date"])
+            except Exception as exc:
+                logger.warning("读取 %s 失败，跳过 instrument 区间同步: %s", raw_path, exc)
+                continue
+
+            raw_dates = pd.to_datetime(raw_df["date"], errors="coerce").dropna()
+            if raw_dates.empty:
+                logger.warning("%s 缺少有效 date，跳过 instrument 区间同步", raw_path)
+                continue
+
+            raw_start = max(raw_dates.min().normalize(), cal_start)
+            raw_end = min(raw_dates.max().normalize(), cal_end)
+            if raw_start > raw_end:
+                logger.warning(
+                    "%s 的 raw_data 日期超出当前 calendar 范围，跳过 instrument 区间同步",
+                    raw_path,
+                )
+                continue
+
+            instruments.append((inst, raw_start.strftime("%Y-%m-%d"), raw_end.strftime("%Y-%m-%d")))
 
         with open(instruments_dir / "all.txt", "w") as fp:
-            for inst in sorted(instruments):
-                fp.write(f"{inst}\t{cal_start}\t{cal_end}\n")
+            for inst, inst_start, inst_end in sorted(instruments):
+                fp.write(f"{inst}\t{inst_start}\t{inst_end}\n")
 
         return len(instruments)
 
@@ -290,13 +310,15 @@ class DataUpdater:
         output_path = self.tushare_dir / "daily_basic.parquet"
 
         try:
+            existing = None
             # 确定起始日期
             if output_path.exists():
                 existing = pd.read_parquet(output_path)
-                max_date = existing["trade_date"].max()
-                start_date = self._next_calendar_date_str(max_date)
-            else:
-                start_date = start_date or BOOTSTRAP_MARKET_START
+                if start_date is None:
+                    max_date = existing["trade_date"].max()
+                    start_date = self._next_calendar_date_str(max_date)
+            if start_date is None:
+                start_date = BOOTSTRAP_MARKET_START
 
             # 下载新数据
             df = self._call_tushare_api(

@@ -55,6 +55,26 @@ def test_filter_instruments_by_universe_with_history(tmp_path, monkeypatch):
     ) == ["SZ000002", "SZ000003"]
 
 
+def test_filter_instruments_by_universe_accepts_lowercase_inputs(tmp_path, monkeypatch):
+    csv_path = tmp_path / "index_weight.csv"
+    pd.DataFrame(
+        [
+            {"index_code": "000300.SH", "con_code": "000001.SZ", "trade_date": "20240229", "weight": 1.0},
+            {"index_code": "000300.SH", "con_code": "000002.SZ", "trade_date": "20240229", "weight": 1.0},
+        ]
+    ).to_csv(csv_path, index=False)
+
+    monkeypatch.setattr(universe, "_index_weight_df", None)
+    monkeypatch.setattr(universe, "_index_constituents_as_of_cache", {})
+    monkeypatch.setattr(universe, "_iter_index_weight_paths", lambda: [csv_path])
+
+    assert universe.filter_instruments_by_universe(
+        ["sz000001", "sz000002", "sz000003"],
+        "2024-03-01",
+        universe="csi300",
+    ) == ["sz000001", "sz000002"]
+
+
 def test_filter_new_listed_instruments_uses_cached_blocked_set(monkeypatch):
     monkeypatch.setattr(universe, "_list_date_map", {
         "SZ000001": pd.Timestamp("2023-01-01"),
@@ -70,6 +90,21 @@ def test_filter_new_listed_instruments_uses_cached_blocked_set(monkeypatch):
     ) == ["SZ000001", "SZ000003"]
 
 
+def test_filter_new_listed_instruments_accepts_lowercase_inputs(monkeypatch):
+    monkeypatch.setattr(universe, "_list_date_map", {
+        "SZ000001": pd.Timestamp("2023-01-01"),
+        "SZ000002": pd.Timestamp("2024-01-20"),
+    })
+    monkeypatch.setattr(universe, "_list_date_series", None)
+    monkeypatch.setattr(universe, "_newly_listed_by_date_cache", {})
+
+    assert universe.filter_new_listed_instruments(
+        ["sz000001", "sz000002", "sz000003"],
+        "2024-02-01",
+        min_days_listed=60,
+    ) == ["sz000001", "sz000003"]
+
+
 def test_filter_instruments_excludes_index_like_codes(monkeypatch):
     monkeypatch.setattr(universe, "_st_instruments", set())
 
@@ -79,3 +114,14 @@ def test_filter_instruments_excludes_index_like_codes(monkeypatch):
     )
 
     assert filtered == ["SH600000", "SZ000001"]
+
+
+def test_filter_instruments_excludes_lowercase_index_like_codes(monkeypatch):
+    monkeypatch.setattr(universe, "_st_instruments", set())
+
+    filtered = universe.filter_instruments(
+        ["sh000300", "sz399001", "sh880001", "sh600000", "sz000001"],
+        exclude_st=False,
+    )
+
+    assert filtered == ["sh600000", "sz000001"]

@@ -45,6 +45,17 @@ def _normalize_cache_date(as_of_date) -> str:
     return pd.Timestamp(as_of_date).normalize().strftime("%Y-%m-%d")
 
 
+def _instrument_key(instrument: str) -> str:
+    """统一成大写前缀格式做集合比较，兼容大小写和 ts_code 形式。"""
+    text = str(instrument)
+    if "." in text:
+        code, exchange = text.split(".", 1)
+        return f"{exchange.upper()}{code}"
+    if len(text) >= 2:
+        return f"{text[:2].upper()}{text[2:]}"
+    return text.upper()
+
+
 def _load_st_set() -> set:
     """从 stock_basic.csv 加载所有 ST / *ST 股票的 instrument 集合（懒加载）"""
     global _st_instruments
@@ -338,8 +349,8 @@ def filter_instruments_by_universe(
     if index_code is None:
         raise ValueError(f"未知股票池: {universe}")
 
-    constituent_set = set(get_index_constituents_as_of(index_code, as_of_date))
-    return [inst for inst in instruments if inst in constituent_set]
+    constituent_set = {_instrument_key(inst) for inst in get_index_constituents_as_of(index_code, as_of_date)}
+    return [inst for inst in instruments if _instrument_key(inst) in constituent_set]
 
 
 def filter_instruments(instruments: List[str], exclude_st: bool = True) -> List[str]:
@@ -349,11 +360,15 @@ def filter_instruments(instruments: List[str], exclude_st: bool = True) -> List[
     如需回测无偏差，请传入 exclude_st=False。
     """
     st_set = _load_st_set() if exclude_st else set()
-    return [
-        i for i in instruments
-        if not any(i.startswith(p) for p in EXCLUDED_PREFIXES)
-        and i not in st_set
-    ]
+    result = []
+    for inst in instruments:
+        inst_key = _instrument_key(inst)
+        if any(inst_key.startswith(prefix) for prefix in EXCLUDED_PREFIXES):
+            continue
+        if inst_key in st_set:
+            continue
+        result.append(inst)
+    return result
 
 
 def has_historical_st_data() -> bool:
@@ -408,8 +423,8 @@ def filter_st_instruments_by_date(
     if not has_historical_st_data():
         return list(instruments)
 
-    blocked = set(get_st_instruments_on_date(as_of_date))
-    return [inst for inst in instruments if inst not in blocked]
+    blocked = {_instrument_key(inst) for inst in get_st_instruments_on_date(as_of_date)}
+    return [inst for inst in instruments if _instrument_key(inst) not in blocked]
 
 
 def get_newly_listed_instruments_on_date(
@@ -445,5 +460,5 @@ def filter_new_listed_instruments(
     if min_days_listed <= 0:
         return list(instruments)
 
-    blocked = set(get_newly_listed_instruments_on_date(as_of_date, min_days_listed))
-    return [inst for inst in instruments if inst not in blocked]
+    blocked = {_instrument_key(inst) for inst in get_newly_listed_instruments_on_date(as_of_date, min_days_listed)}
+    return [inst for inst in instruments if _instrument_key(inst) not in blocked]

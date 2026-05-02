@@ -148,6 +148,25 @@ class TestExtractTopk:
         assert len(result) == 1
         assert result.iloc[0]["symbol"] == "SZ000001"
 
+    def test_empty_result_keeps_schema(self):
+        dt = pd.Timestamp("2024-01-05")
+        idx = pd.MultiIndex.from_tuples(
+            [
+                (dt, "SZ000001"),
+            ],
+            names=["datetime", "instrument"],
+        )
+        signal = pd.Series([0.9], index=idx)
+
+        result = extract_topk(
+            signal,
+            pd.DatetimeIndex([dt]),
+            topk=2,
+        )
+
+        assert result.empty
+        assert list(result.columns) == ["date", "rank", "symbol", "score"]
+
 
 class TestSelectionParquetOptimization:
     """Parquet 读取优化相关测试"""
@@ -243,6 +262,31 @@ class TestSelectionParquetOptimization:
         class FakeD:
             @staticmethod
             def features(instruments, fields, start_date, end_date, freq):
+                return df_close
+
+        with patch("qlib.data.D", new=FakeD()):
+            close_series = _load_close_series(
+                ["SZ000001"],
+                start_date="2024-01-02",
+                end_date="2024-01-03",
+            )
+
+        assert close_series.index.names == ["datetime", "instrument"]
+        assert close_series.loc[(dates[0], "SZ000001")] == 10.0
+        assert close_series.loc[(dates[1], "SZ000001")] == 10.5
+
+    def test_load_close_series_normalizes_provider_case(self):
+        dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+        idx = pd.MultiIndex.from_product(
+            [dates, ["sz000001"]],
+            names=["datetime", "instrument"],
+        )
+        df_close = pd.DataFrame({"$close": [10.0, 10.5]}, index=idx)
+
+        class FakeD:
+            @staticmethod
+            def features(instruments, fields, start_date, end_date, freq):
+                assert instruments == ["sz000001"]
                 return df_close
 
         with patch("qlib.data.D", new=FakeD()):

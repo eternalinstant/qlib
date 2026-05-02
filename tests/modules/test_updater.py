@@ -210,6 +210,30 @@ class TestDataUpdaterDownload:
         assert result is True
         assert mock_pro.daily_basic.call_args.kwargs["start_date"] == BOOTSTRAP_MARKET_START
 
+    def test_download_daily_basic_bootstrap_resume_honors_explicit_start(self, tmp_path):
+        """bootstrap 续跑时，显式 start_date 不应被已有 daily_basic 覆盖。"""
+        from modules.data.updater import BOOTSTRAP_MARKET_START, DataUpdater
+
+        pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ"],
+                "trade_date": ["20260228"],
+                "close": [10.0],
+            }
+        ).to_parquet(tmp_path / "daily_basic.parquet", index=False)
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+
+        mock_pro = Mock()
+        mock_pro.daily_basic.return_value = pd.DataFrame()
+
+        with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro):
+            result = updater.download_daily_basic(start_date=BOOTSTRAP_MARKET_START)
+
+        assert result is True
+        assert mock_pro.daily_basic.call_args.kwargs["start_date"] == BOOTSTRAP_MARKET_START
+
     def test_download_handles_api_error(self, tmp_path):
         """API 错误时优雅降级"""
         from modules.data.updater import DataUpdater
@@ -436,6 +460,38 @@ class TestDataUpdaterDownload:
         df = pd.read_parquet(path)
         assert len(df) == 2
         assert df.iloc[0]["symbol"] == "688036.SH"
+
+    def test_ensure_provider_structure_uses_each_raw_span(self, tmp_path):
+        """all.txt 应记录每个 instrument 自己的 raw_data 时间区间。"""
+        from modules.data.updater import DataUpdater
+
+        qlib_root = tmp_path / "qlib_data" / "cn_data"
+        cal_dir = qlib_root / "calendars"
+        cal_dir.mkdir(parents=True)
+        (cal_dir / "day.txt").write_text("2026-01-02\n2026-01-05\n2026-01-06\n2026-01-07\n")
+
+        updater = DataUpdater(qlib_data_path=str(qlib_root))
+        updater.raw_data_dir.mkdir(parents=True, exist_ok=True)
+
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-06")],
+                "close": [10.0, 11.0],
+            }
+        ).to_parquet(updater.raw_data_dir / "sh600000.parquet", index=False)
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-01-05"), pd.Timestamp("2026-01-07")],
+                "close": [20.0, 21.0],
+            }
+        ).to_parquet(updater.raw_data_dir / "sz000001.parquet", index=False)
+
+        count = updater._ensure_provider_structure()
+
+        all_txt = (updater.qlib_data_path / "instruments" / "all.txt").read_text().splitlines()
+        assert count == 2
+        assert "sh600000\t2026-01-02\t2026-01-06" in all_txt
+        assert "sz000001\t2026-01-05\t2026-01-07" in all_txt
 
 
 class TestDataUpdaterIntegration:
