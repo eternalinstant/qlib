@@ -4,8 +4,8 @@
 
 set -e
 
-# 配置
-PROJECT_DIR="/Users/sxt/code/qlib"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PYTHON_CMD="python3"
 LOG_DIR="$PROJECT_DIR/logs"
 

@@ -15,8 +15,10 @@ import multiprocessing
 if sys.platform == "darwin":
     multiprocessing.set_start_method('fork', force=True)
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 # qlib配置
-qlib_data_path = "/Users/sxt/code/qlib/data/qlib_data/cn_data"
+qlib_data_path = str(PROJECT_ROOT / "data/qlib_data/cn_data")
 os.environ["JOBLIB_START_METHOD"] = "fork"
 
 import qlib

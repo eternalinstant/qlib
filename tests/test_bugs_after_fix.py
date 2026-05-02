@@ -1,9 +1,9 @@
 """
 修复后验证脚本 — 确认所有bug已修复
-运行: cd /Users/sxt/code/qlib && python3 tests/test_bugs_after_fix.py
 """
 import sys
-sys.path.insert(0, "/Users/sxt/code/qlib")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 import numpy as np
