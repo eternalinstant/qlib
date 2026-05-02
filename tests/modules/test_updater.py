@@ -1024,3 +1024,4 @@ class TestGetTusharePro:
         with patch('tushare.pro_api', side_effect=Exception("API Error")):
             result = get_tushare_pro()
             assert result is None
+

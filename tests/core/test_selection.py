@@ -598,3 +598,4 @@ class TestSelectionParquetOptimization:
         }
         assert by_date[dates[0]] == ["SZ000001"]
         assert by_date[dates[1]] == ["SZ000001"]
+

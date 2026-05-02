@@ -125,3 +125,4 @@ def test_filter_instruments_excludes_lowercase_index_like_codes(monkeypatch):
     )
 
     assert filtered == ["sh600000", "sz000001"]
+
