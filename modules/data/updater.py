@@ -6,9 +6,11 @@
 import os
 import time
 import logging
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
@@ -49,11 +51,37 @@ def get_tushare_pro():
         return None
 
 
+class _RateLimiter:
+    """令牌桶限速器：保证不超过 Tushare 的 500 次/分钟限制。"""
+
+    def __init__(self, max_calls: int = 480, period: float = 60.0):
+        self._max_calls = max_calls
+        self._period = period
+        self._lock = threading.Lock()
+        self._timestamps: list[float] = []
+
+    def wait(self):
+        """阻塞直到可以安全发起新请求。"""
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                # 清理过期时间戳
+                self._timestamps = [t for t in self._timestamps if now - t < self._period]
+                if len(self._timestamps) < self._max_calls:
+                    self._timestamps.append(now)
+                    return
+                # 计算需要等待多久
+                sleep_time = self._timestamps[0] + self._period - now + 0.1
+            time.sleep(max(sleep_time, 0.5))
+
+
 class DataUpdater:
     """数据更新器"""
 
     API_RETRY_COUNT = 3
     API_RETRY_BASE_SLEEP = 0.8
+    MAX_WORKERS = 8  # 并发下载线程数
+    _rate_limiter = _RateLimiter(max_calls=490, period=60.0)
 
     def __init__(self, qlib_data_path: str = None):
         configured_qlib_path = CONFIG.get(
@@ -150,12 +178,13 @@ class DataUpdater:
 
         for attempt in range(1, retry_count + 1):
             try:
+                self._rate_limiter.wait()
                 return api_callable(**kwargs)
             except Exception as exc:
                 last_exc = exc
                 if attempt >= retry_count:
                     break
-                wait_seconds = base_sleep * attempt
+                wait_seconds = base_sleep * (2 ** attempt)  # 指数退避
                 logger.warning(
                     "%s 失败，第 %s/%s 次重试前等待 %.1fs: %s",
                     call_name,
@@ -295,9 +324,19 @@ class DataUpdater:
 
         return remote_date.date() > local_date.date()
 
+    def _get_index_trade_dates(self) -> Optional[pd.Series]:
+        """从 index_daily.parquet 读取完整交易日列表（000300.SH 沪深300）。"""
+        index_path = self.tushare_dir / "index_daily.parquet"
+        if not index_path.exists():
+            return None
+        idx = pd.read_parquet(index_path, columns=["ts_code", "trade_date"])
+        idx = idx[idx["ts_code"] == "000300.SH"]
+        dates = pd.to_datetime(idx["trade_date"], format="%Y%m%d", errors="coerce").dropna()
+        return dates.sort_values().drop_duplicates()
+
     def download_daily_basic(self, start_date: str = None) -> bool:
         """
-        下载每日基础数据（增量）
+        下载每日基础数据（增量，按交易日逐日拉取）
 
         Returns
         -------
@@ -313,30 +352,64 @@ class DataUpdater:
             existing = None
             # 确定起始日期
             if output_path.exists():
-                existing = pd.read_parquet(output_path)
+                existing = pd.read_parquet(output_path, columns=["trade_date"])
                 if start_date is None:
-                    max_date = existing["trade_date"].max()
+                    max_date = str(existing["trade_date"].max())
                     start_date = self._next_calendar_date_str(max_date)
             if start_date is None:
                 start_date = BOOTSTRAP_MARKET_START
 
-            # 下载新数据
-            df = self._call_tushare_api(
-                pro.daily_basic,
-                f"daily_basic start={start_date}",
-                start_date=start_date,
-            )
+            # 从 index_daily 获取完整交易日列表
+            trade_dates = self._get_index_trade_dates()
+            if trade_dates is None or trade_dates.empty:
+                logger.warning("缺少 index_daily.parquet，无法获取交易日列表")
+                return False
 
-            if df is not None and len(df) > 0:
-                if output_path.exists():
-                    combined = pd.concat([existing, df], ignore_index=True)
-                    combined = combined.drop_duplicates(
-                        subset=["ts_code", "trade_date"], keep="last"
+            start_ts = pd.Timestamp(start_date)
+            target_dates = trade_dates[trade_dates >= start_ts]
+            if target_dates.empty:
+                logger.info("daily_basic 已是最新")
+                return True
+
+            logger.info(f"daily_basic: 需下载 {len(target_dates)} 个交易日 (from {start_date})")
+
+            all_data = []
+            lock = threading.Lock()
+            counter = [0]  # mutable counter for progress
+
+            def _fetch_one(date_str):
+                try:
+                    df = self._call_tushare_api(
+                        pro.daily_basic,
+                        f"daily_basic {date_str}",
+                        trade_date=date_str,
                     )
-                    combined.to_parquet(output_path, index=False)
-                else:
-                    df.to_parquet(output_path, index=False)
+                    with lock:
+                        counter[0] += 1
+                        if counter[0] % 100 == 0:
+                            logger.info(f"daily_basic 已拉取 {counter[0]}/{len(target_dates)} 个交易日")
+                    return df if df is not None and len(df) > 0 else None
+                except Exception as exc:
+                    with lock:
+                        counter[0] += 1
+                    logger.warning(f"daily_basic {date_str} 失败: {exc}")
+                    return None
 
+            date_strs = [d.strftime("%Y%m%d") for d in target_dates]
+            with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
+                futures = {executor.submit(_fetch_one, ds): ds for ds in date_strs}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        all_data.append(result)
+
+            if not all_data:
+                logger.info("daily_basic 无新数据")
+                return output_path.exists()
+
+            result = pd.concat(all_data, ignore_index=True)
+            self._merge_and_save(output_path, result, ["ts_code", "trade_date"])
+            logger.info(f"已更新 daily_basic: {len(result)} 条")
             return True
 
         except Exception as e:
@@ -366,7 +439,27 @@ class DataUpdater:
             ("balancesheet", "balancesheet.parquet", "end_date"),
         ]
 
-        # 获取股票列表
+        # 先检查哪些数据集需要更新
+        need_download = []
+        threshold = (datetime.now() - timedelta(days=7)).strftime("%Y%m%d")
+        for api_name, filename, date_col in datasets:
+            output_path = self.tushare_dir / filename
+            if output_path.exists():
+                try:
+                    existing = pd.read_parquet(output_path, columns=[date_col])
+                    max_date = str(existing[date_col].max())
+                    if max_date >= threshold:
+                        logger.info(f"{api_name} 已是最新 (max_date={max_date})")
+                        results.append(True)
+                        continue
+                except Exception:
+                    pass
+            need_download.append((api_name, filename, date_col))
+
+        if not need_download:
+            return True
+
+        # 获取股票列表（只有确实需要下载时才调用 API）
         try:
             stock_df = self._call_tushare_api(
                 pro.stock_basic,
@@ -379,7 +472,7 @@ class DataUpdater:
             logger.error(f"获取股票列表失败: {e}")
             return False
 
-        for api_name, filename, date_col in datasets:
+        for api_name, filename, date_col in need_download:
             output_path = self.tushare_dir / filename
             success = self._download_financial_dataset(
                 pro, api_name, output_path, ts_codes, date_col
@@ -391,7 +484,7 @@ class DataUpdater:
     def _download_financial_dataset(
         self, pro, api_name: str, output_path: Path, ts_codes: list, date_col: str
     ) -> bool:
-        """下载单个财务数据集"""
+        """下载单个财务数据集（逐只股票调用，多线程并发）"""
         try:
             # 确定起始日期
             if output_path.exists():
@@ -401,23 +494,44 @@ class DataUpdater:
             else:
                 start_date = "20100101"
 
+            api_func = getattr(pro, api_name)
             all_data = []
-            batch_size = 500
+            failed = [0]
+            lock = threading.Lock()
+            counter = [0]
 
-            for i in range(0, len(ts_codes), batch_size):
-                batch = ts_codes[i : i + batch_size]
+            logger.info(f"{api_name}: 开始下载 {len(ts_codes)} 只股票 (start={start_date}, workers={self.MAX_WORKERS})")
+
+            def _fetch_one(ts_code):
                 try:
-                    api_func = getattr(pro, api_name)
+                    # fina_indicator 的 start_date 过滤 end_date（报告期），
+                    # 传了反而限制返回范围，导致只拿到最近几个季度
+                    if api_name == "fina_indicator":
+                        kwargs = {"ts_code": ts_code}
+                    else:
+                        kwargs = {"ts_code": ts_code, "start_date": start_date}
                     df = self._call_tushare_api(
                         api_func,
-                        f"{api_name} batch={i // batch_size + 1}",
-                        ts_code=",".join(batch),
-                        start_date=start_date,
+                        f"{api_name} {ts_code}",
+                        **kwargs,
                     )
-                    if df is not None and len(df) > 0:
-                        all_data.append(df)
-                except Exception as e:
-                    logger.warning(f"{api_name} 批次 {i // batch_size + 1} 失败: {e}")
+                    with lock:
+                        counter[0] += 1
+                        if counter[0] % 500 == 0:
+                            logger.info(f"{api_name} 已拉取 {counter[0]}/{len(ts_codes)} 只 (失败 {failed[0]})")
+                    return df if df is not None and len(df) > 0 else None
+                except Exception:
+                    with lock:
+                        counter[0] += 1
+                        failed[0] += 1
+                    return None
+
+            with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
+                futures = {executor.submit(_fetch_one, code): code for code in ts_codes}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        all_data.append(result)
 
             if all_data:
                 df = pd.concat(all_data, ignore_index=True)
@@ -428,9 +542,9 @@ class DataUpdater:
                 else:
                     df.to_parquet(output_path, index=False)
 
-                logger.info(f"已更新 {api_name}: {len(df)} 条")
+                logger.info(f"已更新 {api_name}: {len(df)} 条 (失败 {failed[0]} 只)")
             else:
-                logger.info(f"{api_name} 无新数据")
+                logger.info(f"{api_name} 无新数据 (失败 {failed[0]} 只)")
 
             return True
 
@@ -613,7 +727,7 @@ class DataUpdater:
             return False
 
     def download_adj_factor(self) -> bool:
-        """增量下载复权因子 adj_factor（按交易日批量拉取）"""
+        """增量下载复权因子 adj_factor（按交易日逐日拉取）"""
         pro = get_tushare_pro()
         if pro is None:
             return False
@@ -621,7 +735,7 @@ class DataUpdater:
         output_path = self.tushare_dir / "adj_factor.parquet"
 
         try:
-            # 确定起始日期：回补最近一个窗口，避免尾部缺口永久保留
+            # 确定起始日期：回补最近一段，避免尾部缺口永久保留
             if output_path.exists():
                 existing = pd.read_parquet(output_path, columns=["trade_date"])
                 max_date = str(existing["trade_date"].max())
@@ -629,25 +743,50 @@ class DataUpdater:
             else:
                 start_date = "20160101"
 
-            end_date = datetime.now().strftime("%Y%m%d")
-            if start_date > end_date:
+            # 从 index_daily 获取完整交易日列表
+            trade_dates = self._get_index_trade_dates()
+            if trade_dates is None or trade_dates.empty:
+                logger.warning("缺少 index_daily.parquet，无法获取交易日列表")
+                return False
+
+            start_ts = pd.Timestamp(start_date)
+            end_ts = trade_dates.max()
+            target_dates = trade_dates[(trade_dates >= start_ts) & (trade_dates <= end_ts)]
+            if target_dates.empty:
                 logger.info("adj_factor 已是最新")
                 return True
 
+            logger.info(f"adj_factor: 需下载 {len(target_dates)} 个交易日 (from {start_date})")
+
             all_data = []
-            for win_start, win_end in self._date_windows(start_date, end_date, step_days=90):
+            lock = threading.Lock()
+            counter = [0]
+
+            def _fetch_one(date_str):
                 try:
                     df = self._call_tushare_api(
                         pro.adj_factor,
-                        f"adj_factor {win_start}-{win_end}",
-                        start_date=win_start,
-                        end_date=win_end,
+                        f"adj_factor {date_str}",
+                        trade_date=date_str,
                     )
-                    if df is not None and len(df) > 0:
-                        all_data.append(df)
+                    with lock:
+                        counter[0] += 1
+                        if counter[0] % 100 == 0:
+                            logger.info(f"adj_factor 已拉取 {counter[0]}/{len(target_dates)} 个交易日")
+                    return df if df is not None and len(df) > 0 else None
                 except Exception as exc:
-                    logger.warning(f"adj_factor {win_start}-{win_end} 失败: {exc}")
-                time.sleep(0.12)
+                    with lock:
+                        counter[0] += 1
+                    logger.warning(f"adj_factor {date_str} 失败: {exc}")
+                    return None
+
+            date_strs = [d.strftime("%Y%m%d") for d in target_dates]
+            with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
+                futures = {executor.submit(_fetch_one, ds): ds for ds in date_strs}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        all_data.append(result)
 
             if not all_data:
                 logger.info("adj_factor 无新数据")
@@ -870,97 +1009,267 @@ class DataUpdater:
         logger.info(f"已更新 {updated} 只股票的价格 bin 数据 ({'adj_factor' if adj_map else 'splice-point'})")
         return updated > 0
 
-    def update_raw_data_quotes(self, start_date: str = None, end_date: str = None) -> bool:
-        """按交易日增量更新 raw_data 原始行情文件。"""
+    def update_raw_data_quotes(self, start_date: str = None, end_date: str = None, max_stocks: int = None) -> bool:
+        """按股票维度增量下载 raw_data 行情，支持断点续传。"""
+        import json as _json
+
         pro = get_tushare_pro()
         if pro is None:
             logger.warning("Tushare API 不可用，跳过 raw_data 更新")
             return False
 
-        daily_basic_path = self.tushare_dir / "daily_basic.parquet"
-        if not daily_basic_path.exists():
-            logger.warning("缺少 daily_basic.parquet，无法推断 raw_data 交易日")
-            return False
-
+        # ── 1. 准备阶段：交易日历 ──
         try:
-            daily_dates = pd.read_parquet(daily_basic_path, columns=["trade_date"])
-            trade_dates = pd.to_datetime(
-                daily_dates["trade_date"], format="%Y%m%d", errors="coerce"
-            ).dropna()
-            trade_dates = trade_dates.sort_values().drop_duplicates()
+            cal_df = self._call_tushare_api(
+                pro.trade_cal,
+                "raw_data trade_cal",
+                exchange="SSE",
+                is_open="1",
+                fields="cal_date",
+            )
+            trade_cal = sorted(cal_df["cal_date"].tolist())
         except Exception as e:
-            logger.error(f"读取 daily_basic 失败，无法更新 raw_data: {e}")
+            logger.error(f"获取交易日历失败: {e}")
             return False
 
-        if trade_dates.empty:
-            logger.warning("daily_basic 不包含有效交易日，跳过 raw_data 更新")
+        if not trade_cal:
+            logger.warning("交易日历为空，跳过 raw_data 更新")
             return False
 
-        end_ts = pd.Timestamp(end_date) if end_date else trade_dates.max()
-        if start_date is None:
-            has_existing_raw = any(self.raw_data_dir.glob("*.parquet"))
-            # 不用“全局最新文件日期”推断增量起点；少量新文件会掩盖大批陈旧文件。
-            # 每次固定回补最近一段交易日，既能修复漏更，也能控制 API 开销。
-            if has_existing_raw:
-                start_ts = max(trade_dates.min(), end_ts - timedelta(days=45))
-            else:
-                start_ts = trade_dates.min()
+        end_date = end_date or trade_cal[-1]
+        # 确保 end_date 不超过已开市交易日
+        if end_date > trade_cal[-1]:
+            end_date = trade_cal[-1]
+
+        full_start = start_date or BOOTSTRAP_MARKET_START
+
+        def _next_trade_date(date_str: str) -> str:
+            """返回 date_str 之后的下一个交易日。"""
+            for d in trade_cal:
+                if d > date_str:
+                    return d
+            return date_str  # 没有更晚的交易日，返回自身
+
+        # ── 2. 获取股票列表 ──
+        stock_basic_path = self.tushare_dir / "stock_basic.csv"
+        if stock_basic_path.exists():
+            stocks_df = pd.read_csv(stock_basic_path, dtype=str)
         else:
-            start_ts = pd.Timestamp(start_date)
+            logger.warning("缺少 stock_basic.csv，无法获取股票列表")
+            return False
 
-        target_dates = trade_dates[(trade_dates >= start_ts) & (trade_dates <= end_ts)]
-        if len(target_dates) == 0:
-            logger.info("raw_data 已是最新")
+        if "ts_code" not in stocks_df.columns:
+            logger.warning("stock_basic.csv 缺少 ts_code 列")
+            return False
+
+        # list_date 列不一定存在，用 BOOTSTRAP_MARKET_START 兜底
+        stock_list = []
+        for _, row in stocks_df.iterrows():
+            ts_code = row["ts_code"]
+            list_date = str(row.get("list_date", "")).strip()
+            if not list_date or list_date == "nan" or not list_date.isdigit():
+                list_date = BOOTSTRAP_MARKET_START
+            stock_list.append((ts_code, list_date))
+
+        if max_stocks is not None:
+            stock_list = stock_list[:max_stocks]
+
+        # ── 3. 加载状态文件 ──
+        state_path = self.raw_data_dir / ".download_state.json"
+        state_dict = {}
+        if state_path.exists():
+            try:
+                with open(state_path, "r") as f:
+                    state_dict = _json.load(f)
+            except Exception:
+                logger.warning("状态文件损坏，将重新下载所有股票")
+                state_dict = {}
+
+        # ── 4. 过滤阶段：确定需下载的股票 ──
+        download_tasks = []
+        skipped = 0
+        for ts_code, list_date in stock_list:
+            start = max(full_start, list_date)
+            if start > end_date:
+                skipped += 1
+                continue
+
+            cached = state_dict.get(ts_code)
+            if cached and cached >= end_date:
+                skipped += 1
+                continue
+
+            if cached and cached >= start:
+                start = _next_trade_date(cached)
+
+            download_tasks.append((ts_code, start, end_date))
+
+        logger.info(
+            f"raw_data 股票总数={len(stock_list)}, 需下载={len(download_tasks)}, "
+            f"已跳过={skipped}, 时间范围={full_start}~{end_date}"
+        )
+
+        if not download_tasks:
+            logger.info("raw_data 所有股票已是最新")
             return True
 
-        updates = {}
-        for i, trade_date in enumerate(target_dates, 1):
-            date_str = trade_date.strftime("%Y%m%d")
-            try:
-                df = self._call_tushare_api(
-                    pro.daily,
-                    f"raw_data daily {date_str}",
-                    trade_date=date_str,
-                    fields="ts_code,trade_date,open,high,low,close,vol,amount",
-                )
-            except Exception as e:
-                logger.warning(f"raw_data daily {date_str} 失败: {e}")
-                time.sleep(1)
-                continue
+        # ── 5. 并发下载 ──
+        failures = []
+        completed = [0]
+        completed_lock = threading.Lock()
 
-            if df is None or df.empty:
-                continue
+        def _atomic_write_json(path: Path, data):
+            """原子写 JSON 文件。"""
+            tmp_path = path.with_suffix(".tmp")
+            with open(tmp_path, "w") as f:
+                _json.dump(data, f, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
 
-            df["date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
-            df["symbol"] = df["ts_code"]
-            df["raw_file"] = df["ts_code"].map(
-                lambda ts_code: f"{ts_code.split('.')[1].lower()}{ts_code.split('.')[0]}.parquet"
+        with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
+            futures = {
+                executor.submit(
+                    self._download_one_stock, pro, ts_code, start, end_date
+                ): ts_code
+                for ts_code, start, end_date in download_tasks
+            }
+
+            for future in as_completed(futures):
+                ts_code = futures[future]
+                try:
+                    ok, covered_to, error_msg = future.result()
+                except Exception as exc:
+                    ok, covered_to, error_msg = False, None, str(exc)
+
+                if ok:
+                    if covered_to:
+                        state_dict[ts_code] = covered_to
+                else:
+                    task_info = next(
+                        (t for t in download_tasks if t[0] == ts_code), None
+                    )
+                    failures.append({
+                        "ts_code": ts_code,
+                        "start": task_info[1] if task_info else "unknown",
+                        "error": error_msg or "unknown",
+                    })
+
+                with completed_lock:
+                    completed[0] += 1
+                    n = completed[0]
+                    # 每 100 只或最后一只：原子写状态文件
+                    if n % 100 == 0 or n == len(download_tasks):
+                        _atomic_write_json(state_path, state_dict)
+                    if n % 50 == 0 or n == len(download_tasks):
+                        logger.info(
+                            f"raw_data 进度: {n}/{len(download_tasks)}, "
+                            f"失败={len(failures)}"
+                        )
+
+        # ── 6. 最终写入状态文件和失败文件 ──
+        _atomic_write_json(state_path, state_dict)
+
+        if failures:
+            fail_path = self.raw_data_dir / ".download_failures.json"
+            _atomic_write_json(fail_path, failures)
+            logger.warning(f"raw_data 下载失败 {len(failures)} 只股票，已记录到 {fail_path}")
+
+        logger.info(
+            f"raw_data 更新完成: 成功={len(download_tasks) - len(failures)}, "
+            f"失败={len(failures)}"
+        )
+        return (len(download_tasks) - len(failures)) > 0
+
+    def _download_one_stock(self, pro, ts_code: str, start_date: str, end_date: str):
+        """下载单只股票行情 → 校验 → 合并去重 → 原子写盘。
+
+        Returns: (ok: bool, covered_to: str|None, error: str|None)
+        """
+        # a. 下载
+        try:
+            df = self._call_tushare_api(
+                pro.daily,
+                f"raw_data daily {ts_code}",
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+                fields="ts_code,trade_date,open,high,low,close,vol,amount",
             )
-            df = df.rename(columns={"vol": "volume"})
-            df = df[
-                ["raw_file", "date", "open", "high", "low", "close", "volume", "amount", "symbol"]
-            ]
+        except Exception as e:
+            return False, None, str(e)
 
-            for raw_file, grp in df.groupby("raw_file"):
-                updates.setdefault(raw_file, []).append(grp.drop(columns=["raw_file"]).copy())
+        # df.empty → 不算失败，记录 covered_to 避免停牌股票重复下载
+        if df is None or df.empty:
+            return True, end_date, None
 
-            if i % 10 == 0:
-                logger.info(f"raw_data 已拉取 {i}/{len(target_dates)} 个交易日")
-            time.sleep(0.12)
+        # b. 校验
+        required = {"ts_code", "trade_date", "open", "high", "low", "close"}
+        missing = required - set(df.columns)
+        if missing:
+            return False, None, f"缺少必要列: {missing}"
 
-        updated_files = 0
-        for raw_file, parts in updates.items():
-            path = self.raw_data_dir / raw_file
-            new_df = pd.concat(parts, ignore_index=True).sort_values("date")
-            if path.exists():
+        if df["ts_code"].isna().any() or df["trade_date"].isna().any():
+            return False, None, "ts_code 或 trade_date 含空值"
+
+        if df.duplicated(subset=["ts_code", "trade_date"]).any():
+            return False, None, "ts_code + trade_date 存在重复"
+
+        numeric_cols = ["open", "high", "low", "close"]
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        bad_h = df["high"] < df[["open", "close", "low"]].max(axis=1)
+        bad_l = df["low"] > df[["open", "close", "high"]].min(axis=1)
+        if bad_h.any():
+            return False, None, f"high < max(open,close,low) 共 {bad_h.sum()} 行"
+        if bad_l.any():
+            return False, None, f"low > min(open,close,high) 共 {bad_l.sum()} 行"
+
+        # c. 格式转换
+        df["date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
+        df["symbol"] = df["ts_code"]
+        df = df.rename(columns={"vol": "volume"})
+        df = df[["date", "open", "high", "low", "close", "volume", "amount", "symbol"]]
+        df = df.dropna(subset=["date"])
+
+        # d. 读旧文件并合并
+        suffix = ts_code.split(".")[1].lower()
+        prefix = ts_code.split(".")[0]
+        raw_file = f"{suffix}{prefix}.parquet"
+        path = self.raw_data_dir / raw_file
+
+        if path.exists():
+            try:
                 existing = pd.read_parquet(path)
-                new_df = pd.concat([existing, new_df], ignore_index=True)
-            new_df = new_df.drop_duplicates(subset=["date"], keep="last").sort_values("date")
-            new_df.to_parquet(path, index=False)
-            updated_files += 1
+            except Exception as e:
+                return False, None, f"读取旧文件失败: {e}"
+            df = pd.concat([existing, df], ignore_index=True)
+            df = df.drop_duplicates(subset=["date"], keep="last")
 
-        logger.info(f"raw_data 已更新 {updated_files} 个文件")
-        return updated_files > 0
+        df = df.sort_values("date")
+
+        # e. 原子写盘：tmp → fsync → replace
+        tmp_path = path.with_suffix(".tmp")
+        try:
+            df.to_parquet(tmp_path, index=False)
+            with open(tmp_path, "r+b") as f:
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        except Exception as e:
+            # 清理临时文件
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            return False, None, f"写文件失败: {e}"
+        finally:
+            del df
+
+        # f. 返回成功
+        return True, end_date, None
 
     def bootstrap_raw_data_for_instruments(
         self,
