@@ -397,22 +397,60 @@ python3 scripts/audit_price_fields.py --sample-size 20 --days 10
 - `modules/data/updater.py` 会在日更时自动回补最近一段交易日的 `raw_data`
 - 如果启用了 `block_limit_up_buy / block_limit_down_sell`，但本地缺少对应 `raw_data` 文件，回测会直接报错，不会静默降级
 
-## 数据流与验证
+## 数据处理链路
 
-### 数据流水线
+### 数据流
 
 ```
 Tushare API
-  │  tushare_downloader.py (下载日线/财务/复权因子等)
-  ▼
-data/tushare/*.parquet + stock_basic.csv
-  │  build_qlib_data.py build (转换)
-  ├─► data/qlib_data/raw_data/*.parquet     (原始 OHLCV, 每只股票一个文件)
-  ├─► data/qlib_data/cn_data/instruments/   (每只股票的实际日期范围)
-  ├─► data/qlib_data/cn_data/features/      (前复权 bin 文件, Qlib 可读)
-  ├─► data/qlib_data/cn_data/calendars/     (交易日历)
-  └─► data/qlib_data/cn_data/factor_data.parquet (因子数据, ~10M行 × 42列)
+  │
+  ├─ tushare_downloader.py / data_update.py
+  │   → data/tushare/*.parquet (9 个核心文件: daily_basic, adj_factor, income,
+  │      balancesheet, cashflow, fina_indicator, index_daily, index_weight, namechange)
+  │
+  ├─ build_qlib_data.py step 2
+  │   → data/qlib_data/raw_data/{inst}.parquet (5751 只股票 OHLCV)
+  │
+  ├─ tushare_to_qlib.py (build_adjusted_bins_batched)
+  │   → data/qlib_data/cn_data/
+  │       ├── calendars/day.txt           (交易日历)
+  │       ├── instruments/all.txt         (股票列表 + 日期范围)
+  │       ├── factor_data.parquet         (前向填充因子, ~10M行 × 42列)
+  │       └── features/{inst}/{open,high,low,close,volume,amount}.day.bin
+  │                                        (前复权 bin 文件, Qlib 可读)
 ```
+
+### 数据质量检查与自动修复
+
+运行 `data_quality_guard.py` 进行全量检查和自动修复（最多 5 轮循环）：
+
+```bash
+source env.sh
+python scripts/data_quality_guard.py
+```
+
+脚本会自动执行以下流程：
+1. **全量检查**：复用 `validate_data.py` 的 24 项检查
+2. **自动诊断**：根据检查结果判断根因
+3. **自动修复**：调用下载/更新/重建等修复函数
+4. **循环重验**：最多 5 轮，直到全部 PASS
+5. **人工介入**：如果 5 轮未通过，自动生成 `Q&A/YYYYMMDD.md` 供人工排查
+
+如果只想做检查不做修复：
+
+```bash
+python scripts/validate_data.py
+```
+
+### 手动重建
+
+- **全量重建**: `python scripts/build_qlib_data.py build --force`
+- **只重建 Qlib 格式（复用已有下载和 raw_data）**: `python scripts/build_qlib_data.py build --skip-download --skip-raw --workers 8`
+- **增量更新**: `python main.py update`
+
+**注意：** 全量构建过程内存峰值约 8-10GB，建议在 16GB 以上机器运行。脚本已内置分批处理，每批 500-1000 只股票，避免 OOM。
+
+## 数据流与验证
 
 ### 构建数据
 
@@ -421,14 +459,6 @@ data/tushare/*.parquet + stock_basic.csv
 ```bash
 python scripts/build_qlib_data.py build --workers 8
 ```
-
-**只重建 Qlib 格式（复用已有下载和 raw_data）：**
-
-```bash
-python scripts/build_qlib_data.py build --skip-download --skip-raw --workers 8
-```
-
-**注意：** 构建过程内存峰值约 8-10GB，建议在 16GB 以上机器运行。脚本已内置分批处理，每批 500-1000 只股票，避免 OOM。
 
 ### 验证数据
 
