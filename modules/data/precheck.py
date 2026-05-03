@@ -176,8 +176,9 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
                         errors.append(f"{index_weight} trade_date 全部无效")
                     else:
                         if trade_dates.min() > start_date:
-                            warnings.append(
-                                f"index_weight 最早快照 {trade_dates.min().date()} 晚于回测起点 {start_date.date()}"
+                            errors.append(
+                                f"index_weight 最早快照 {trade_dates.min().date()} 晚于回测起点 {start_date.date()}。"
+                                f"当前 csi300 回测在早期日期将缺少成分快照，请先补齐历史 index_weight。"
                             )
                         # 指数成分通常按月更新，允许 62 天窗口
                         if trade_dates.max() < end_date - pd.Timedelta(days=62):

@@ -163,6 +163,16 @@ class DataUpdater:
 
         return (datetime.strptime(date_str, "%Y%m%d") - timedelta(days=days)).strftime("%Y%m%d")
 
+    @staticmethod
+    def _required_index_weight_start() -> str:
+        """返回当前策略所需的最早指数成分覆盖起点。"""
+        configured_start = CONFIG.get("start_date", BOOTSTRAP_MARKET_START)
+        try:
+            configured_str = pd.Timestamp(configured_start).strftime("%Y%m%d")
+        except Exception:
+            return BOOTSTRAP_MARKET_START
+        return max(BOOTSTRAP_MARKET_START, configured_str)
+
     def _call_tushare_api(
         self,
         api_callable,
@@ -631,34 +641,57 @@ class DataUpdater:
         output_path = self.tushare_dir / "index_weight.parquet"
         indices = ["000300.SH"]
         end_date = datetime.now().strftime("%Y%m%d")
+        required_start = self._required_index_weight_start()
 
         try:
+            fetch_ranges = []
             if output_path.exists():
                 existing = pd.read_parquet(output_path, columns=["trade_date"])
-                max_date = str(existing["trade_date"].max())
-                # 指数成分按月调整，回拉约 3 个月以覆盖修订和重复月度快照
-                start_date = (pd.Timestamp(max_date) - pd.Timedelta(days=93)).strftime("%Y%m%d")
+                existing_dates = pd.to_datetime(
+                    existing["trade_date"].astype(str),
+                    format="%Y%m%d",
+                    errors="coerce",
+                ).dropna()
+                if existing_dates.empty:
+                    fetch_ranges.append((required_start, end_date))
+                else:
+                    min_date = existing_dates.min()
+                    max_date = existing_dates.max()
+                    required_start_ts = pd.Timestamp(required_start)
+                    if min_date > required_start_ts:
+                        head_end = (min_date - pd.Timedelta(days=1)).strftime("%Y%m%d")
+                        fetch_ranges.append((required_start, head_end))
+
+                    # 指数成分按月调整，尾部回拉约 3 个月以覆盖修订和重复月度快照
+                    tail_start = max(
+                        required_start,
+                        (max_date - pd.Timedelta(days=93)).strftime("%Y%m%d"),
+                    )
+                    fetch_ranges.append((tail_start, end_date))
             else:
-                start_date = "20160101"
+                fetch_ranges.append((required_start, end_date))
 
             all_data = []
             for index_code in indices:
-                for win_start, win_end in self._date_windows(start_date, end_date, step_days=366):
-                    try:
-                        df = self._call_tushare_api(
-                            pro.index_weight,
-                            f"index_weight {index_code} {win_start}-{win_end}",
-                            index_code=index_code,
-                            start_date=win_start,
-                            end_date=win_end,
-                        )
-                        if df is not None and len(df) > 0:
-                            all_data.append(df)
-                    except Exception as exc:
-                        logger.warning(
-                            f"index_weight {index_code} {win_start}-{win_end} 失败: {exc}"
-                        )
-                    time.sleep(0.05)
+                for range_start, range_end in fetch_ranges:
+                    if range_start > range_end:
+                        continue
+                    for win_start, win_end in self._date_windows(range_start, range_end, step_days=366):
+                        try:
+                            df = self._call_tushare_api(
+                                pro.index_weight,
+                                f"index_weight {index_code} {win_start}-{win_end}",
+                                index_code=index_code,
+                                start_date=win_start,
+                                end_date=win_end,
+                            )
+                            if df is not None and len(df) > 0:
+                                all_data.append(df)
+                        except Exception as exc:
+                            logger.warning(
+                                f"index_weight {index_code} {win_start}-{win_end} 失败: {exc}"
+                            )
+                        time.sleep(0.05)
 
             if not all_data:
                 logger.info("index_weight 无新数据")

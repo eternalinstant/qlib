@@ -428,6 +428,34 @@ class TestDataUpdaterDownload:
         assert result is True
         assert mock_pro.index_daily.call_args.kwargs["start_date"] == "20260301"
 
+    def test_download_index_weight_backfills_missing_head_history(self, tmp_path):
+        """已有 index_weight 若起点过晚，应回补回测起点之前的缺口。"""
+        from modules.data.updater import DataUpdater
+
+        output_path = tmp_path / "index_weight.parquet"
+        pd.DataFrame(
+            {
+                "index_code": ["000300.SH", "000300.SH"],
+                "con_code": ["000001.SZ", "000001.SZ"],
+                "trade_date": ["20250530", "20260331"],
+                "weight": [1.0, 1.0],
+            }
+        ).to_parquet(output_path, index=False)
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+
+        mock_pro = Mock()
+
+        with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro), \
+             patch.object(updater, "_call_tushare_api", return_value=pd.DataFrame()) as mock_api, \
+             patch("modules.data.updater.time.sleep", return_value=None):
+            result = updater.download_index_weight()
+
+        assert result is True
+        start_dates = [call.kwargs["start_date"] for call in mock_api.call_args_list]
+        assert "20190101" in start_dates
+
     def test_bootstrap_raw_data_for_instruments(self, tmp_path):
         """为缺失标的补齐历史 raw_data。"""
         from modules.data.updater import DataUpdater
@@ -1010,4 +1038,3 @@ class TestGetTusharePro:
         with patch('tushare.pro_api', side_effect=Exception("API Error")):
             result = get_tushare_pro()
             assert result is None
-

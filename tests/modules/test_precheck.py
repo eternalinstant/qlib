@@ -83,10 +83,10 @@ def test_run_data_precheck_passes_with_history_files(monkeypatch, tmp_path):
 
     pd.DataFrame(
         {
-            "index_code": ["000300.SH", "000300.SH"],
-            "con_code": ["000001.SZ", "000002.SZ"],
-            "trade_date": ["20260302", "20260302"],
-            "weight": [1.0, 1.2],
+            "index_code": ["000300.SH", "000300.SH", "000300.SH", "000300.SH"],
+            "con_code": ["000001.SZ", "000002.SZ", "000001.SZ", "000002.SZ"],
+            "trade_date": ["20190101", "20190101", "20260302", "20260302"],
+            "weight": [1.0, 1.2, 1.0, 1.2],
         }
     ).to_parquet(tushare_root / "index_weight.parquet", index=False)
     pd.DataFrame(
@@ -114,6 +114,47 @@ def test_run_data_precheck_passes_with_history_files(monkeypatch, tmp_path):
     assert result.errors == []
     assert "index_weight" in result.resolved_paths
     assert "namechange" in result.resolved_paths
+
+
+def test_run_data_precheck_requires_index_weight_history_from_backtest_start(monkeypatch, tmp_path):
+    from modules.data import precheck
+
+    qlib_root = tmp_path / "qlib"
+    tushare_root = tmp_path / "tushare"
+    _prepare_qlib_root(qlib_root)
+    _prepare_tushare_root(tushare_root)
+
+    pd.DataFrame(
+        {
+            "index_code": ["000300.SH", "000300.SH"],
+            "con_code": ["000001.SZ", "000002.SZ"],
+            "trade_date": ["20260302", "20260302"],
+            "weight": [1.0, 1.2],
+        }
+    ).to_parquet(tushare_root / "index_weight.parquet", index=False)
+    pd.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "name": ["ST平安"],
+            "start_date": ["20180101"],
+            "end_date": ["20190101"],
+        }
+    ).to_parquet(tushare_root / "namechange.parquet", index=False)
+
+    monkeypatch.setattr(precheck, "_qlib_root", lambda: qlib_root)
+    monkeypatch.setattr(precheck, "_tushare_root", lambda: tushare_root)
+    monkeypatch.setattr(precheck, "_iter_index_weight_paths", lambda: [tushare_root / "index_weight.parquet"])
+    monkeypatch.setattr(precheck, "_iter_namechange_paths", lambda: [tushare_root / "namechange.parquet"])
+    monkeypatch.setattr(
+        precheck,
+        "_backtest_period",
+        lambda: (pd.Timestamp("2019-01-01"), pd.Timestamp("2026-03-20")),
+    )
+
+    result = precheck.run_data_precheck(universe="csi300", require_st_history=True)
+
+    assert result.ok is False
+    assert any("最早快照" in err and "回测起点" in err for err in result.errors)
 
 
 def test_run_data_precheck_detects_provider_inconsistency(monkeypatch, tmp_path):
@@ -319,4 +360,3 @@ def test_run_data_precheck_missing_calendar_does_not_crash(monkeypatch, tmp_path
 
     assert result.ok is False
     assert any("calendars/day.txt" in err for err in result.errors)
-
