@@ -5,7 +5,7 @@ Qlib provider 一致性修复脚本
 修复三类问题：
 1. close.day.bin 超过日历长度 → 截断到日历末尾
 2. OHLCVA.bin 超过日历长度 → 截断到日历末尾
-3. close 与 OHLCVA end_idx 不一致 → 从 raw_data 全量重建
+3. close 与 OHLCVA/VWAP end_idx 不一致 → 从 raw_data 全量重建
 """
 import logging
 import numpy as np
@@ -19,12 +19,18 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.data.tushare_to_qlib import write_dense_bin_file
+from modules.data.tushare_to_qlib import (
+    PRICE_FIELDS,
+    QLIB_MARKET_FIELDS,
+    RAW_MARKET_FIELDS,
+    ensure_vwap,
+    write_dense_bin_file,
+)
 
 QLIB_DIR = PROJECT_ROOT / "data" / "qlib_data" / "cn_data"
 RAW_DIR = PROJECT_ROOT / "data" / "qlib_data" / "raw_data"
 TUSHARE_DIR = PROJECT_ROOT / "data" / "tushare"
-FIELDS = ["open", "high", "low", "close", "volume", "amount"]
+FIELDS = QLIB_MARKET_FIELDS
 
 
 def _load_calendar():
@@ -144,7 +150,6 @@ def rebuild_from_raw_data():
 
     idx_to_date = {i: d for d, i in date_to_idx.items()}
     adj_maps = _load_adj_ratio_map(date_to_idx)
-    PRICE_FIELDS = {"open", "high", "low", "close"}
 
     rebuilt = 0
 
@@ -165,7 +170,8 @@ def rebuild_from_raw_data():
             continue
 
         try:
-            df = pd.read_parquet(raw_file, columns=["date"] + FIELDS)
+            df = pd.read_parquet(raw_file, columns=["date"] + RAW_MARKET_FIELDS)
+            df = ensure_vwap(df)
         except Exception:
             continue
 

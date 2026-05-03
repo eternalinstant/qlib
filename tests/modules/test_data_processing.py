@@ -80,12 +80,62 @@ class TestTushareToQlibConverter:
         assert written == 1
         close_bin = np.fromfile(features_dir / "close.day.bin", dtype="<f4")
         volume_bin = np.fromfile(features_dir / "volume.day.bin", dtype="<f4")
+        vwap_bin = np.fromfile(features_dir / "vwap.day.bin", dtype="<f4")
         assert int(close_bin[0]) == 0
         assert close_bin[1] == pytest.approx(10.0)
         assert np.isnan(close_bin[2])
         assert close_bin[3] == pytest.approx(12.0)
         assert np.isnan(volume_bin[2])
         assert volume_bin[3] == pytest.approx(1200.0)
+        assert np.isnan(vwap_bin[2])
+        assert vwap_bin[1] == pytest.approx(100.0)
+        assert vwap_bin[3] == pytest.approx(13000.0 * 10.0 / 1200.0)
+
+    def test_vwap_uses_same_adjustment_as_prices(self, tmp_path):
+        """Alpha158 的 VWAP0 要和 close 使用同一前复权口径。"""
+        from modules.data.tushare_to_qlib import TushareToQlibConverter
+
+        qlib_dir = tmp_path / "cn_data"
+        raw_dir = qlib_dir.parent / "raw_data"
+        raw_dir.mkdir(parents=True)
+        features_dir = qlib_dir / "features" / "sz000001"
+        features_dir.mkdir(parents=True)
+        cal_dir = qlib_dir / "calendars"
+        cal_dir.mkdir(parents=True)
+        (cal_dir / "day.txt").write_text("2026-01-02\n2026-01-05\n")
+
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-05")],
+                "close": [10.0, 20.0],
+                "open": [9.0, 19.0],
+                "high": [11.0, 21.0],
+                "low": [8.0, 18.0],
+                "volume": [1000.0, 1000.0],
+                "amount": [1000.0, 2000.0],
+            }
+        ).to_parquet(raw_dir / "sz000001.parquet", index=False)
+
+        tushare_dir = tmp_path / "tushare"
+        tushare_dir.mkdir(parents=True)
+        pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ", "000001.SZ"],
+                "trade_date": ["20260102", "20260105"],
+                "adj_factor": [1.0, 2.0],
+            }
+        ).to_parquet(tushare_dir / "adj_factor.parquet", index=False)
+
+        converter = TushareToQlibConverter(
+            tushare_dir=str(tushare_dir), qlib_dir=str(qlib_dir)
+        )
+        assert converter.build_adjusted_bins_for_instruments(["sz000001"]) == 1
+
+        close_bin = np.fromfile(features_dir / "close.day.bin", dtype="<f4")
+        vwap_bin = np.fromfile(features_dir / "vwap.day.bin", dtype="<f4")
+
+        assert close_bin[1:].tolist() == pytest.approx([5.0, 20.0])
+        assert vwap_bin[1:].tolist() == pytest.approx([5.0, 20.0])
 
 
 class TestTushareDownloader:

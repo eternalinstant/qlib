@@ -13,6 +13,35 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+RAW_MARKET_FIELDS = ["open", "high", "low", "close", "volume", "amount"]
+QLIB_MARKET_FIELDS = RAW_MARKET_FIELDS + ["vwap"]
+PRICE_FIELDS = {"open", "high", "low", "close", "vwap"}
+
+
+def compute_tushare_vwap(df: pd.DataFrame) -> pd.Series:
+    """从 Tushare daily 的 amount/volume 派生成交均价。"""
+    volume = pd.to_numeric(df.get("volume"), errors="coerce")
+    amount = pd.to_numeric(df.get("amount"), errors="coerce")
+
+    # Tushare daily: amount 单位为千元，volume/vol 单位为手。
+    vwap = amount * 10.0 / volume.replace(0, np.nan)
+    if "close" in df.columns:
+        close = pd.to_numeric(df["close"], errors="coerce")
+        vwap = vwap.where(np.isfinite(vwap) & (vwap > 0), close)
+    return vwap.astype("float32")
+
+
+def ensure_vwap(df: pd.DataFrame) -> pd.DataFrame:
+    """确保日线 raw_data 带有 raw vwap。"""
+    df = df.copy()
+    computed = compute_tushare_vwap(df)
+    if "vwap" not in df.columns:
+        df["vwap"] = computed
+    else:
+        current = pd.to_numeric(df["vwap"], errors="coerce")
+        df["vwap"] = current.where(np.isfinite(current) & (current > 0), computed)
+    return df
+
 
 def _ts_code_to_instrument(ts_code_series: pd.Series) -> pd.Series:
     """ts_code (000001.SZ) → instrument (sz000001)"""
@@ -142,11 +171,8 @@ class TushareToQlibConverter:
 
     def _load_and_adjust_one(self, raw_path: Path, inst: str, adj_map: dict) -> Optional[pd.DataFrame]:
         """加载一只股票的 raw_data 并计算前复权价格，返回 DataFrame 或 None。"""
-        fields = ["open", "high", "low", "close", "volume", "amount"]
-        price_fields = {"open", "high", "low", "close"}
-
         try:
-            df = pd.read_parquet(raw_path, columns=["date"] + fields)
+            df = pd.read_parquet(raw_path, columns=["date"] + RAW_MARKET_FIELDS)
         except Exception:
             return None
 
@@ -155,23 +181,25 @@ class TushareToQlibConverter:
         if df.empty:
             return None
 
+        df = ensure_vwap(df)
+        for fld in QLIB_MARKET_FIELDS:
+            if fld in df.columns:
+                df[fld] = pd.to_numeric(df[fld], errors="coerce").astype("float64")
         inst_adj = adj_map[inst]
         df["adj_ratio"] = df["date"].map(inst_adj)
-        for fld in price_fields:
+        for fld in PRICE_FIELDS:
             if fld in df.columns:
                 mask = df["adj_ratio"].notna() & np.isfinite(df["adj_ratio"])
                 df.loc[mask, fld] = df.loc[mask, fld] * df.loc[mask, "adj_ratio"]
                 df.loc[~mask, fld] = np.nan
         df = df.drop(columns=["adj_ratio"], errors="ignore")
-        df = df.dropna(subset=[c for c in fields if c in df.columns], how="all")
+        df = df.dropna(subset=[c for c in QLIB_MARKET_FIELDS if c in df.columns], how="all")
         if df.empty:
             return None
         return df
 
     def _write_bins_for_df(self, inst_dir: Path, df: pd.DataFrame, date_to_idx: dict) -> bool:
         """将已调整的 DataFrame 按交易日历写入 bin 文件。返回是否成功写入。"""
-        fields = ["open", "high", "low", "close", "volume", "amount"]
-
         df = df[df["date"].isin(date_to_idx)]
         if df.empty:
             return False
@@ -180,7 +208,7 @@ class TushareToQlibConverter:
         df = df.dropna(subset=["cal_idx"])
         df["cal_idx"] = df["cal_idx"].astype(int)
 
-        for fld in fields:
+        for fld in QLIB_MARKET_FIELDS:
             if fld not in df.columns:
                 continue
             fld_data = (
@@ -614,8 +642,6 @@ class TushareToQlibConverter:
             return {}
 
         date_to_idx, idx_to_date, cal_last_idx = self._load_calendar()
-        fields = ["open", "high", "low", "close", "volume", "amount"]
-        price_fields = {"open", "high", "low", "close"}
 
         adj_map = self._load_adj_ratio_map()
 
@@ -642,7 +668,7 @@ class TushareToQlibConverter:
 
             existing_meta = {"close": close_meta}
             inconsistent = close_start > cal_last_idx or close_end > cal_last_idx
-            for field in fields:
+            for field in QLIB_MARKET_FIELDS:
                 if field == "close":
                     continue
                 bin_path = inst_dir / f"{field}.day.bin"
@@ -661,14 +687,15 @@ class TushareToQlibConverter:
             raw_maps = {}
             if raw_path.exists():
                 try:
-                    raw_df = pd.read_parquet(raw_path, columns=["date"] + fields)
+                    raw_df = pd.read_parquet(raw_path, columns=["date"] + RAW_MARKET_FIELDS)
+                    raw_df = ensure_vwap(raw_df)
                     raw_df["date"] = pd.to_datetime(raw_df["date"], errors="coerce").dt.normalize()
                     raw_df = raw_df.dropna(subset=["date"])
                     raw_df = raw_df[raw_df["date"].isin(date_to_idx)]
                     if not raw_df.empty:
                         raw_df["cal_idx"] = raw_df["date"].map(date_to_idx).astype(int)
                         raw_last_idx = int(raw_df["cal_idx"].max())
-                        for field in fields:
+                        for field in QLIB_MARKET_FIELDS:
                             if field in raw_df.columns:
                                 fld = raw_df[["cal_idx", field]].dropna(subset=[field])
                                 raw_maps[field] = dict(zip(fld["cal_idx"], fld[field]))
@@ -754,7 +781,7 @@ class TushareToQlibConverter:
             close_map = dict(zip(close_index.tolist(), close_values.tolist()))
 
             repaired = False
-            for field in fields:
+            for field in QLIB_MARKET_FIELDS:
                 if field == "close":
                     continue
 
@@ -783,18 +810,18 @@ class TushareToQlibConverter:
                     continue
 
                 target_start = min(start_candidates)
-                raw_backed_rebuild = bool(raw_field_map) or (field in price_fields and bool(raw_close_map))
+                raw_backed_rebuild = bool(raw_field_map) or (field in PRICE_FIELDS and bool(raw_close_map))
                 rebuilt_values = []
                 for idx in range(target_start, close_end + 1):
                     derived = None
                     raw_val = raw_field_map.get(idx)
-                    if field in price_fields and inst_adj:
+                    if field in PRICE_FIELDS and inst_adj:
                         # adj_factor 模式：所有价格字段用同一 adj_ratio
                         d = idx_to_date.get(idx)
                         ratio = inst_adj.get(d) if d else None
                         if raw_val is not None and ratio is not None and np.isfinite(raw_val):
                             derived = float(raw_val) * float(ratio)
-                    elif field in price_fields:
+                    elif field in PRICE_FIELDS:
                         # fallback：用 close bin / raw_close 推导
                         close_val = close_map.get(idx)
                         raw_close = raw_close_map.get(idx)
@@ -833,14 +860,14 @@ class TushareToQlibConverter:
         return stats
 
     def update_ohlcv_bins(self) -> dict:
-        """增量更新 open/high/low/volume/amount 的 bin 文件
+        """增量更新 open/high/low/volume/amount/vwap 的 bin 文件
 
-        优先使用 adj_factor 前复权：所有价格字段（open/high/low）使用同一个 adj_ratio。
-        如果 adj_factor 不可用，回退到 splice-point ratio。
+        优先使用 adj_factor 前复权：所有价格字段（open/high/low/vwap）使用同一个 adj_ratio。
+        如果 adj_factor 不可用，回退到 splice-point ratio。vwap 从 amount/volume 派生。
         volume/amount 始终保持原始值，不做复权缩放。
         """
-        fields = ["open", "high", "low", "volume", "amount"]
-        price_fields = {"open", "high", "low"}
+        fields = ["open", "high", "low", "volume", "amount", "vwap"]
+        price_fields = {"open", "high", "low", "vwap"}
         raw_dir = self.qlib_dir.parent / "raw_data"
         cal_file = self.qlib_dir / "calendars" / "day.txt"
         features_dir = self.qlib_dir / "features"
@@ -866,7 +893,8 @@ class TushareToQlibConverter:
                 continue
 
             try:
-                df = pd.read_parquet(raw_path, columns=["date", "close"] + fields)
+                df = pd.read_parquet(raw_path, columns=["date"] + RAW_MARKET_FIELDS)
+                df = ensure_vwap(df)
             except Exception:
                 continue
 

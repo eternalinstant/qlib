@@ -12,6 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 import sys; sys.path.insert(0, str(PROJECT_ROOT))
 
+from modules.data.tushare_to_qlib import ensure_vwap
+
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "qlib_data" / "raw_data"
 TUSHARE_DIR = PROJECT_ROOT / "data" / "tushare"
 
@@ -87,7 +89,8 @@ def merge_to_files(df):
         group['date'] = pd.to_datetime(group['trade_date'], format='%Y%m%d')
         group = group.rename(columns={'vol': 'volume'})
         group['symbol'] = ts_code
-        group = group[['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'symbol']]
+        group = ensure_vwap(group)
+        group = group[['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'vwap', 'symbol']]
         group = group.sort_values('date')
 
         if file_path.exists():
@@ -95,6 +98,7 @@ def merge_to_files(df):
             existing['date'] = pd.to_datetime(existing['date'])
             combined = pd.concat([existing, group], ignore_index=True)
             combined = combined.drop_duplicates(subset=['date'], keep='last')
+            combined = ensure_vwap(combined)
             combined = combined.sort_values('date')
             combined.to_parquet(file_path, index=False)
         else:
