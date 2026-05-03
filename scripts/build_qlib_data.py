@@ -12,10 +12,11 @@
 
 import sys
 import os
+import gc
 import time
 import logging
 import argparse
-import numpy as np
+import subprocess
 import pandas as pd
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,8 +24,6 @@ from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-
-from modules.data.tushare_to_qlib import write_dense_bin_file
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -151,9 +150,10 @@ def step_download_raw_data(start_date: str, end_date: str, workers: int):
 
 def _batch_download(pro, ts_codes, start_date=None, end_date=None,
                     recent_days=None, workers=4):
-    """批量下载并保存"""
+    """批量下载并保存，统计成功/失败数"""
     total = len(ts_codes)
-    done = 0
+    success = 0
+    fail = 0
 
     def download_and_save(ts_code):
         code, exchange = ts_code.split(".")
@@ -176,11 +176,17 @@ def _batch_download(pro, ts_codes, start_date=None, end_date=None,
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(download_and_save, code): code for code in ts_codes}
         for future in as_completed(futures):
-            done += 1
-            if done % 500 == 0:
-                logger.info(f"    进度: {done}/{total}")
+            if future.result():
+                success += 1
+            else:
+                fail += 1
+            if (success + fail) % 500 == 0:
+                logger.info(f"    进度: {success + fail}/{total} (成功={success}, 失败={fail})")
 
-    logger.info(f"    完成 {done}/{total}")
+    if fail > 0:
+        logger.warning(f"    下载完成 {total} 只: 成功={success}, 失败={fail}")
+    else:
+        logger.info(f"    完成 {success}/{total}")
 
 
 # ── Step 3: Qlib 数据转换 ─────────────────────────────────────────────
@@ -216,6 +222,7 @@ def step_build_qlib_data(start_date: str, end_date: str, force: bool = False):
     if factor_df is not None:
         converter.save(factor_df)
         del factor_df
+        gc.collect()
 
     # 3c. 为 raw_data 中的每只股票创建 features 目录 + instruments.txt
     logger.info("  3c. 创建 features 目录 + instruments.txt...")
@@ -226,26 +233,27 @@ def step_build_qlib_data(start_date: str, end_date: str, force: bool = False):
         inst_dir.mkdir(exist_ok=True)
         instruments.append(raw_path.stem)
 
-    # 读取日历获取起止日期
-    cal_file = QLIB_DIR / "calendars" / "day.txt"
-    cal_start, cal_end = "2016-01-04", "2026-04-30"
-    if cal_file.exists():
-        with open(cal_file) as f:
-            cal_lines = [l.strip() for l in f if l.strip()]
-        if cal_lines:
-            cal_start, cal_end = cal_lines[0], cal_lines[-1]
-
     (QLIB_DIR / "instruments").mkdir(parents=True, exist_ok=True)
     with open(QLIB_DIR / "instruments" / "all.txt", "w") as f:
         for inst in sorted(instruments):
-            f.write(f"{inst}\t{cal_start}\t{cal_end}\n")
-    logger.info(f"  instruments.txt: {len(instruments)} 只股票")
+            raw_path = RAW_DIR / f"{inst}.parquet"
+            inst_start, inst_end = "", ""
+            if raw_path.exists():
+                try:
+                    df = pd.read_parquet(raw_path, columns=["date"])
+                    if not df.empty:
+                        dates = pd.to_datetime(df["date"], errors="coerce").dropna()
+                        if not dates.empty:
+                            inst_start = dates.min().strftime("%Y-%m-%d")
+                            inst_end = dates.max().strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+            f.write(f"{inst}\t{inst_start}\t{inst_end}\n")
+    logger.info(f"  instruments.txt: {len(instruments)} 只股票 (已写入实际日期范围)")
 
-    # 3d. 计算前复权价格并写入 bin
-    logger.info("  3d. 计算前复权价格并写入 bin...")
-    adjusted = converter.compute_forward_adjusted_prices()
-    if adjusted:
-        converter.write_adjusted_bins(adjusted)
+    # 3d. 分批计算前复权价格并写入 bin（控制内存峰值）
+    logger.info("  3d. 分批计算前复权价格并写入 bin...")
+    converter.build_adjusted_bins_batched(batch_size=1000)
 
     # 3e. 对没有 adj_factor 的股票写入原始价格 bin
     has_bin = {d.name for d in (QLIB_DIR / "features").iterdir()
@@ -280,127 +288,20 @@ def _build_calendar(start_date: str, end_date: str):
     logger.info(f"  日历: {len(dates)} 个交易日 ({dates.min().date()} ~ {dates.max().date()})")
 
 
-def _write_bins_for(raw_files: list):
-    """将指定 raw_data 文件写入 qlib bin（原始价格，不复权）"""
-    cal_file = QLIB_DIR / "calendars" / "day.txt"
-    if not cal_file.exists():
-        return
-
-    cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
-    cal_dates = cal["date"].dt.normalize()
-    date_to_idx = {d: i for i, d in enumerate(cal_dates)}
-
-    written = 0
-    for raw_path in raw_files:
-        inst = raw_path.stem
-        inst_dir = QLIB_DIR / "features" / inst
-        if not inst_dir.exists():
-            continue
-
-        try:
-            df = pd.read_parquet(raw_path, columns=["date"] + FIELDS)
-        except Exception:
-            continue
-
-        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
-        df = df.dropna(subset=["date"])
-        df = df[df["date"].isin(date_to_idx)]
-        if df.empty:
-            continue
-
-        df["cal_idx"] = df["date"].map(date_to_idx).astype(int)
-
-        for fld in FIELDS:
-            if fld not in df.columns:
-                continue
-            fld_data = (
-                df[["cal_idx", fld]]
-                .dropna(subset=[fld])
-                .drop_duplicates(subset=["cal_idx"], keep="last")
-                .sort_values("cal_idx")
-            )
-            if fld_data.empty:
-                continue
-            write_dense_bin_file(
-                inst_dir / f"{fld}.day.bin",
-                fld_data["cal_idx"],
-                fld_data[fld],
-            )
-
-        written += 1
-
-    logger.info(f"  写入未复权 bin: {written} 只股票")
-
-
 # ── Step 4: 验证 ──────────────────────────────────────────────────────
 
 def step_validate():
-    """验证 qlib 数据一致性"""
-    logger.info("[4/4] 验证数据...")
-    errors = []
+    """运行全量数据验证"""
+    logger.info("[4/4] 验证数据 (全量)...")
+    validate_script = PROJECT_ROOT / "scripts" / "validate_data.py"
 
-    # 日历
-    cal_file = QLIB_DIR / "calendars" / "day.txt"
-    if cal_file.exists():
-        with open(cal_file) as f:
-            cal_lines = [l.strip() for l in f if l.strip()]
-        logger.info(f"  日历: {len(cal_lines)} 天")
-    else:
-        errors.append("日历文件不存在")
-
-    # Features
-    features_dir = QLIB_DIR / "features"
-    inst_dirs = [d for d in features_dir.iterdir() if d.is_dir()] if features_dir.exists() else []
-    logger.info(f"  股票数: {len(inst_dirs)}")
-
-    # 抽样验证 OHLC 约束
-    if inst_dirs and cal_file.exists():
-        cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
-        cal_dates = cal["date"].dt.normalize()
-        date_to_idx = {d: i for i, d in enumerate(cal_dates)}
-
-        sample = inst_dirs[:50]  # 抽前50只
-        violations = 0
-        checked = 0
-        for inst_dir in sample:
-            reads = {}
-            for fld in ["open", "high", "low", "close"]:
-                bin_path = inst_dir / f"{fld}.day.bin"
-                if not bin_path.exists():
-                    break
-                raw = np.fromfile(bin_path, dtype="<f4")
-                if len(raw) < 2:
-                    break
-                reads[fld] = raw[1:]
-            if len(reads) == 4:
-                checked += 1
-                o, h, l, c = reads["open"], reads["high"], reads["low"], reads["close"]
-                n = min(len(o), len(h), len(l), len(c))
-                if n > 0:
-                    o, h, l, c = o[:n], h[:n], l[:n], c[:n]
-                    mask = ~(np.isnan(o) | np.isnan(h) | np.isnan(l) | np.isnan(c))
-                    if mask.any():
-                        vv = np.sum(
-                            (l[mask] > h[mask]) | (o[mask] > h[mask]) |
-                            (o[mask] < l[mask]) | (c[mask] > h[mask]) | (c[mask] < l[mask])
-                        )
-                        violations += int(vv)
-
-        logger.info(f"  OHLC 约束: 检查 {checked} 只股票, 违反 {violations} 条")
-
-    # Raw data
-    raw_count = len(list(RAW_DIR.glob("*.parquet"))) if RAW_DIR.exists() else 0
-    logger.info(f"  Raw data: {raw_count} 只股票")
-
-    # Tushare
-    ts_count = len(list(TUSHARE_DIR.glob("*.parquet"))) if TUSHARE_DIR.exists() else 0
-    logger.info(f"  Tushare: {ts_count} 个文件")
-
-    if errors:
-        logger.error(f"  验证问题: {errors}")
+    result = subprocess.run(
+        [sys.executable, str(validate_script), "--data-root", str(QLIB_DIR)],
+        capture_output=False,
+    )
+    if result.returncode != 0:
+        logger.warning(f"验证脚本退出码: {result.returncode}")
         return False
-
-    logger.info("  验证通过!")
     return True
 
 

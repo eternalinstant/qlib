@@ -33,33 +33,49 @@ class TestTushareToQlibConverter:
         assert str(converter.tushare_dir) == "/custom/tushare"
         assert str(converter.qlib_dir) == "/custom/qlib"
 
-    def test_write_adjusted_bins_preserves_calendar_gaps(self, tmp_path):
+    def test_build_adjusted_bins_for_instruments_preserves_calendar_gaps(self, tmp_path):
         """前复权 bin 写入必须按交易日历补 NaN，不能压缩停牌日。"""
         from modules.data.tushare_to_qlib import TushareToQlibConverter
 
         qlib_dir = tmp_path / "cn_data"
+        raw_dir = qlib_dir.parent / "raw_data"
+        raw_dir.mkdir(parents=True)
         features_dir = qlib_dir / "features" / "sz000001"
         features_dir.mkdir(parents=True)
         cal_dir = qlib_dir / "calendars"
         cal_dir.mkdir(parents=True)
         (cal_dir / "day.txt").write_text("2026-01-02\n2026-01-05\n2026-01-06\n")
 
-        converter = TushareToQlibConverter(tushare_dir=str(tmp_path), qlib_dir=str(qlib_dir))
-        adjusted = {
-            "sz000001": pd.DataFrame(
-                {
-                    "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-06")],
-                    "close": [10.0, 12.0],
-                    "open": [9.0, 11.0],
-                    "high": [10.2, 12.2],
-                    "low": [8.8, 10.8],
-                    "volume": [1000.0, 1200.0],
-                    "amount": [10000.0, 13000.0],
-                }
-            )
-        }
+        # 写入 raw_data
+        raw_df = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-06")],
+                "close": [10.0, 12.0],
+                "open": [9.0, 11.0],
+                "high": [10.2, 12.2],
+                "low": [8.8, 10.8],
+                "volume": [1000.0, 1200.0],
+                "amount": [10000.0, 13000.0],
+            }
+        )
+        raw_df.to_parquet(raw_dir / "sz000001.parquet", index=False)
 
-        written = converter.write_adjusted_bins(adjusted)
+        # 写入 adj_factor (ratio=1.0，价格不变)
+        tushare_dir = tmp_path / "tushare"
+        tushare_dir.mkdir(parents=True)
+        adj_df = pd.DataFrame(
+            {
+                "ts_code": ["000001.SZ", "000001.SZ"],
+                "trade_date": ["20260102", "20260106"],
+                "adj_factor": [1.0, 1.0],
+            }
+        )
+        adj_df.to_parquet(tushare_dir / "adj_factor.parquet", index=False)
+
+        converter = TushareToQlibConverter(
+            tushare_dir=str(tushare_dir), qlib_dir=str(qlib_dir)
+        )
+        written = converter.build_adjusted_bins_for_instruments(["sz000001"])
 
         assert written == 1
         close_bin = np.fromfile(features_dir / "close.day.bin", dtype="<f4")

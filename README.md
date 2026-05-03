@@ -397,6 +397,81 @@ python3 scripts/audit_price_fields.py --sample-size 20 --days 10
 - `modules/data/updater.py` 会在日更时自动回补最近一段交易日的 `raw_data`
 - 如果启用了 `block_limit_up_buy / block_limit_down_sell`，但本地缺少对应 `raw_data` 文件，回测会直接报错，不会静默降级
 
+## 数据流与验证
+
+### 数据流水线
+
+```
+Tushare API
+  │  tushare_downloader.py (下载日线/财务/复权因子等)
+  ▼
+data/tushare/*.parquet + stock_basic.csv
+  │  build_qlib_data.py build (转换)
+  ├─► data/qlib_data/raw_data/*.parquet     (原始 OHLCV, 每只股票一个文件)
+  ├─► data/qlib_data/cn_data/instruments/   (每只股票的实际日期范围)
+  ├─► data/qlib_data/cn_data/features/      (前复权 bin 文件, Qlib 可读)
+  ├─► data/qlib_data/cn_data/calendars/     (交易日历)
+  └─► data/qlib_data/cn_data/factor_data.parquet (因子数据, ~10M行 × 42列)
+```
+
+### 构建数据
+
+**首次全量构建：**
+
+```bash
+python scripts/build_qlib_data.py build --workers 8
+```
+
+**只重建 Qlib 格式（复用已有下载和 raw_data）：**
+
+```bash
+python scripts/build_qlib_data.py build --skip-download --skip-raw --workers 8
+```
+
+**注意：** 构建过程内存峰值约 8-10GB，建议在 16GB 以上机器运行。脚本已内置分批处理，每批 500-1000 只股票，避免 OOM。
+
+### 验证数据
+
+```bash
+python scripts/validate_data.py
+```
+
+24 项检查分为三级：
+
+| 级别 | 含义 | 目标 |
+|------|------|------|
+| P0 | 致命问题（回测结果错误） | 必须全部 PASS |
+| P1 | 重要问题（影响回测质量） | 不应有 FAIL |
+| P2 | 数据健康指标 | 参考 |
+
+验证报告会输出彩色终端摘要，同时保存 JSON 到 `results/` 目录。
+
+### 内存优化说明
+
+数据处理脚本针对 16GB 内存机器做了以下优化：
+
+- **`save()`**：用 PyArrow 只读 instrument 列做差集，避免同时加载新旧两份全量数据
+- **`build_adjusted_bins_batched()`**：每批 1000 只股票计算前复权并写 bin，之后 `gc.collect()` 释放
+- **`convert()`**：分批处理 500 只股票，concat 前释放 quarterlies 和 daily
+
+### 常见问题
+
+**Q: 日历覆盖率 WARN（510 只股票 >70% 缺失）**
+
+A: 属退市/新上市股票的正常现象。instruments.txt 已写入每只股票的实际日期范围，退市股票覆盖其实际存续期即可。
+
+**Q: Adj_ratio WARN（极低值 <0.001）**
+
+A: 源自极端复权场景（如大量拆股的历史股票），阈值已放宽至 0.001，83 条记录属正常范围。
+
+**Q: instruments 日期全部相同**
+
+A: 旧版代码写死日期。运行 `build_qlib_data.py build --skip-download --skip-raw` 重建即可修复。
+
+**Q: 构建时 OOM**
+
+A: 减少并发数或分批处理。脚本已内置分批逻辑（因子处理每批 500 只，bin 写入每批 1000 只）。如仍 OOM，可进一步降低 `batch_size` 参数。
+
 ## 结果文件
 
 - [data/selections](/Users/sxt/code/qlib/data/selections)：策略选股快照

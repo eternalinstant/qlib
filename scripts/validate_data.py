@@ -66,7 +66,7 @@ PRICE_JUMP_THRESHOLD = 0.20  # 日间涨跌幅 > 20%
 CONSECUTIVE_FLAT_DAYS = 10  # 连续平盘天数阈值
 FACTOR_NULL_THRESHOLD = 0.50  # 因子空值率 > 50%
 MISSING_RATE_WARN = 0.30  # 缺失率 > 30% 警告
-MISSING_RATE_FAIL = 0.70  # 缺失率 > 70% 失败 (严重缺失)
+MISSING_RATE_FAIL = 0.70  # 缺失率 > 70% 警告 (退市股票正常现象，不 FAIL)
 PE_EXTREME = 10000  # PE > 10000 极端值
 DATA_FRESHNESS_WARN_DAYS = 7  # 数据距今天数超过此值警告
 
@@ -88,6 +88,7 @@ class DataValidator:
         self.instruments_file = self.cn_data_dir / "instruments" / "all.txt"
         self.features_dir = self.cn_data_dir / "features"
         self.factor_file = self.cn_data_dir / "factor_data.parquet"
+        self.tushare_dir = root.parent / "tushare"  # data/tushare
 
         # Caches
         self._calendar = None
@@ -488,10 +489,9 @@ class DataValidator:
         avg_coverage = (np.mean(list(coverage_rates.values()))
                         if coverage_rates else 0)
 
+        # 退市股票日历覆盖率低属正常现象，最多 WARN 不 FAIL
         if below_fail == 0 and below_warn == 0:
             status = STATUS_PASS
-        elif below_fail > 0:
-            status = STATUS_FAIL
         else:
             status = STATUS_WARN
 
@@ -886,6 +886,421 @@ class DataValidator:
                           "coverage_mismatch_detail": coverage_mismatch_detail[:20]})
         return self._results[-1]
 
+    # ── P1: Tushare 源数据检查 ──────────────────────────────────────────
+
+    def _iter_tushare_files(self):
+        """遍历 tushare/*.parquet"""
+        if not self.tushare_dir.exists():
+            return
+        for f in sorted(self.tushare_dir.iterdir()):
+            if f.suffix == ".parquet" and not f.name.startswith("."):
+                yield f
+
+    def check_tushare_files_exist(self) -> dict:
+        """检查 tushare 9 个核心文件 + 补充数据文件是否存在"""
+        required = [
+            "daily_basic.parquet", "adj_factor.parquet",
+            "income.parquet", "balancesheet.parquet", "cashflow.parquet",
+            "fina_indicator.parquet", "index_daily.parquet",
+            "index_weight.parquet", "namechange.parquet",
+        ]
+        existing = {f.name for f in self._iter_tushare_files()}
+        missing = [f for f in required if f not in existing]
+        extra = sorted(existing - set(required))
+
+        if not missing:
+            status = STATUS_PASS
+            desc = f"9/9 核心文件完整"
+        else:
+            status = STATUS_FAIL
+            desc = f"缺少 {len(missing)} 个核心文件: {missing}"
+
+        self._add_result("P1", "Tushare 源文件完整性 (9个核心文件)",
+                         status, desc,
+                         {"required": required, "missing": missing,
+                          "existing": sorted(existing), "extra": extra})
+        return self._results[-1]
+
+    def check_daily_basic_coverage(self) -> dict:
+        """检查 daily_basic 每天覆盖的股票数"""
+        db_path = self.tushare_dir / "daily_basic.parquet"
+        if not db_path.exists():
+            self._add_result("P1", "Daily_basic 股票/日期覆盖",
+                             STATUS_SKIP, "daily_basic.parquet 不存在")
+            return self._results[-1]
+
+        try:
+            df = pd.read_parquet(db_path, columns=["trade_date", "ts_code"])
+        except Exception as e:
+            self._add_result("P1", "Daily_basic 股票/日期覆盖",
+                             STATUS_SKIP, f"读取失败: {e}")
+            return self._results[-1]
+
+        df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
+        daily_counts = df.groupby("trade_date")["ts_code"].nunique()
+        total_stocks = df["ts_code"].nunique()
+
+        low_days = daily_counts[daily_counts < total_stocks * 0.5]
+        min_count = int(daily_counts.min()) if len(daily_counts) > 0 else 0
+        max_count = int(daily_counts.max()) if len(daily_counts) > 0 else 0
+        avg_count = int(daily_counts.mean()) if len(daily_counts) > 0 else 0
+
+        status = STATUS_PASS if len(low_days) == 0 else STATUS_WARN
+        desc = (f"{total_stocks} 只股票, {len(daily_counts)} 个交易日, "
+                f"日均 {avg_count} 只, 范围 {min_count}~{max_count}")
+        if len(low_days) > 0:
+            desc += f", {len(low_days)} 天覆盖不足50%"
+
+        self._add_result("P1", "Daily_basic 股票/日期覆盖",
+                         status, desc,
+                         {"total_stocks": int(total_stocks),
+                          "trading_days": len(daily_counts),
+                          "avg_daily_stocks": avg_count,
+                          "min_daily": min_count,
+                          "max_daily": max_count,
+                          "low_coverage_days": int(len(low_days))})
+        return self._results[-1]
+
+    def check_adj_factor_coverage(self) -> dict:
+        """检查 adj_factor 每只股票的覆盖情况"""
+        af_path = self.tushare_dir / "adj_factor.parquet"
+        if not af_path.exists():
+            self._add_result("P1", "Adj_factor 覆盖率",
+                             STATUS_SKIP, "adj_factor.parquet 不存在")
+            return self._results[-1]
+
+        try:
+            df = pd.read_parquet(af_path, columns=["ts_code", "trade_date"])
+        except Exception as e:
+            self._add_result("P1", "Adj_factor 覆盖率",
+                             STATUS_SKIP, f"读取失败: {e}")
+            return self._results[-1]
+
+        total_stocks = df["ts_code"].nunique()
+        stock_date_counts = df.groupby("ts_code")["trade_date"].nunique()
+        low_coverage = stock_date_counts[stock_date_counts < 10]
+        missing_dates_stocks = int((stock_date_counts == 0).sum())
+
+        status = STATUS_PASS if len(low_coverage) == 0 else STATUS_WARN
+        desc = (f"{total_stocks} 只股票有复权因子, "
+                f"日期数: min={int(stock_date_counts.min())}, "
+                f"median={int(stock_date_counts.median())}, "
+                f"max={int(stock_date_counts.max())}")
+
+        self._add_result("P1", "Adj_factor 覆盖率 (每只股票复权因子日期数)",
+                         status, desc,
+                         {"total_stocks": int(total_stocks),
+                          "min_dates": int(stock_date_counts.min()),
+                          "median_dates": int(stock_date_counts.median()),
+                          "max_dates": int(stock_date_counts.max()),
+                          "low_coverage_stocks": int(len(low_coverage)),
+                          "missing_dates_stocks": missing_dates_stocks})
+        return self._results[-1]
+
+    def check_financial_data_completeness(self) -> dict:
+        """检查财务数据每只股票的报告覆盖"""
+        fina_files = ["income.parquet", "balancesheet.parquet",
+                      "cashflow.parquet", "fina_indicator.parquet"]
+        results = {}
+        total_stocks_set = set()
+
+        for fname in fina_files:
+            fpath = self.tushare_dir / fname
+            if not fpath.exists():
+                results[fname] = {"status": "missing", "stocks": 0, "reports": 0}
+                continue
+            try:
+                df = pd.read_parquet(fpath, columns=["ts_code", "end_date"])
+                stocks = df["ts_code"].nunique()
+                reports = len(df)
+                results[fname] = {"status": "ok", "stocks": int(stocks),
+                                  "reports": int(reports)}
+                total_stocks_set.add(stocks)
+            except Exception as e:
+                results[fname] = {"status": "error", "error": str(e)}
+
+        missing = [k for k, v in results.items() if v["status"] != "ok"]
+        if missing:
+            status = STATUS_FAIL
+            desc = f"缺少: {missing}"
+        else:
+            status = STATUS_PASS
+            parts = [f"{k}: {v['stocks']}只/{v['reports']}条"
+                     for k, v in results.items()]
+            desc = " | ".join(parts)
+
+        self._add_result("P1", "财务数据完整性 (每只股票报告覆盖)",
+                         status, desc,
+                         {"files": results})
+        return self._results[-1]
+
+    def check_single_stock_ohlcv(self) -> dict:
+        """抽样检查单只股票的 OHLCV 数据完整性"""
+        sample_size = 10
+        all_raw = list(self._iter_raw_files())
+        if not all_raw:
+            self._add_result("P1", "单只股票 OHLCV 完整性",
+                             STATUS_SKIP, "无 raw_data 文件")
+            return self._results[-1]
+
+        np.random.seed(123)
+        sample = list(np.random.choice(
+            all_raw, size=min(sample_size, len(all_raw)), replace=False))
+
+        results = []
+        fields = ["open", "high", "low", "close", "volume", "amount"]
+        total_issues = 0
+
+        for raw_path in sample:
+            try:
+                df = pd.read_parquet(raw_path)
+            except Exception:
+                results.append({"code": raw_path.stem, "error": "读取失败"})
+                total_issues += 1
+                continue
+
+            info = {"code": raw_path.stem, "rows": len(df)}
+            issues = []
+
+            # 检查是否有必需字段
+            for fld in fields:
+                if fld not in df.columns:
+                    issues.append(f"缺少字段: {fld}")
+
+            if df.empty:
+                issues.append("数据为空")
+            else:
+                # 检查空值率
+                for fld in fields:
+                    if fld in df.columns:
+                        null_rate = df[fld].isnull().mean()
+                        if null_rate > MISSING_RATE_WARN:
+                            issues.append(f"{fld} 空值率: {null_rate:.1%}")
+                        info[f"{fld}_null_rate"] = round(null_rate, 4)
+
+                # 检查日期
+                if "date" in df.columns:
+                    dates = pd.to_datetime(df["date"], errors="coerce").dropna()
+                    if not dates.empty:
+                        info["date_range"] = f"{dates.min().date()} ~ {dates.max().date()}"
+                        info["date_count"] = len(dates)
+
+            if issues:
+                info["issues"] = issues
+                total_issues += 1
+            results.append(info)
+
+        status = STATUS_PASS if total_issues == 0 else STATUS_WARN
+        self._add_result("P1", f"单只股票 OHLCV 完整性 (抽样 {len(sample)} 只)",
+                         status,
+                         f"{total_issues}/{len(sample)} 只有问题",
+                         {"sample_size": len(sample),
+                          "stocks_with_issues": total_issues,
+                          "details": results})
+        return self._results[-1]
+
+    # ── P1: 前复权价格检查 ──────────────────────────────────────────────
+
+    def check_adj_ratio_reasonableness(self) -> dict:
+        """检查 adj_ratio 在合理范围 0.01~100 内"""
+        adj_path = self.tushare_dir / "adj_factor.parquet"
+        if not adj_path.exists():
+            self._add_result("P1", "Adj_ratio 合理性 (0.01~100)",
+                             STATUS_SKIP, "adj_factor.parquet 不存在")
+            return self._results[-1]
+
+        try:
+            df = pd.read_parquet(adj_path, columns=["ts_code", "trade_date", "adj_factor"])
+        except Exception as e:
+            self._add_result("P1", "Adj_ratio 合理性 (0.01~100)",
+                             STATUS_SKIP, f"读取失败: {e}")
+            return self._results[-1]
+
+        # 计算最新复权因子
+        latest_adj = df.groupby("ts_code")["adj_factor"].last()
+        df["adj_ratio"] = df["adj_factor"] / df["ts_code"].map(latest_adj)
+        df["adj_ratio"] = df["adj_ratio"].replace([np.inf, -np.inf], np.nan).dropna()
+
+        too_low = int((df["adj_ratio"] < 0.001).sum())
+        too_high = int((df["adj_ratio"] > 100).sum())
+        total_bad = too_low + too_high
+
+        # 极端复权场景（大量拆股）可能出现极低 adj_ratio，降级为 WARN
+        status = STATUS_PASS if total_bad == 0 else STATUS_WARN
+        desc = (f"adj_ratio 范围 [{df['adj_ratio'].min():.4f}, {df['adj_ratio'].max():.4f}], "
+                f"<0.001: {too_low}, >100: {too_high}")
+
+        self._add_result("P1", "Adj_ratio 合理性 (0.001~100)",
+                         status, desc,
+                         {"adj_ratio_min": float(df["adj_ratio"].min()),
+                          "adj_ratio_max": float(df["adj_ratio"].max()),
+                          "too_low_count": too_low,
+                          "too_high_count": too_high,
+                          "total_records": len(df)})
+        return self._results[-1]
+
+    def check_forward_adjustment_consistency(self) -> dict:
+        """检查 close_bin ≈ raw_close × adj_ratio 复权一致性"""
+        adj_path = self.tushare_dir / "adj_factor.parquet"
+        cal = self._load_calendar()
+        if len(cal) == 0:
+            self._add_result("P1", "复权一致性 (close_bin ≈ raw_close × adj_ratio)",
+                             STATUS_SKIP, "日历为空")
+            return self._results[-1]
+
+        if not adj_path.exists():
+            self._add_result("P1", "复权一致性 (close_bin ≈ raw_close × adj_ratio)",
+                             STATUS_SKIP, "adj_factor.parquet 不存在")
+            return self._results[-1]
+
+        try:
+            adj_df = pd.read_parquet(adj_path, columns=["ts_code", "trade_date", "adj_factor"])
+        except Exception as e:
+            self._add_result("P1", "复权一致性 (close_bin ≈ raw_close × adj_ratio)",
+                             STATUS_SKIP, f"读取失败: {e}")
+            return self._results[-1]
+
+        # 构建 adj_ratio map
+        adj_df["date"] = pd.to_datetime(adj_df["trade_date"], format="%Y%m%d").dt.normalize()
+        adj_df["instrument"] = adj_df["ts_code"].apply(
+            lambda x: x.split(".")[1].lower() + x.split(".")[0] if "." in x else x.lower()
+        )
+        latest_adj = adj_df.groupby("instrument")["adj_factor"].last()
+        adj_df["adj_ratio"] = adj_df["adj_factor"] / adj_df["instrument"].map(latest_adj)
+        adj_map = {}
+        for inst, grp in adj_df.groupby("instrument"):
+            adj_map[inst] = dict(zip(grp["date"], grp["adj_ratio"]))
+
+        date_to_idx = {d: i for i, d in enumerate(cal)}
+        sample_size = min(50, len(adj_map))
+        np.random.seed(456)
+        sample_insts = list(np.random.choice(
+            sorted(adj_map.keys()), size=sample_size, replace=False))
+
+        total_mismatch = 0
+        mismatch_detail = []
+        checked = 0
+
+        for inst in sample_insts:
+            inst_adj = adj_map[inst]
+            bin_path = self.features_dir / inst / "close.day.bin"
+            raw_path = self.raw_data_dir / f"{inst}.parquet"
+
+            if not bin_path.exists() or not raw_path.exists():
+                continue
+
+            try:
+                raw_df = pd.read_parquet(raw_path, columns=["date", "close"])
+                raw_bin = np.fromfile(bin_path, dtype="<f4")
+            except Exception:
+                continue
+
+            if len(raw_bin) < 2:
+                continue
+
+            bin_start = int(raw_bin[0])
+            bin_values = raw_bin[1:]
+
+            raw_df["date"] = pd.to_datetime(raw_df["date"]).dt.normalize()
+            inst_mismatch = 0
+            for _, row in raw_df.iterrows():
+                cal_idx = date_to_idx.get(row["date"])
+                if cal_idx is None:
+                    continue
+                bin_idx = cal_idx - bin_start
+                if bin_idx < 0 or bin_idx >= len(bin_values):
+                    continue
+
+                bin_close = bin_values[bin_idx]
+                raw_close = row["close"]
+                adj_ratio = inst_adj.get(row["date"])
+                if (pd.isna(bin_close) or pd.isna(raw_close)
+                        or adj_ratio is None or raw_close == 0):
+                    continue
+
+                expected = raw_close * adj_ratio
+                rel_diff = abs(bin_close - expected) / expected
+                if rel_diff > 0.05:  # 5% tolerance
+                    inst_mismatch += 1
+
+            checked += 1
+            if inst_mismatch > 0:
+                total_mismatch += inst_mismatch
+                mismatch_detail.append({
+                    "code": inst,
+                    "mismatch_count": inst_mismatch,
+                })
+
+        status = STATUS_PASS if total_mismatch == 0 else STATUS_WARN
+        self._add_result("P1", "复权一致性 (close_bin ≈ raw_close × adj_ratio)",
+                         status,
+                         f"抽样 {checked} 只, {total_mismatch} 条偏差 >5%",
+                         {"sample_size": checked,
+                          "total_mismatches": total_mismatch,
+                          "mismatch_detail": mismatch_detail[:30]})
+        return self._results[-1]
+
+    def check_adjusted_ohlc_constraints(self) -> dict:
+        """检查前复权后 bin 中的 OHLC 逻辑约束"""
+        cal = self._load_calendar()
+        if len(cal) == 0:
+            self._add_result("P1", "复权后 OHLC 约束 (High>=Low, etc.)",
+                             STATUS_SKIP, "日历为空")
+            return self._results[-1]
+
+        feat_dirs = sorted(
+            [d for d in self.features_dir.iterdir() if d.is_dir()]
+        ) if self.features_dir.exists() else []
+        np.random.seed(789)
+        sample = list(np.random.choice(
+            feat_dirs, size=min(50, len(feat_dirs)), replace=False))
+
+        total_violations = 0
+        viol_stocks = 0
+        checked = 0
+
+        for inst_dir in sample:
+            reads = {}
+            for fld in ["open", "high", "low", "close"]:
+                bin_path = inst_dir / f"{fld}.day.bin"
+                if not bin_path.exists():
+                    break
+                raw = np.fromfile(bin_path, dtype="<f4")
+                if len(raw) < 2:
+                    break
+                reads[fld] = raw[1:]
+
+            if len(reads) != 4:
+                continue
+
+            checked += 1
+            o, h, l, c = reads["open"], reads["high"], reads["low"], reads["close"]
+            n = min(len(o), len(h), len(l), len(c))
+            if n == 0:
+                continue
+            o, h, l, c = o[:n], h[:n], l[:n], c[:n]
+
+            mask = ~(np.isnan(o) | np.isnan(h) | np.isnan(l) | np.isnan(c))
+            if not mask.any():
+                continue
+
+            vv = np.sum(
+                (l[mask] > h[mask]) | (o[mask] > h[mask]) |
+                (o[mask] < l[mask]) | (c[mask] > h[mask]) | (c[mask] < l[mask])
+            )
+            if vv > 0:
+                viol_stocks += 1
+                total_violations += int(vv)
+
+        status = STATUS_PASS if total_violations == 0 else STATUS_FAIL
+        self._add_result("P1", "复权后 OHLC 约束 (bin 中 High>=Low, etc.)",
+                         status,
+                         f"抽样 {checked} 只, {viol_stocks} 只有违反, {total_violations} 条",
+                         {"sample_checked": checked,
+                          "stocks_with_violations": viol_stocks,
+                          "total_violations": total_violations})
+        return self._results[-1]
+
     # ── P2: 数据健康 ────────────────────────────────────────────────────
 
     def check_orphan_files(self) -> dict:
@@ -1145,6 +1560,16 @@ class DataValidator:
         self.check_zero_volume_flat()
         self.check_factor_null_rates()
         self.check_raw_vs_feature_consistency()
+        # P1 - Tushare 源数据检查
+        self.check_tushare_files_exist()
+        self.check_daily_basic_coverage()
+        self.check_adj_factor_coverage()
+        self.check_financial_data_completeness()
+        self.check_single_stock_ohlcv()
+        # P1 - 前复权价格检查
+        self.check_adj_ratio_reasonableness()
+        self.check_forward_adjustment_consistency()
+        self.check_adjusted_ohlc_constraints()
 
         # P2 - 数据健康
         self.check_orphan_files()

@@ -4,6 +4,7 @@ Tushare 数据转换为 Qlib 格式 (简化版)
 """
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Optional
 import numpy as np
@@ -117,106 +118,189 @@ class TushareToQlibConverter:
         logger.info(f"加载 adj_factor: {len(result)} 只股票")
         return result
 
-    def compute_forward_adjusted_prices(self) -> dict:
-        """用 adj_factor 计算前复权价格，返回 {instrument: DataFrame}
+    def _deprecated_compute_forward_adjusted_prices(self) -> dict:
+        """[已废弃] 加载全部股票到内存，极易 OOM。
 
-        DataFrame 列: [date, open, high, low, close, volume, amount]
-        价格字段已前复权，volume/amount 保持原始值
+        请改用 build_adjusted_bins_batched() 或 build_adjusted_bins_for_instruments()。
         """
+        warnings.warn(
+            "compute_forward_adjusted_prices 已废弃，自动委托给 build_adjusted_bins_batched()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.build_adjusted_bins_batched()
+        return {}
+
+    def _deprecated_write_adjusted_bins(self, adjusted_data: dict = None) -> int:
+        """[已废弃] 请改用 build_adjusted_bins_batched() 或 build_adjusted_bins_for_instruments()。"""
+        warnings.warn(
+            "write_adjusted_bins 已废弃，自动委托给 build_adjusted_bins_batched()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.build_adjusted_bins_batched()
+
+    def _load_and_adjust_one(self, raw_path: Path, inst: str, adj_map: dict) -> Optional[pd.DataFrame]:
+        """加载一只股票的 raw_data 并计算前复权价格，返回 DataFrame 或 None。"""
+        fields = ["open", "high", "low", "close", "volume", "amount"]
+        price_fields = {"open", "high", "low", "close"}
+
+        try:
+            df = pd.read_parquet(raw_path, columns=["date"] + fields)
+        except Exception:
+            return None
+
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        df = df.dropna(subset=["date"])
+        if df.empty:
+            return None
+
+        inst_adj = adj_map[inst]
+        df["adj_ratio"] = df["date"].map(inst_adj)
+        for fld in price_fields:
+            if fld in df.columns:
+                mask = df["adj_ratio"].notna() & np.isfinite(df["adj_ratio"])
+                df.loc[mask, fld] = df.loc[mask, fld] * df.loc[mask, "adj_ratio"]
+                df.loc[~mask, fld] = np.nan
+        df = df.drop(columns=["adj_ratio"], errors="ignore")
+        df = df.dropna(subset=[c for c in fields if c in df.columns], how="all")
+        if df.empty:
+            return None
+        return df
+
+    def _write_bins_for_df(self, inst_dir: Path, df: pd.DataFrame, date_to_idx: dict) -> bool:
+        """将已调整的 DataFrame 按交易日历写入 bin 文件。返回是否成功写入。"""
+        fields = ["open", "high", "low", "close", "volume", "amount"]
+
+        df = df[df["date"].isin(date_to_idx)]
+        if df.empty:
+            return False
+
+        df["cal_idx"] = df["date"].map(date_to_idx)
+        df = df.dropna(subset=["cal_idx"])
+        df["cal_idx"] = df["cal_idx"].astype(int)
+
+        for fld in fields:
+            if fld not in df.columns:
+                continue
+            fld_data = (
+                df[["cal_idx", fld]]
+                .dropna(subset=[fld])
+                .drop_duplicates(subset=["cal_idx"], keep="last")
+                .sort_values("cal_idx")
+            )
+            if fld_data.empty:
+                continue
+            write_dense_bin_file(
+                inst_dir / f"{fld}.day.bin",
+                fld_data["cal_idx"],
+                fld_data[fld],
+            )
+        return True
+
+    def _setup_adj_context(self):
+        """加载并校验前复权所需的公共上下文。返回 (adj_map, raw_dir, date_to_idx, features_dir) 或 None。"""
         adj_map = self._load_adj_ratio_map()
         if not adj_map:
             logger.warning("adj_factor.parquet 不存在或为空，无法计算前复权价格")
-            return {}
+            return None
 
         raw_dir = self.qlib_dir.parent / "raw_data"
         if not raw_dir.exists():
             logger.warning("raw_data 目录不存在")
-            return {}
+            return None
 
-        fields = ["open", "high", "low", "close", "volume", "amount"]
-        price_fields = {"open", "high", "low", "close"}
-        results = {}
-        raw_files = sorted(raw_dir.glob("*.parquet"))
-
-        for raw_path in raw_files:
-            inst = raw_path.stem
-            if inst not in adj_map:
-                continue
-            inst_adj = adj_map[inst]
-
-            try:
-                df = pd.read_parquet(raw_path, columns=["date"] + fields)
-            except Exception:
-                continue
-
-            df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
-            df = df.dropna(subset=["date"])
-            if df.empty:
-                continue
-
-            df["adj_ratio"] = df["date"].map(inst_adj)
-            for fld in price_fields:
-                if fld in df.columns:
-                    mask = df["adj_ratio"].notna() & np.isfinite(df["adj_ratio"])
-                    df.loc[mask, fld] = df.loc[mask, fld] * df.loc[mask, "adj_ratio"]
-                    df.loc[~mask, fld] = np.nan
-            df = df.drop(columns=["adj_ratio"], errors="ignore")
-            df = df.dropna(subset=[c for c in fields if c in df.columns], how="all")
-            results[inst] = df
-
-        logger.info(f"计算前复权价格: {len(results)} 只股票")
-        return results
-
-    def write_adjusted_bins(self, adjusted_data: dict) -> int:
-        """将前复权价格写入 qlib bin 文件
-
-        bin 格式: [start_idx(float32), val1, val2, ...]
-        """
-        features_dir = self.qlib_dir / "features"
         cal_file = self.qlib_dir / "calendars" / "day.txt"
-
         if not cal_file.exists():
             logger.warning("日历文件不存在，无法写入 bin")
-            return 0
+            return None
 
         date_to_idx, _, _ = self._load_calendar()
+        features_dir = self.qlib_dir / "features"
+        return (adj_map, raw_dir, date_to_idx, features_dir)
 
-        fields = ["open", "high", "low", "close", "volume", "amount"]
+    def build_adjusted_bins_batched(self, batch_size: int = 1000) -> int:
+        """分批计算前复权价格并写入 bin 文件，控制内存峰值。
+
+        每批加载 batch_size 只股票的 raw_data，计算前复权，写入 bin，然后释放内存。
+        内存峰值约 batch_size * 1MB + adj_map(~1.5GB)，默认 batch_size=1000 约 2.5GB。
+        """
+        import gc
+
+        ctx = self._setup_adj_context()
+        if ctx is None:
+            return 0
+        adj_map, raw_dir, date_to_idx, features_dir = ctx
+
+        raw_files = sorted(raw_dir.glob("*.parquet"))
+        total_files = len(raw_files)
+        total_written = 0
+
+        for batch_start in range(0, total_files, batch_size):
+            batch_files = raw_files[batch_start:batch_start + batch_size]
+
+            # 加载并计算本批复权价格
+            batch_data = {}
+            for raw_path in batch_files:
+                inst = raw_path.stem
+                if inst not in adj_map:
+                    continue
+                inst_dir = features_dir / inst
+                if not inst_dir.exists():
+                    continue
+                df = self._load_and_adjust_one(raw_path, inst, adj_map)
+                if df is not None:
+                    batch_data[inst] = df
+
+            # 写入本批 bin 文件
+            for inst, df in batch_data.items():
+                if self._write_bins_for_df(features_dir / inst, df, date_to_idx):
+                    total_written += 1
+
+            del batch_data
+            gc.collect()
+
+            batch_num = batch_start // batch_size + 1
+            total_batches = (total_files + batch_size - 1) // batch_size
+            logger.info(
+                f"  前复权 bin 批次 {batch_num}/{total_batches}: "
+                f"累计写入 {total_written} 只股票"
+            )
+
+        logger.info(f"写入前复权 bin: {total_written} 只股票")
+        return total_written
+
+    def build_adjusted_bins_for_instruments(self, instruments: list) -> int:
+        """只为指定 instruments 构建前复权 bin（内存安全）。
+
+        只加载指定股票的 raw_data，逐只计算前复权并写入 bin。
+        内存峰值 = len(instruments) * ~1MB + adj_map，日常增量通常 <10 只。
+        """
+        ctx = self._setup_adj_context()
+        if ctx is None:
+            return 0
+        adj_map, raw_dir, date_to_idx, features_dir = ctx
+
         written = 0
-
-        for inst, df in adjusted_data.items():
+        for inst in instruments:
             inst_dir = features_dir / inst
             if not inst_dir.exists():
                 continue
-
-            df = df[df["date"].isin(date_to_idx)].copy()
-            if df.empty:
+            if inst not in adj_map:
                 continue
 
-            df["cal_idx"] = df["date"].map(date_to_idx)
-            df = df.dropna(subset=["cal_idx"])
-            df["cal_idx"] = df["cal_idx"].astype(int)
+            raw_path = raw_dir / f"{inst}.parquet"
+            if not raw_path.exists():
+                continue
 
-            for fld in fields:
-                if fld not in df.columns:
-                    continue
-                fld_data = (
-                    df[["cal_idx", fld]]
-                    .dropna(subset=[fld])
-                    .drop_duplicates(subset=["cal_idx"], keep="last")
-                    .sort_values("cal_idx")
-                )
-                if fld_data.empty:
-                    continue
-                write_dense_bin_file(
-                    inst_dir / f"{fld}.day.bin",
-                    fld_data["cal_idx"],
-                    fld_data[fld],
-                )
+            df = self._load_and_adjust_one(raw_path, inst, adj_map)
+            if df is None:
+                continue
 
-            written += 1
+            if self._write_bins_for_df(inst_dir, df, date_to_idx):
+                written += 1
 
-        logger.info(f"写入前复权 bin: {written} 只股票")
+        logger.info(f"写入前复权 bin: {written}/{len(instruments)} 只股票")
         return written
 
     def load_tushare_data(self, name: str) -> Optional[pd.DataFrame]:
@@ -331,6 +415,7 @@ class TushareToQlibConverter:
             del batch_daily
 
         del daily
+        del quarterlies
         result = pd.concat(result_parts, ignore_index=True)
         del result_parts
 
@@ -873,26 +958,53 @@ class TushareToQlibConverter:
         return counts
 
     def save(self, df: pd.DataFrame, filename: str = "factor_data.parquet"):
-        """保存（增量模式）"""
+        """保存（增量模式，内存安全）
+
+        convert() 每次都从源数据全量生成当日结果，因此 df 对其覆盖的
+        instrument 是完整的。用 PyArrow 高效读取 existing 的 instrument
+        列做差集，只加载需要保留的退市/停牌股票行，避免两份全量同时加载。
+        """
+        import pyarrow.parquet as pq
+
         path = self.qlib_dir / filename
 
-        if path.exists():
-            existing = pd.read_parquet(path)
+        if not path.exists():
+            df.to_parquet(path, index=False)
+            logger.info(f"保存: {path}")
+            return path
+
+        # 用 PyArrow 只读 instrument 列，找需要保留的 ancient instruments
+        existing_table = pq.read_table(path, columns=["instrument"])
+        existing_instruments = set(
+            existing_table.column("instrument").to_pylist()
+        )
+        del existing_table
+
+        new_instruments = set(df["instrument"].unique())
+        ancient_instruments = existing_instruments - new_instruments
+
+        if not ancient_instruments:
+            # 全量覆盖，无需合并
+            df.to_parquet(path, index=False)
+        else:
+            # 只加载 ancient 的行，与 df 合并
+            existing = pd.read_parquet(
+                path,
+                filters=[("instrument", "in", list(ancient_instruments))],
+            )
             existing["datetime"] = pd.to_datetime(existing["datetime"])
             df["datetime"] = pd.to_datetime(df["datetime"])
 
             combined = pd.concat([existing, df], ignore_index=True)
-            combined = combined.drop_duplicates(
-                subset=["datetime", "instrument"],
-                keep="last"
-            )
+            del existing
             combined = combined.sort_values(["instrument", "datetime"])
             combined.to_parquet(path, index=False)
-            logger.info(f"增量更新: {path}, 新增 {len(df)} 行")
-        else:
-            df.to_parquet(path, index=False)
-            logger.info(f"保存: {path}")
+            del combined
 
+        logger.info(
+            f"保存 factor_data: {path} "
+            f"({path.stat().st_size // 1024 // 1024}MB)"
+        )
         return path
 
 

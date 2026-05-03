@@ -1360,18 +1360,14 @@ class DataUpdater:
                     if not close_bin.exists():
                         missing_close_bins.append(raw_path.stem)
             if missing_close_bins:
-                adjusted = converter.compute_forward_adjusted_prices()
-                bootstrapped = converter.write_adjusted_bins(
-                    {inst: adjusted[inst] for inst in missing_close_bins if inst in adjusted}
+                bootstrapped = converter.build_adjusted_bins_for_instruments(
+                    missing_close_bins
                 )
                 if bootstrapped != len(missing_close_bins):
-                    preview = ", ".join(sorted(set(missing_close_bins) - set(adjusted))[:10])
-                    suffix = " ..." if len(missing_close_bins) - len(adjusted) > 10 else ""
                     logger.error(
-                        "前复权 bin 初始化不完整，缺少 adj_factor 的股票数=%s: %s%s",
-                        len(missing_close_bins) - bootstrapped,
-                        preview,
-                        suffix,
+                        "前复权 bin 初始化不完整: 期望=%s, 实际写入=%s",
+                        len(missing_close_bins),
+                        bootstrapped,
                     )
                     return False
                 logger.info(f"前复权 bin 初始化完成: {bootstrapped} 只股票")

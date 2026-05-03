@@ -681,22 +681,9 @@ class TestDataUpdaterConvert:
             }
         ).to_parquet(updater.raw_data_dir / "sh600000.parquet", index=False)
 
-        adjusted = pd.DataFrame(
-            {
-                "date": [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-05")],
-                "open": [10.0, 10.2],
-                "high": [10.5, 10.7],
-                "low": [9.9, 10.1],
-                "close": [10.3, 10.4],
-                "volume": [1000.0, 1100.0],
-                "amount": [10000.0, 11000.0],
-            }
-        )
-
         mock_converter = Mock()
         mock_converter.convert.return_value = pd.DataFrame({"instrument": ["sh600000"]})
-        mock_converter.compute_forward_adjusted_prices.return_value = {"sh600000": adjusted}
-        mock_converter.write_adjusted_bins.return_value = 1
+        mock_converter.build_adjusted_bins_for_instruments.return_value = 1
         mock_converter.repair_price_provider.return_value = {}
         mock_converter.update_close_bins.return_value = 0
         mock_converter.update_ohlcv_bins.return_value = {}
@@ -707,8 +694,7 @@ class TestDataUpdaterConvert:
         assert result is True
         assert (updater.qlib_data_path / "features" / "sh600000").exists()
         assert (updater.qlib_data_path / "instruments" / "all.txt").exists()
-        assert mock_converter.compute_forward_adjusted_prices.called
-        assert mock_converter.write_adjusted_bins.called
+        assert mock_converter.build_adjusted_bins_for_instruments.called
 
     def test_convert_to_qlib_handles_converter_failure(self, tmp_path):
         """转换失败时返回 False"""
