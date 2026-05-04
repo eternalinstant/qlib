@@ -88,7 +88,7 @@ class DataValidator:
         self.instruments_file = self.cn_data_dir / "instruments" / "all.txt"
         self.features_dir = self.cn_data_dir / "features"
         self.factor_file = self.cn_data_dir / "factor_data.parquet"
-        self.tushare_dir = root.parent / "tushare"  # data/tushare
+        self.tushare_dir = (root.parent / "tushare").resolve()  # data/tushare
 
         # Caches
         self._calendar = None
@@ -891,10 +891,26 @@ class DataValidator:
     def _iter_tushare_files(self):
         """遍历 tushare/*.parquet"""
         if not self.tushare_dir.exists():
+            import logging
+            logging.getLogger(__name__).warning(
+                "tushare_dir does not exist: %s (resolved: %s)",
+                self.tushare_dir, str(self.tushare_dir))
             return
-        for f in sorted(self.tushare_dir.iterdir()):
-            if f.suffix == ".parquet" and not f.name.startswith("."):
-                yield f
+        if not self.tushare_dir.is_dir():
+            import logging
+            logging.getLogger(__name__).warning(
+                "tushare_dir is not a directory: %s", self.tushare_dir)
+            return
+        parquet_files = sorted(
+            f for f in self.tushare_dir.iterdir()
+            if f.suffix == ".parquet" and not f.name.startswith(".")
+        )
+        if not parquet_files:
+            import logging
+            logging.getLogger(__name__).warning(
+                "tushare_dir exists but contains no .parquet files: %s (contents: %s)",
+                self.tushare_dir, sorted(f.name for f in self.tushare_dir.iterdir()))
+        yield from parquet_files
 
     def check_tushare_files_exist(self) -> dict:
         """检查 tushare 9 个核心文件 + 补充数据文件是否存在"""
@@ -918,7 +934,8 @@ class DataValidator:
         self._add_result("P1", "Tushare 源文件完整性 (9个核心文件)",
                          status, desc,
                          {"required": required, "missing": missing,
-                          "existing": sorted(existing), "extra": extra})
+                          "existing": sorted(existing), "extra": extra,
+                          "tushare_dir": str(self.tushare_dir)})
         return self._results[-1]
 
     def check_daily_basic_coverage(self) -> dict:

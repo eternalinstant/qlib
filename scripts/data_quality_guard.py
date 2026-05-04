@@ -613,10 +613,21 @@ class DataQualityGuard:
 
             gc.collect()
 
-        # 超过最大重试次数
-        self._write_qa(self.max_retries, report, "达到最大重试次数")
+        # 超过最大重试次数 — 终检一次再决定是否写入 Q&A
+        logger.info("修复轮次耗尽，执行最终检查...")
+        final_report = self.run_full_check()
+        if final_report.all_pass():
+            elapsed = time.time() - start_time
+            print(f"\n{C_GREEN}{C_BOLD}{'='*70}{C_RESET}")
+            print(f"{C_GREEN}{C_BOLD}  修复成功，终检全部通过！{C_RESET}")
+            print(f"{C_GREEN}{C_BOLD}  PASS={final_report.pass_count}, WARN={final_report.warn_count}, "
+                  f"SKIP={final_report.skip_count}{C_RESET}")
+            print(f"{C_GREEN}{C_BOLD}  总耗时: {elapsed:.0f}s ({elapsed/60:.1f}min){C_RESET}")
+            print(f"{C_GREEN}{C_BOLD}{'='*70}{C_RESET}\n")
+            return True
+        self._write_qa(self.max_retries, final_report, "达到最大重试次数，终检仍未通过")
         elapsed = time.time() - start_time
-        print(f"\n{C_RED}{C_BOLD}达到最大重试次数 ({self.max_retries})，Q&A 报告已生成。{C_RESET}")
+        print(f"\n{C_RED}{C_BOLD}达到最大重试次数 ({self.max_retries})，终检仍未通过，Q&A 报告已生成。{C_RESET}")
         print(f"总耗时: {elapsed:.0f}s ({elapsed/60:.1f}min)\n")
         return False
 

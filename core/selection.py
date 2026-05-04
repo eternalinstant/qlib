@@ -1239,6 +1239,9 @@ def compute_selections(
     update_start_date: str = None,
     update_lookback_days: int = 60,
     factor_window_scale: int = 1,
+    scorer: str = "linear",
+    lgbm_train_start: str = None,
+    lgbm_train_end: str = None,
 ) -> pd.DataFrame:
     """
     计算月度 Top-K 选股列表（纯内存，不写 CSV）。
@@ -1316,11 +1319,22 @@ def compute_selections(
     )
 
     signal_start = time.perf_counter()
-    signal = compute_signal(
-        monthly_df, registry=registry, weights=weights, neutralize_industry=neutralize_industry
-    )
+    if scorer == "lgbm":
+        from core.lgbm_scorer import compute_lgbm_signal
+
+        signal = compute_lgbm_signal(
+            monthly_df,
+            neutralize_industry=neutralize_industry,
+            train_start=lgbm_train_start,
+            train_end=lgbm_train_end,
+        )
+    else:
+        signal = compute_signal(
+            monthly_df, registry=registry, weights=weights, neutralize_industry=neutralize_industry
+        )
     print(
-        f"[INFO] 综合信号计算完成: {len(signal)} 行, 用时 {time.perf_counter() - signal_start:.1f}s"
+        f"[INFO] 综合信号计算完成 (scorer={scorer}): {len(signal)} 行, "
+        f"用时 {time.perf_counter() - signal_start:.1f}s"
     )
 
     # 加载市值数据用于过滤
