@@ -225,6 +225,7 @@ class TestDataUpdaterDownload:
                 "high": [10.6, 12.5],
                 "low": [10.1, 11.8],
                 "close": [10.4, 12.2],
+                "pre_close": [10.2, 11.9],
                 "vol": [1200.0, 800.0],
                 "amount": [12000.0, 9500.0],
             }
@@ -238,8 +239,10 @@ class TestDataUpdaterDownload:
         sh = pd.read_parquet(updater.raw_data_dir / "sh600000.parquet")
         sz = pd.read_parquet(updater.raw_data_dir / "sz000001.parquet")
         assert pd.to_datetime(sh["date"]).max() == pd.Timestamp("2026-02-28")
+        assert sh.loc[pd.to_datetime(sh["date"]) == pd.Timestamp("2026-02-28"), "pre_close"].iloc[0] == pytest.approx(10.2)
         assert len(sz) == 1
         assert sz.iloc[0]["symbol"] == "000001.SZ"
+        assert sz.iloc[0]["pre_close"] == pytest.approx(11.9)
 
     def test_download_index_daily_incremental_month_boundary(self, tmp_path):
         """跨月增量下载 index_daily 时起始日期应为下一个自然日。"""
@@ -281,6 +284,7 @@ class TestDataUpdaterDownload:
                 "high": [30.5, 31.5],
                 "low": [29.8, 30.7],
                 "close": [30.2, 31.2],
+                "pre_close": [29.7, 30.2],
                 "vol": [100.0, 120.0],
                 "amount": [3000.0, 3600.0],
             }
@@ -296,6 +300,7 @@ class TestDataUpdaterDownload:
         df = pd.read_parquet(path)
         assert len(df) == 2
         assert df.iloc[0]["symbol"] == "688036.SH"
+        assert df.iloc[0]["pre_close"] == pytest.approx(29.7)
 
 
 class TestDataUpdaterIntegration:

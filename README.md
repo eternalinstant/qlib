@@ -164,6 +164,8 @@ python3 scripts/backtest_model_signal.py --config config/models/push25_cq10_v3_v
 
 如果只需要复核最终主备组合，不必每次重跑子策略；直接运行第 1 步即可。
 
+如果 Qlib 读取特征时报 `broadcast`，说明当前数据里有标的特征长度不一致。默认会直接失败，不会静默剔除标的；临时研究可显式设置 `QLIB_FILTER_BAD_INSTRUMENTS=1` 跳过坏标的，但这会改变训练股票池，结果不能和阶段一归档直接比较。
+
 ### 3. 更新数据
 
 ```bash

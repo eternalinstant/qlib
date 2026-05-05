@@ -109,6 +109,26 @@ class DataUpdater:
 
         return (datetime.strptime(date_str, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
 
+    @staticmethod
+    def _format_raw_quote_frame(df: pd.DataFrame) -> pd.DataFrame:
+        """标准化 raw_data 行情字段，保留原始 pre_close 供成交约束使用。"""
+        if df is None or df.empty:
+            return pd.DataFrame(
+                columns=["date", "open", "high", "low", "close", "pre_close", "volume", "amount", "symbol"]
+            )
+
+        out = df.copy()
+        out["date"] = pd.to_datetime(out["trade_date"], format="%Y%m%d", errors="coerce")
+        out["symbol"] = out["ts_code"]
+        out = out.rename(columns={"vol": "volume"})
+        for col in ["open", "high", "low", "close", "pre_close", "volume", "amount"]:
+            if col not in out.columns:
+                out[col] = np.nan
+        out = out[
+            ["date", "open", "high", "low", "close", "pre_close", "volume", "amount", "symbol"]
+        ]
+        return out.dropna(subset=["date"]).sort_values("date")
+
     def get_last_trading_date(self) -> datetime:
         """获取本地最新交易日"""
         cal_file = self.qlib_data_path / "calendars" / "day.txt"
@@ -469,6 +489,69 @@ class DataUpdater:
             logger.error(f"下载 namechange 失败: {e}")
             return False
 
+    def download_adj_factor_incremental(self) -> bool:
+        """下载 adj_factor 增量数据（按交易日批量下载）。"""
+        pro = get_tushare_pro()
+        if pro is None:
+            return False
+
+        output_path = self.tushare_dir / "adj_factor.parquet"
+
+        try:
+            if output_path.exists():
+                existing = pd.read_parquet(output_path, columns=["trade_date"])
+                max_date = str(existing["trade_date"].max())
+                start_date = self._next_calendar_date_str(max_date)
+            else:
+                start_date = "20160101"
+
+            end_date = datetime.now().strftime("%Y%m%d")
+
+            # 获取交易日历以确定需要下载的交易日
+            try:
+                cal_df = pro.trade_cal(start_date=start_date, end_date=end_date, is_open="1")
+                if cal_df is None or cal_df.empty:
+                    logger.info("adj_factor 无新交易日")
+                    return True
+                trade_dates = sorted(cal_df["cal_date"].tolist())
+            except Exception as e:
+                logger.warning(f"获取交易日历失败: {e}")
+                return False
+
+            if not trade_dates:
+                logger.info("adj_factor 已是最新")
+                return True
+
+            all_data = []
+            for i, date_str in enumerate(trade_dates):
+                try:
+                    df = pro.adj_factor(trade_date=date_str)
+                    if df is not None and len(df) > 0:
+                        all_data.append(df)
+                except Exception as e:
+                    logger.warning(f"adj_factor {date_str} 失败: {e}")
+                    time.sleep(0.5)
+
+                if (i + 1) % 20 == 0:
+                    logger.info(f"  adj_factor 已拉取 {i + 1}/{len(trade_dates)} 天")
+                time.sleep(0.12)
+
+            if not all_data:
+                logger.info("adj_factor 无新数据")
+                return True
+
+            result = pd.concat(all_data, ignore_index=True)
+            # 只保留必要列
+            keep_cols = [c for c in result.columns if c in ("ts_code", "trade_date", "adj_factor")]
+            result = result[keep_cols]
+            self._merge_and_save(output_path, result, ["ts_code", "trade_date"])
+            logger.info(f"已更新 adj_factor: {len(result)} 条")
+            return True
+
+        except Exception as e:
+            logger.error(f"下载 adj_factor 失败: {e}")
+            return False
+
     def _get_last_bin_date(self) -> Optional[datetime]:
         """返回 close.day.bin 中最旧的最后日期（采样检测，判断是否有股票需要更新）"""
         cal_file = self.qlib_data_path / "calendars" / "day.txt"
@@ -684,7 +767,7 @@ class DataUpdater:
             try:
                 df = pro.daily(
                     trade_date=date_str,
-                    fields="ts_code,trade_date,open,high,low,close,vol,amount",
+                    fields="ts_code,trade_date,open,high,low,close,pre_close,vol,amount",
                 )
             except Exception as e:
                 logger.warning(f"raw_data daily {date_str} 失败: {e}")
@@ -694,15 +777,10 @@ class DataUpdater:
             if df is None or df.empty:
                 continue
 
-            df["date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
-            df["symbol"] = df["ts_code"]
-            df["raw_file"] = df["ts_code"].map(
+            df = self._format_raw_quote_frame(df)
+            df["raw_file"] = df["symbol"].map(
                 lambda ts_code: f"{ts_code.split('.')[1].lower()}{ts_code.split('.')[0]}.parquet"
             )
-            df = df.rename(columns={"vol": "volume"})
-            df = df[
-                ["raw_file", "date", "open", "high", "low", "close", "volume", "amount", "symbol"]
-            ]
 
             for raw_file, grp in df.groupby("raw_file"):
                 updates.setdefault(raw_file, []).append(grp.drop(columns=["raw_file"]).copy())
@@ -753,7 +831,7 @@ class DataUpdater:
                     ts_code=ts_code,
                     start_date=start_date,
                     end_date=end_date,
-                    fields="ts_code,trade_date,open,high,low,close,vol,amount",
+                    fields="ts_code,trade_date,open,high,low,close,pre_close,vol,amount",
                 )
             except Exception as e:
                 logger.warning(f"补档 {instrument} 失败: {e}")
@@ -764,11 +842,7 @@ class DataUpdater:
                 logger.warning(f"补档 {instrument} 未返回数据")
                 continue
 
-            df["date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
-            df["symbol"] = df["ts_code"]
-            df = df.rename(columns={"vol": "volume"})
-            df = df[["date", "open", "high", "low", "close", "volume", "amount", "symbol"]]
-            df = df.dropna(subset=["date"]).sort_values("date")
+            df = self._format_raw_quote_frame(df)
             df.to_parquet(path, index=False)
             updated += 1
             time.sleep(0.12)
@@ -968,6 +1042,11 @@ class DataUpdater:
                 print("      财务数据 ✓")
             else:
                 print("      财务数据 (跳过)")
+
+            if self.download_adj_factor_incremental():
+                print("      复权因子 ✓")
+            else:
+                print("      复权因子 (跳过)")
 
             if self.update_raw_data_quotes():
                 print("      raw_data 原始行情 ✓")

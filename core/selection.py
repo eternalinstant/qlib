@@ -923,8 +923,11 @@ def extract_topk(
         if len(day_scores) < topk:
             continue
 
-        # 排序获取候选列表
-        day_sorted = day_scores.sort_values(ascending=False)
+        # 排序获取候选列表（第二排序键：股票代码，保证同分时结果确定）
+        _df = day_scores.reset_index()
+        _df.columns = ["symbol", "score"]
+        _df = _df.sort_values(["score", "symbol"], ascending=[False, True], kind="mergesort")
+        day_sorted = _df.set_index("symbol")["score"]
         day_index_set = set(day_scores.index)
         effective_entry_rank = min(max(int(entry_rank or topk), 1), len(day_sorted))
         default_exit_rank = topk + buffer if buffer > 0 else topk
@@ -1009,7 +1012,7 @@ def extract_topk(
                     dropped.add(sym)
 
             if churn_limit > 0 and len(dropped) > churn_limit:
-                drop_scores = day_scores.reindex(list(dropped)).fillna(float("-inf"))
+                drop_scores = day_scores.reindex(sorted(dropped)).fillna(float("-inf"))
                 actually_drop = set(drop_scores.nsmallest(churn_limit).index)
                 keep_set = keep_set | (dropped - actually_drop)
                 dropped = actually_drop
@@ -1059,7 +1062,7 @@ def extract_topk(
                 dropped = prev_symbols - keep_set
                 if len(dropped) > max_sell:
                     # 只卖掉排名最差的 max_sell 只
-                    drop_scores = day_scores.reindex(list(dropped)).dropna()
+                    drop_scores = day_scores.reindex(sorted(dropped)).dropna()
                     actually_drop = set(drop_scores.nsmallest(max_sell).index)
                     keep_set = keep_set | (dropped - actually_drop)
 
@@ -1067,11 +1070,11 @@ def extract_topk(
             remaining = topk - len(keep_set)
             if remaining > 0:
                 available = day_index_set - keep_set
-                new_scores = day_scores[list(available)].nlargest(min(remaining, len(available)))
+                new_scores = day_scores[sorted(available)].nlargest(min(remaining, len(available)))
                 selected_symbols = keep_set | set(new_scores.index)
             elif len(keep_set) > topk:
                 # 保留太多：淘汰排名最低的
-                keep_scores = day_scores[list(keep_set)].nlargest(topk)
+                keep_scores = day_scores[sorted(keep_set)].nlargest(topk)
                 selected_symbols = set(keep_scores.index)
             else:
                 selected_symbols = keep_set
@@ -1099,7 +1102,7 @@ def extract_topk(
                     keep_candidates = keep_candidates | margin_candidates
 
                 if keep_candidates:
-                    keep_scores = day_scores[list(keep_candidates)].nlargest(
+                    keep_scores = day_scores[sorted(keep_candidates)].nlargest(
                         min(sticky, len(keep_candidates))
                     )
                     keep_set = set(keep_scores.index)
@@ -1116,7 +1119,7 @@ def extract_topk(
                     remaining = topk - len(keep_set)
                     if remaining > 0:
                         available_symbols = day_index_set - keep_set
-                        new_scores = day_scores[list(available_symbols)].nlargest(
+                        new_scores = day_scores[sorted(available_symbols)].nlargest(
                             min(remaining, len(available_symbols))
                         )
                         selected_symbols = keep_set | set(new_scores.index)
@@ -1136,7 +1139,10 @@ def extract_topk(
 
         # 按得分排序输出（过滤掉当天无数据的股票）
         selected_symbols = selected_symbols & day_index_set
-        selected_scores = day_scores[list(selected_symbols)].sort_values(ascending=False)
+        _out = day_scores[sorted(selected_symbols)].reset_index()
+        _out.columns = ["symbol", "score"]
+        _out = _out.sort_values(["score", "symbol"], ascending=[False, True], kind="mergesort")
+        selected_scores = _out.set_index("symbol")["score"]
         for rank, (sym, score) in enumerate(selected_scores.items(), 1):
             rows.append({"date": dt, "rank": rank, "symbol": sym, "score": score})
 

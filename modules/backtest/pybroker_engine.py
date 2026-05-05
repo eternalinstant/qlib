@@ -19,11 +19,12 @@ from pybroker import Strategy as PyBrokerStrategy, StrategyConfig, ExecContext, 
 from pybroker.common import FeeInfo, PositionMode, PriceType
 
 from config.config import CONFIG
-from core.qlib_init import init_qlib, load_features_safe
+from core.qlib_init import init_qlib
 from core.universe import filter_instruments
 from core.position import MarketPositionController
 from core.selection import get_name_map
 from modules.backtest.base import BacktestResult, BacktestEngine
+from modules.backtest.qlib_engine import _load_backtest_return_frame
 from utils.logger import setup_logger
 
 
@@ -216,14 +217,13 @@ class PyBrokerBacktestEngine(BacktestEngine):
         # 加载行情数据（只加载选中股票，减少数据量）
         logger.info("[2/4] 加载行情数据...")
 
-        price_fields = ["$close", "$volume"]
-        df_prices = load_features_safe(
+        df_prices, _ = _load_backtest_return_frame(
             list(all_selected),
-            price_fields,
             CONFIG.get("start_date", "2019-01-01"),
             CONFIG.get("end_date", "2026-02-26"),
         )
-        df_prices.columns = ["close", "volume"]
+        if "volume" not in df_prices.columns:
+            df_prices["volume"] = 0.0
         df_pybroker = _build_close_only_price_frame(df_prices)
 
         logger.info(f"数据行数: {df_pybroker.shape[0]:,}")

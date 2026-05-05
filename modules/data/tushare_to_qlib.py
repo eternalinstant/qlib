@@ -20,6 +20,34 @@ class TushareToQlibConverter:
         self.tushare_dir = Path(tushare_dir or "~/code/qlib/data/tushare").expanduser()
         self.qlib_dir = Path(qlib_dir or "~/code/qlib/data/qlib_data/cn_data").expanduser()
 
+    def _load_adj_factor_map(self) -> dict:
+        """加载 adj_factor 并构建 {instrument: {cal_idx: adj_factor}} 查找表。"""
+        adj_path = self.tushare_dir / "adj_factor.parquet"
+        if not adj_path.exists():
+            logger.warning("adj_factor.parquet 不存在，将回退到 splice-point ratio")
+            return {}
+
+        cal_file = self.qlib_dir / "calendars" / "day.txt"
+        if not cal_file.exists():
+            return {}
+
+        cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
+        date_to_idx = {d: i for i, d in enumerate(cal["date"].dt.normalize())}
+
+        df = pd.read_parquet(adj_path)
+        df["instrument"] = df["ts_code"].apply(
+            lambda x: x.split(".")[1].lower() + x.split(".")[0] if "." in x else x.lower()
+        )
+        df["date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d").dt.normalize()
+        df = df[df["date"].isin(date_to_idx)]
+        df["cal_idx"] = df["date"].map(date_to_idx).astype(int)
+
+        result = {}
+        for inst, g in df.groupby("instrument"):
+            result[inst] = dict(zip(g["cal_idx"], g["adj_factor"].astype(float)))
+        logger.info(f"adj_factor 覆盖 {len(result)} 只股票")
+        return result
+
     def load_tushare_data(self, name: str) -> Optional[pd.DataFrame]:
         """加载 Tushare 数据"""
         path = self.tushare_dir / f"{name}.parquet"
@@ -206,9 +234,8 @@ class TushareToQlibConverter:
     def update_close_bins(self) -> int:
         """从 daily_basic.parquet 的 close 列更新各股 close.day.bin
 
-        使用 splice-point ratio（断点比例）保持调整价格连续性：
-          adj_ratio = bin最后收盘 / daily_basic同日收盘
-        新增数据 = daily_basic新收盘 × adj_ratio
+        使用 Tushare 官方 adj_factor 进行前复权：
+          前复权价(t) = 未复权价(t) * adj_factor(t) / adj_factor(最新日)
 
         Returns
         -------
@@ -221,6 +248,10 @@ class TushareToQlibConverter:
         if not db_path.exists() or not cal_file.exists() or not features_dir.exists():
             logger.warning("缺少必要文件，跳过 close bin 更新")
             return 0
+
+        # 加载 adj_factor
+        adj_map = self._load_adj_factor_map()
+        use_adj = bool(adj_map)
 
         # 读取日历
         cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
@@ -257,19 +288,26 @@ class TushareToQlibConverter:
             if bin_end_idx >= cal_last_idx:
                 continue  # 已是最新
 
-            # splice-point 调整比例
-            bin_last_close = float(raw[-1])
-            db_last_close = close_map.get(bin_end_idx, None)
-            if db_last_close and db_last_close > 0:
-                adj = bin_last_close / db_last_close
-            else:
-                adj = 1.0
+            if use_adj:
+                inst_adj = adj_map.get(inst, {})
+                latest_adj = inst_adj.get(cal_last_idx) if inst_adj else None
 
-            # 收集 bin_end_idx+1 到 cal_last_idx 的新值
-            new_vals = []
-            for idx in range(bin_end_idx + 1, cal_last_idx + 1):
-                v = close_map.get(idx, None)
-                new_vals.append(float(v) * adj if v and v > 0 else np.nan)
+                if latest_adj and latest_adj > 0:
+                    # 使用 adj_factor 前复权
+                    new_vals = []
+                    for idx in range(bin_end_idx + 1, cal_last_idx + 1):
+                        v = close_map.get(idx, None)
+                        af = inst_adj.get(idx, None)
+                        if v and v > 0 and af and af > 0:
+                            new_vals.append(float(v) * af / latest_adj)
+                        else:
+                            new_vals.append(np.nan)
+                else:
+                    # 回退到 splice-point ratio
+                    new_vals = self._splice_point_vals(raw, close_map, bin_end_idx, cal_last_idx)
+            else:
+                # 无 adj_factor，回退到 splice-point ratio
+                new_vals = self._splice_point_vals(raw, close_map, bin_end_idx, cal_last_idx)
 
             if not new_vals:
                 continue
@@ -280,6 +318,22 @@ class TushareToQlibConverter:
 
         logger.info(f"close.day.bin 已更新 {updated} 只股票")
         return updated
+
+    @staticmethod
+    def _splice_point_vals(raw, val_map, bin_end_idx, cal_last_idx):
+        """使用 splice-point ratio 计算新值（回退方案）。"""
+        bin_last_val = float(raw[-1])
+        db_last_val = val_map.get(bin_end_idx, None)
+        if db_last_val and db_last_val > 0:
+            adj = bin_last_val / db_last_val
+        else:
+            adj = 1.0
+
+        new_vals = []
+        for idx in range(bin_end_idx + 1, cal_last_idx + 1):
+            v = val_map.get(idx, None)
+            new_vals.append(float(v) * adj if v and v > 0 else np.nan)
+        return new_vals
 
     @staticmethod
     def _read_bin_file(bin_file: Path):
@@ -304,7 +358,11 @@ class TushareToQlibConverter:
         return True
 
     def repair_price_provider(self) -> dict:
-        """修复价格 provider 中的超范围 / 字段错位问题。"""
+        """修复价格 provider 中的超范围 / 字段错位问题。
+
+        使用 Tushare 官方 adj_factor 进行前复权计算：
+          前复权价(t) = 未复权价(t) * adj_factor(t) / adj_factor(最新日)
+        """
         cal_file = self.qlib_dir / "calendars" / "day.txt"
         features_dir = self.qlib_dir / "features"
         raw_dir = self.qlib_dir.parent / "raw_data"
@@ -312,6 +370,10 @@ class TushareToQlibConverter:
         if not cal_file.exists() or not features_dir.exists():
             logger.warning("缺少日历或 features 目录，跳过 provider 修复")
             return {}
+
+        # 加载 adj_factor
+        adj_map = self._load_adj_factor_map()
+        use_adj = bool(adj_map)
 
         cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
         cal_dates = cal["date"].dt.normalize()
@@ -417,6 +479,10 @@ class TushareToQlibConverter:
             close_index = np.arange(close_start, close_end + 1)
             close_map = dict(zip(close_index.tolist(), close_values.tolist()))
 
+            # 获取该股票的 adj_factor
+            inst_adj = adj_map.get(inst, {}) if use_adj else {}
+            latest_adj = inst_adj.get(cal_last_idx) if inst_adj else None
+
             repaired = False
             for field in fields:
                 if field == "close":
@@ -454,7 +520,16 @@ class TushareToQlibConverter:
                     if field in price_fields:
                         close_val = close_map.get(idx)
                         raw_close = raw_close_map.get(idx)
-                        if (
+
+                        # 优先使用 adj_factor
+                        if (use_adj and latest_adj and latest_adj > 0
+                                and raw_val is not None and np.isfinite(raw_val)):
+                            af = inst_adj.get(idx)
+                            if af and af > 0:
+                                derived = float(raw_val) * af / latest_adj
+
+                        # 回退到 close_val * raw_val / raw_close
+                        if derived is None and (
                             raw_val is not None
                             and raw_close is not None
                             and close_val is not None
@@ -490,10 +565,9 @@ class TushareToQlibConverter:
     def update_ohlcv_bins(self) -> dict:
         """从 raw_data 目录更新 open/high/low/volume/amount 的 bin 文件
 
-        raw_data 由 updater.update_raw_data_quotes() 从 Tushare daily 接口下载，
-        每股一个 parquet，包含完整的 OHLCVA 数据。
-        此方法将 raw_data 中的 OHLCVA 字段同步到 Qlib bin 格式，
-        与 update_close_bins() 使用相同的 splice-point ratio 机制保持连续性。
+        使用 Tushare 官方 adj_factor 进行前复权：
+          前复权价(t) = 未复权价(t) * adj_factor(t) / adj_factor(最新日)
+        volume/amount 不做复权。
 
         Returns
         -------
@@ -507,6 +581,10 @@ class TushareToQlibConverter:
         if not raw_dir.exists() or not cal_file.exists() or not features_dir.exists():
             logger.warning("缺少 raw_data / 日历 / features 目录，跳过 OHLCV bin 更新")
             return {}
+
+        # 加载 adj_factor
+        adj_map = self._load_adj_factor_map()
+        use_adj = bool(adj_map)
 
         # 读取日历
         cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
@@ -535,6 +613,10 @@ class TushareToQlibConverter:
                 continue
             df["cal_idx"] = df["date"].map(date_to_idx)
 
+            # 获取该股票的 adj_factor
+            inst_adj = adj_map.get(inst, {}) if use_adj else {}
+            latest_adj = inst_adj.get(cal_last_idx) if inst_adj else None
+
             for field in fields:
                 bin_file = inst_dir / f"{field}.day.bin"
                 if not bin_file.exists():
@@ -554,23 +636,31 @@ class TushareToQlibConverter:
                     continue
                 val_map = dict(zip(field_data["cal_idx"], field_data[field]))
 
-                # splice-point 调整比例：仅对价格字段（open/high/low）适用
-                # volume/amount 不做复权缩放
-                if field in ("open", "high", "low"):
-                    bin_last_val = float(raw[-1])
-                    db_last_val = val_map.get(bin_end_idx, None)
-                    if db_last_val and db_last_val != 0:
-                        adj = bin_last_val / db_last_val
-                    else:
-                        adj = 1.0
-                else:
-                    adj = 1.0  # volume/amount 不缩放
+                is_price = field in ("open", "high", "low")
 
                 new_vals = []
                 for idx in range(bin_end_idx + 1, cal_last_idx + 1):
                     v = val_map.get(idx, None)
                     if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                        new_vals.append(float(v) * adj)
+                        if is_price and use_adj and latest_adj and latest_adj > 0:
+                            # 使用 adj_factor 前复权
+                            af = inst_adj.get(idx)
+                            if af and af > 0:
+                                new_vals.append(float(v) * af / latest_adj)
+                            else:
+                                new_vals.append(np.nan)
+                        elif is_price:
+                            # 回退到 splice-point ratio
+                            bin_last_val = float(raw[-1])
+                            db_last_val = val_map.get(bin_end_idx, None)
+                            if db_last_val and db_last_val != 0:
+                                adj = bin_last_val / db_last_val
+                            else:
+                                adj = 1.0
+                            new_vals.append(float(v) * adj)
+                        else:
+                            # volume/amount 不缩放
+                            new_vals.append(float(v))
                     else:
                         new_vals.append(np.nan)
 

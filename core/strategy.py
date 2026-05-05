@@ -27,7 +27,7 @@ SELECTIONS_DIR = PROJECT_ROOT / "data" / "selections"
 VALID_POSITION_MODELS = {"trend", "fixed", "full", "gate"}
 VALID_REBALANCE_FREQS = {"day", "week", "biweek", "month"}
 VALID_SOURCES = {"qlib", "parquet"}
-VALID_SELECTION_UNIVERSES = {"all", "csi300"}
+VALID_SELECTION_UNIVERSES = {"all", "csi300", "csi800"}
 VALID_SELECTION_MODES = {"factor_topk", "stoploss_replace"}
 SELECTION_CACHE_VERSION = 1
 
@@ -305,7 +305,7 @@ class Strategy:
     weights: Dict[str, float]
     topk: int
     neutralize_industry: bool
-    universe: str  # "all" | "csi300"
+    universe: str  # "all" | "csi300" | "csi800"
     min_market_cap: float  # 市值下限（亿元），0 = 不过滤
     exclude_st: bool  # 排除历史 ST（无本地历史文件时自动 no-op）
     exclude_new_days: int  # 排除上市 N 天内股票

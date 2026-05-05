@@ -153,10 +153,14 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
             errors.append(f"{index_daily_path} 日期检查失败: {exc}")
 
     # Historical index constituents
-    if universe == "csi300":
+    required_index_codes = {
+        "csi300": ["000300.SH"],
+        "csi800": ["000300.SH", "000905.SH"],
+    }.get(universe, [])
+    if required_index_codes:
         index_weight = _first_existing(_iter_index_weight_paths())
         if index_weight is None:
-            errors.append("缺少历史指数成分文件 index_weight.parquet/csv（csi300 股票池必需）")
+            errors.append(f"缺少历史指数成分文件 index_weight.parquet/csv（{universe} 股票池必需）")
         else:
             resolved["index_weight"] = str(index_weight)
             err = _check_table_columns(index_weight, ["index_code", "con_code", "trade_date"])
@@ -167,8 +171,10 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
                     df = pd.read_parquet(index_weight, columns=["index_code", "trade_date"])
                 else:
                     df = pd.read_csv(index_weight, usecols=["index_code", "trade_date"])
-                if "000300.SH" not in set(df["index_code"].astype(str)):
-                    errors.append(f"{index_weight} 不包含 000300.SH 成分数据")
+                available_index_codes = set(df["index_code"].astype(str))
+                for index_code in required_index_codes:
+                    if index_code not in available_index_codes:
+                        errors.append(f"{index_weight} 不包含 {index_code} 成分数据")
                 if not df.empty:
                     trade_dates = pd.to_datetime(df["trade_date"], errors="coerce").dropna()
                     if trade_dates.empty:

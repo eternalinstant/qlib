@@ -44,7 +44,11 @@ def init_qlib():
 
 
 def load_features_safe(instruments, fields, start_time, end_time, freq="day"):
-    """安全加载因子数据"""
+    """安全加载因子数据。
+
+    默认不改变输入股票池；如需临时跳过坏标的，显式设置
+    QLIB_FILTER_BAD_INSTRUMENTS=1。
+    """
     from qlib.data import D
 
     if not isinstance(instruments, list):
@@ -53,4 +57,36 @@ def load_features_safe(instruments, fields, start_time, end_time, freq="day"):
     else:
         inst_list = list(instruments)
 
-    return D.features(inst_list, fields, start_time, end_time, freq)
+    try:
+        return D.features(inst_list, fields, start_time, end_time, freq)
+    except ValueError as exc:
+        if "broadcast" not in str(exc):
+            raise
+
+        if os.environ.get("QLIB_FILTER_BAD_INSTRUMENTS") != "1":
+            raise ValueError(
+                "Qlib D.features broadcast error. This usually means one or more "
+                "instruments have inconsistent feature lengths. Refusing to change "
+                "the training universe implicitly; fix the data or rerun with "
+                "QLIB_FILTER_BAD_INSTRUMENTS=1 to explicitly drop bad instruments."
+            ) from exc
+
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"D.features broadcast error, filtering bad instruments: {exc}")
+
+        clean = []
+        bad = []
+        for inst in inst_list:
+            try:
+                D.features([inst], fields, start_time, end_time, freq)
+                clean.append(inst)
+            except Exception:
+                bad.append(inst)
+
+        if bad:
+            logger.warning(f"Filtered {len(bad)} bad instruments: {bad}")
+        if not clean:
+            raise
+
+        return D.features(clean, fields, start_time, end_time, freq)

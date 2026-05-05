@@ -29,6 +29,7 @@ from modules.backtest.qlib_engine import (
     _compute_rebalance_day,
     _load_ranked_selection_orders,
     _load_raw_trade_quotes,
+    _load_backtest_return_frame,
     main as qlib_main,
     QlibBacktestEngine,
 )
@@ -253,6 +254,55 @@ class TestQlibBacktestHelpers:
         assert list(quotes.index.get_level_values("instrument").unique()) == ["SZ000001"]
         assert quotes.loc[(pd.Timestamp("2024-01-02"), "SZ000001"), "prev_close"] == 10.1
         assert quotes.loc[(pd.Timestamp("2024-01-03"), "SZ000001"), "prev_close"] == 10.4
+
+    def test_load_raw_trade_quotes_prefers_tushare_pre_close(self, tmp_path):
+        raw_file = tmp_path / "sz000001.parquet"
+        pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                "open": [10.2, 10.3],
+                "close": [10.4, 10.5],
+                "pre_close": [9.95, 10.25],
+            }
+        ).to_parquet(raw_file, index=False)
+
+        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
+            quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
+
+        assert quotes.loc[(pd.Timestamp("2024-01-02"), "SZ000001"), "prev_close"] == pytest.approx(9.95)
+        assert quotes.loc[(pd.Timestamp("2024-01-03"), "SZ000001"), "prev_close"] == pytest.approx(10.25)
+
+    def test_load_backtest_return_frame_uses_provider_qfq_close(self, tmp_path):
+        raw_file = tmp_path / "sz000001.parquet"
+        pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                "open": [10.0, 20.0],
+                "close": [10.0, 20.0],
+                "pre_close": [9.8, 10.0],
+            }
+        ).to_parquet(raw_file, index=False)
+
+        provider_index = pd.MultiIndex.from_tuples(
+            [
+                (pd.Timestamp("2024-01-02"), "SZ000001"),
+                (pd.Timestamp("2024-01-03"), "SZ000001"),
+            ],
+            names=["datetime", "instrument"],
+        )
+        provider_px = pd.DataFrame({"close": [100.0, 101.0]}, index=provider_index)
+
+        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path), \
+             patch("modules.backtest.qlib_engine.load_features_safe", return_value=provider_px), \
+             patch(
+                 "modules.backtest.qlib_engine._load_trade_calendar_slice",
+                 return_value=pd.DatetimeIndex([pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")]),
+             ):
+            df_px, raw_quotes = _load_backtest_return_frame(["SZ000001"], "2024-01-02", "2024-01-03")
+
+        assert raw_quotes.loc[(pd.Timestamp("2024-01-03"), "SZ000001"), "close"] == pytest.approx(20.0)
+        assert df_px.loc[(pd.Timestamp("2024-01-03"), "SZ000001"), "close"] == pytest.approx(101.0)
+        assert df_px.loc[(pd.Timestamp("2024-01-03"), "SZ000001"), "daily_ret"] == pytest.approx(0.01)
 
     def test_load_raw_trade_quotes_warns_and_skips_missing_files(self, tmp_path, capsys):
         with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
@@ -650,7 +700,7 @@ class TestQlibBacktestHelpers:
         assert not result.portfolio_value.empty
         mock_ranked.assert_called_once_with(strategy)
         mock_raw.assert_called_once_with(
-            {"SZ000001"},
+            ["SZ000001"],
             CONFIG.get("start_date", "2019-01-01"),
             CONFIG.get("end_date", "2026-02-26"),
         )

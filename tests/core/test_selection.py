@@ -554,3 +554,72 @@ class TestSelectionParquetOptimization:
         }
         assert by_date[dates[0]] == ["SZ000001"]
         assert by_date[dates[1]] == ["SZ000001"]
+
+
+class TestTieBreakingDeterminism:
+    """同分时选股结果必须确定，不随 PYTHONHASHSEED 变化。"""
+
+    @staticmethod
+    def _make_tied_signal():
+        """构造 topk 截止位有精确并列的信号。"""
+        dt = pd.Timestamp("2024-01-05")
+        stocks = [f"SZ{i:06d}" for i in range(1, 21)]  # SZ000001..SZ000020
+        idx = pd.MultiIndex.from_tuples(
+            [(dt, s) for s in stocks],
+            names=["datetime", "instrument"],
+        )
+        # 前 8 名 0.5（并列），后 12 名 0.3
+        scores = [0.5] * 8 + [0.3] * 12
+        return pd.Series(scores, index=idx)
+
+    def test_tied_scores_topk_deterministic(self):
+        """topk=8 截止在 8 个同分股上，结果必须按股票代码字典序确定。"""
+        signal = self._make_tied_signal()
+        dt = pd.DatetimeIndex([pd.Timestamp("2024-01-05")])
+
+        result = extract_topk(signal, dt, topk=8)
+        selected = set(result["symbol"])
+        # 8 个同分股全部入选
+        assert len(selected) == 8
+        # 排名顺序必须按股票代码排列（字典序）
+        assert result.sort_values("rank")["symbol"].tolist() == [
+            f"SZ{i:06d}" for i in range(1, 9)
+        ]
+
+    def test_buffer_mode_tied_deterministic(self):
+        """buffer 模式下同分排序也必须确定。"""
+        dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+        stocks = [f"SZ{i:06d}" for i in range(1, 16)]
+        idx = pd.MultiIndex.from_product([dates, stocks], names=["datetime", "instrument"])
+
+        # day1: 1..10 是 0.5, 11..15 是 0.3
+        # day2: 6..15 是 0.5, 1..5 是 0.3  (topk=8, buffer=3)
+        scores = (
+            [0.5] * 10 + [0.3] * 5 +  # day1
+            [0.3] * 5 + [0.5] * 10     # day2
+        )
+        signal = pd.Series(scores, index=idx)
+
+        result = extract_topk(signal, pd.DatetimeIndex(dates), topk=8, buffer=3)
+        by_date = {dt: grp.sort_values("rank")["symbol"].tolist() for dt, grp in result.groupby("date")}
+
+        # day1: top8 全是 0.5 的，必须按字典序
+        assert by_date[dates[0]] == [f"SZ{i:06d}" for i in range(1, 9)]
+
+    def test_churn_limit_tied_deterministic(self):
+        """churn_limit 模式下 dropped set → list 排序必须确定。"""
+        dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+        stocks = [f"SZ{i:06d}" for i in range(1, 16)]
+        idx = pd.MultiIndex.from_product([dates, stocks], names=["datetime", "instrument"])
+
+        scores = (
+            [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05] +
+            [0.3, 0.3, 0.3, 0.3, 0.3, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.2, 0.1, 0.05, 0.05]
+        )
+        signal = pd.Series(scores, index=idx)
+
+        result = extract_topk(signal, pd.DatetimeIndex(dates), topk=5, buffer=3, churn_limit=2)
+        assert len(result) > 0
+        # 验证结果可复现（跑两次必须完全一致）
+        result2 = extract_topk(signal, pd.DatetimeIndex(dates), topk=5, buffer=3, churn_limit=2)
+        pd.testing.assert_frame_equal(result, result2)

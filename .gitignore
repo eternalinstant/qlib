@@ -57,3 +57,4 @@ data/monthly_selections.csv
 
 # Results (generated)
 results/
+.env

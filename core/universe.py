@@ -26,8 +26,17 @@ EXCLUDED_PREFIXES = (
 )
 UNIVERSE_ALL = "all"
 UNIVERSE_CSI300 = "csi300"
+UNIVERSE_CSI500 = "csi500"
+UNIVERSE_CSI800 = "csi800"
 INDEX_CODE_BY_UNIVERSE = {
     UNIVERSE_CSI300: "000300.SH",
+    UNIVERSE_CSI500: "000905.SH",
+}
+INDEX_CODES_BY_UNIVERSE = {
+    UNIVERSE_CSI300: ("000300.SH",),
+    UNIVERSE_CSI500: ("000905.SH",),
+    # 本地 Tushare index_weight 没有单独 000906.SH，按中证定义用沪深300+中证500合成。
+    UNIVERSE_CSI800: ("000300.SH", "000905.SH"),
 }
 
 _st_instruments: set = None
@@ -245,12 +254,14 @@ def _required_index_weight_path_hint() -> str:
 def has_historical_universe_data(universe: str) -> bool:
     if universe == UNIVERSE_ALL:
         return True
-    if universe not in INDEX_CODE_BY_UNIVERSE:
+    index_codes = INDEX_CODES_BY_UNIVERSE.get(universe)
+    if not index_codes:
         return False
     table = _load_index_weight_table()
     if table.empty:
         return False
-    return table["index_code"].eq(INDEX_CODE_BY_UNIVERSE[universe]).any()
+    available_codes = set(table["index_code"].dropna().astype(str).unique())
+    return all(code in available_codes for code in index_codes)
 
 
 def get_index_constituents_as_of(index_code: str, as_of_date) -> List[str]:
@@ -282,6 +293,24 @@ def get_index_constituents_as_of(index_code: str, as_of_date) -> List[str]:
     return list(result)
 
 
+def get_universe_constituents_as_of(universe: str, as_of_date) -> List[str]:
+    """返回指定股票池在某一历史时点的成分。
+
+    csi800 由 csi300 与 csi500 的同日最近快照取并集。
+    """
+    if universe == UNIVERSE_ALL:
+        return get_universe_instruments(as_of_date, as_of_date, universe=universe)
+
+    index_codes = INDEX_CODES_BY_UNIVERSE.get(universe)
+    if not index_codes:
+        raise ValueError(f"未知股票池: {universe}")
+
+    result = set()
+    for index_code in index_codes:
+        result.update(get_index_constituents_as_of(index_code, as_of_date))
+    return sorted(result)
+
+
 def get_universe_instruments(
     start_date,
     end_date,
@@ -307,8 +336,8 @@ def get_universe_instruments(
         df["instrument"] = df["instrument"].str[:2].str.upper() + df["instrument"].str[2:]
         return sorted(df["instrument"].dropna().unique().tolist())
 
-    index_code = INDEX_CODE_BY_UNIVERSE.get(universe)
-    if index_code is None:
+    index_codes = INDEX_CODES_BY_UNIVERSE.get(universe)
+    if not index_codes:
         raise ValueError(f"未知股票池: {universe}")
 
     table = _load_index_weight_table()
@@ -319,9 +348,9 @@ def get_universe_instruments(
         )
 
     end_ts = pd.Timestamp(end_date)
-    subset = table[(table["index_code"] == index_code) & (table["trade_date"] <= end_ts)]
+    subset = table[(table["index_code"].isin(index_codes)) & (table["trade_date"] <= end_ts)]
     if subset.empty:
-        raise ValueError(f"指数 {index_code} 在 {pd.Timestamp(start_date).date()} ~ {end_ts.date()} 无可用成分数据")
+        raise ValueError(f"股票池 {universe} 在 {pd.Timestamp(start_date).date()} ~ {end_ts.date()} 无可用成分数据")
     return sorted(subset["instrument"].unique().tolist())
 
 
@@ -334,11 +363,7 @@ def filter_instruments_by_universe(
     if universe == UNIVERSE_ALL:
         return list(instruments)
 
-    index_code = INDEX_CODE_BY_UNIVERSE.get(universe)
-    if index_code is None:
-        raise ValueError(f"未知股票池: {universe}")
-
-    constituent_set = set(get_index_constituents_as_of(index_code, as_of_date))
+    constituent_set = set(get_universe_constituents_as_of(universe, as_of_date))
     return [inst for inst in instruments if inst in constituent_set]
 
 

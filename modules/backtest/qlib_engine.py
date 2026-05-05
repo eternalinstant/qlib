@@ -7,6 +7,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+import hashlib
 import numpy as np
 import pandas as pd
 from functools import lru_cache
@@ -56,6 +57,17 @@ def _raw_data_root() -> Path:
 
 def _raw_data_path_for_instrument(instrument: str) -> Path:
     return _raw_data_root() / f"{instrument[:2].lower()}{instrument[2:]}.parquet"
+
+
+@lru_cache(maxsize=32)
+def _load_trade_calendar_slice(start_date: str, end_date: str) -> pd.DatetimeIndex:
+    qlib_root = Path(
+        CONFIG.get("paths.qlib_data", "~/code/qlib/data/qlib_data/cn_data")
+    ).expanduser()
+    cal_file = qlib_root / "calendars" / "day.txt"
+    cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])["date"]
+    mask = (cal >= pd.Timestamp(start_date)) & (cal <= pd.Timestamp(end_date))
+    return pd.DatetimeIndex(cal.loc[mask].tolist())
 
 
 def _round_limit_price(value: float) -> float:
@@ -162,7 +174,7 @@ def _load_raw_trade_quotes(instruments, start_date: str, end_date: str) -> pd.Da
             missing_files.append(instrument)
             continue
 
-        df = pd.read_parquet(path, columns=["date", "open", "close"])
+        df = pd.read_parquet(path)
         if df.empty:
             continue
 
@@ -173,6 +185,12 @@ def _load_raw_trade_quotes(instruments, start_date: str, end_date: str) -> pd.Da
             continue
 
         df["instrument"] = instrument
+        if "pre_close" in df.columns:
+            df["prev_close"] = pd.to_numeric(df["pre_close"], errors="coerce")
+        else:
+            df["prev_close"] = pd.to_numeric(df["close"], errors="coerce").groupby(
+                df["instrument"]
+            ).shift(1)
         frames.append(df)
 
     if missing_files:
@@ -187,11 +205,84 @@ def _load_raw_trade_quotes(instruments, start_date: str, end_date: str) -> pd.Da
 
     raw = pd.concat(frames, ignore_index=True)
     raw = raw.sort_values(["instrument", "date"])
-    raw["prev_close"] = raw.groupby("instrument")["close"].shift(1)
     raw = raw.rename(columns={"date": "datetime"})
     raw = raw[raw["datetime"] >= pd.Timestamp(start_date)].copy()
     raw = raw.drop_duplicates(subset=["datetime", "instrument"], keep="last")
     return raw.set_index(["datetime", "instrument"])[["open", "close", "prev_close"]].sort_index()
+
+
+def _load_provider_close_frame(instruments, start_date: str, end_date: str) -> pd.DataFrame:
+    if not instruments:
+        return pd.DataFrame(columns=["close", "prev_close", "daily_ret"])
+
+    provider_px = load_features_safe(
+        instruments,
+        ["$close"],
+        start_time=start_date,
+        end_time=end_date,
+        freq="day",
+    )
+    if provider_px is None or provider_px.empty:
+        return pd.DataFrame(columns=["close", "prev_close", "daily_ret"])
+
+    provider_px.columns = ["close"]
+    if list(provider_px.index.names) == ["instrument", "datetime"]:
+        provider_px = provider_px.swaplevel().sort_index()
+    provider_px.index = provider_px.index.set_names(["datetime", "instrument"])
+    provider_px = provider_px.sort_index()
+
+    calendar = _load_trade_calendar_slice(start_date, end_date)
+    aligned_parts = []
+    for instrument, grp in provider_px.groupby(level="instrument", sort=False):
+        work = grp.droplevel("instrument").sort_index().reindex(calendar)
+        work["instrument"] = instrument
+        aligned_parts.append(work.reset_index().rename(columns={"index": "datetime"}))
+
+    if not aligned_parts:
+        return pd.DataFrame(columns=["close", "prev_close", "daily_ret"])
+
+    provider_frame = pd.concat(aligned_parts, ignore_index=True)
+    provider_frame = provider_frame.set_index(["datetime", "instrument"]).sort_index()
+    provider_frame.index = provider_frame.index.set_names(["datetime", "instrument"])
+    has_any_quote = provider_frame["close"].groupby(level="datetime").transform(
+        lambda s: s.notna().any()
+    )
+    provider_frame = provider_frame[has_any_quote]
+    provider_frame["prev_close"] = provider_frame.groupby(level="instrument")["close"].shift(1)
+    provider_frame["daily_ret"] = provider_frame["close"] / provider_frame["prev_close"] - 1
+    provider_frame = provider_frame.replace([np.inf, -np.inf], np.nan)
+    return provider_frame[["close", "prev_close", "daily_ret"]]
+
+
+def _load_backtest_return_frame(instruments, start_date: str, end_date: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load close-to-close returns for backtests.
+
+    收益率统一使用前复权 provider `$close`；
+    raw_data 只保留给涨跌停可成交约束使用。
+    """
+    instruments = sorted(set(instruments))
+    if not instruments:
+        return pd.DataFrame(columns=["close", "prev_close", "daily_ret"]), pd.DataFrame(
+            columns=["open", "close", "prev_close"]
+        )
+
+    raw_quotes = _load_raw_trade_quotes(instruments, start_date, end_date)
+    df_px = _load_provider_close_frame(instruments, start_date, end_date)
+    return df_px, raw_quotes
+
+
+def _fingerprint_raw_data(instruments: list) -> str:
+    """计算回测所用 raw_data 文件的指纹，用于检测数据快照是否漂移。"""
+    raw_root = _raw_data_root()
+    h = hashlib.md5()
+    count = 0
+    for inst in sorted(instruments):
+        path = _raw_data_path_for_instrument(inst)
+        if path.exists():
+            st = path.stat()
+            h.update(f"{inst}:{st.st_size}:{st.st_mtime_ns}".encode())
+            count += 1
+    return f"raw_n={count}_md5={h.hexdigest()[:12]}"
 
 
 def _quote_row(raw_day_quotes: pd.DataFrame, instrument: str):
@@ -621,24 +712,19 @@ class QlibBacktestEngine(BacktestEngine):
                 portfolio_value=pd.Series(dtype=float),
             )
 
-        df_px = load_features_safe(
-            selected_instruments,
-            ["$close"],
-            start_time=start_date,
-            end_time=end_date,
-            freq="day",
+        valid_instruments = filter_instruments(selected_instruments, exclude_st=False)
+        logger.info(f"数据指纹: {_fingerprint_raw_data(valid_instruments)}")
+        df_px, raw_quotes = _load_backtest_return_frame(
+            valid_instruments,
+            start_date=start_date,
+            end_date=end_date,
         )
-        df_px.columns = ["close"]
-        df_px = df_px.sort_index()
-
-        valid_instruments = filter_instruments(
-            df_px.index.get_level_values("instrument").unique().tolist(),
-            exclude_st=False,
-        )
-        df_px = df_px[df_px.index.get_level_values("instrument").isin(valid_instruments)].copy()
-        df_px["prev_close"] = df_px.groupby(level="instrument")["close"].shift(1)
-        df_px["daily_ret"] = df_px["close"] / df_px["prev_close"] - 1
-        df_px = df_px.replace([np.inf, -np.inf], np.nan)
+        if df_px.empty:
+            logger.error("无法从 raw_data/provider 加载任何收益率数据")
+            return BacktestResult(
+                daily_returns=pd.Series(dtype=float),
+                portfolio_value=pd.Series(dtype=float),
+            )
         dates = df_px.index.get_level_values("datetime").unique().sort_values()
         daily_ret_by_date = _split_by_datetime(df_px["daily_ret"])
         date_index = pd.DatetimeIndex(dates)
@@ -677,15 +763,8 @@ class QlibBacktestEngine(BacktestEngine):
         block_limit_down_sell = trading_cost.get("block_limit_down_sell", False)
         _ensure_tradability_constraints_supported(block_limit_up_buy, block_limit_down_sell)
         ranked_selection_orders = {}
-        raw_quotes = pd.DataFrame()
         if block_limit_up_buy or block_limit_down_sell:
             ranked_selection_orders = _load_ranked_selection_orders(strategy)
-            required_instruments = {
-                symbol
-                for ranked_symbols in ranked_selection_orders.values()
-                for symbol in ranked_symbols
-            }
-            raw_quotes = _load_raw_trade_quotes(required_instruments, start_date, end_date)
         raw_quotes_by_date = _split_by_datetime(raw_quotes)
 
         position_model = str(getattr(strategy, "position_model", "") or "").lower()
@@ -914,7 +993,12 @@ class QlibBacktestEngine(BacktestEngine):
         results_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         universe = getattr(strategy, "universe", "all") if strategy else "all"
-        universe_tag = "historical_csi300" if universe == "csi300" else "all_market"
+        if universe == "csi300":
+            universe_tag = "historical_csi300"
+        elif universe == "csi800":
+            universe_tag = "historical_csi800"
+        else:
+            universe_tag = "all_market"
         results_file = results_dir / f"backtest_{strategy_slug}_{universe_tag}_{timestamp}.csv"
         df_result.to_csv(results_file)
 
@@ -929,6 +1013,7 @@ class QlibBacktestEngine(BacktestEngine):
                 "fee_ratio_to_initial": total_fee_amount / initial_capital
                 if initial_capital > 0
                 else 0.0,
+                "data_fingerprint": _fingerprint_raw_data(valid_instruments),
             },
         )
 

@@ -387,6 +387,54 @@ class TushareDownloader:
             return result
         return None
 
+    def download_adj_factor(self, start_date: str = "20160101", end_date: str = None):
+        """下载复权因子数据 (adj_factor)"""
+        end_date = end_date or datetime.now().strftime("%Y%m%d")
+        output_file = self.data_dir / "adj_factor.parquet"
+
+        logger.info(f"下载复权因子数据: {start_date} ~ {end_date}")
+
+        stocks = self.get_all_stocks()
+        self._counter = 0
+        self._total = len(stocks)
+        all_data = []
+        failed = []
+
+        def download_one(stock):
+            try:
+                df = self.pro.adj_factor(
+                    ts_code=stock,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                self._update_progress()
+                return df if df is not None and len(df) > 0 else None
+            except Exception as e:
+                with self._lock:
+                    failed.append(stock)
+                return None
+
+        logger.info(f"使用 {self.MAX_WORKERS} 线程并发下载...")
+
+        with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
+            futures = {executor.submit(download_one, stock): stock for stock in stocks}
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    all_data.append(result)
+
+        if all_data:
+            result = pd.concat(all_data, ignore_index=True)
+            # 只保留必要列
+            for col in result.columns:
+                if col not in ("ts_code", "trade_date", "adj_factor"):
+                    result = result.drop(columns=[col])
+            result.to_parquet(output_file, index=False)
+            logger.info(f"复权因子数据已保存: {output_file}")
+            logger.info(f"共 {len(result)} 条记录, 失败 {len(failed)} 只")
+            return result
+        return None
+
     def download_daily_quotes(self, ts_codes: List[str] = None, start_date: str = "20160101", end_date: str = None):
         """下载日线行情数据 (OHLCV)"""
         end_date = end_date or datetime.now().strftime("%Y%m%d")
@@ -407,7 +455,7 @@ class TushareDownloader:
                     ts_code=stock,
                     start_date=start_date,
                     end_date=end_date,
-                    fields='ts_code,trade_date,open,high,low,close,vol,amount,pct_chg'
+                    fields='ts_code,trade_date,open,high,low,close,pre_close,vol,amount,pct_chg'
                 )
                 self._update_progress()
                 return df if df is not None and len(df) > 0 else None
@@ -437,6 +485,7 @@ class TushareDownloader:
 
         results = {}
         results['daily_basic'] = self.download_daily_basic(start_date, end_date)
+        results['adj_factor'] = self.download_adj_factor(start_date, end_date)
         results['income'] = self.download_income(start_date, end_date)
         results['balancesheet'] = self.download_balancesheet(start_date, end_date)
         results['cashflow'] = self.download_cashflow(start_date, end_date)
@@ -468,7 +517,7 @@ def main():
     parser.add_argument("--token", default=None, help="Tushare Token")
     parser.add_argument("--workers", type=int, default=8, help="并发线程数")
     parser.add_argument("--type", default="all",
-                        choices=["all", "daily_basic", "income", "balancesheet", "cashflow",
+                        choices=["all", "daily_basic", "adj_factor", "income", "balancesheet", "cashflow",
                                  "fina_indicator", "index_daily", "index_weight", "namechange"],
                         help="下载数据类型")
 
@@ -481,6 +530,7 @@ def main():
     method_map = {
         "all": "download_all",
         "daily_basic": "download_daily_basic",
+        "adj_factor": "download_adj_factor",
         "income": "download_income",
         "balancesheet": "download_balancesheet",
         "cashflow": "download_cashflow",

@@ -47,7 +47,7 @@ def download_batch(pro, ts_codes, start_date, end_date, desc=""):
                 ts_code=ts_code,
                 start_date=start_date,
                 end_date=end_date,
-                fields='ts_code,trade_date,open,high,low,close,vol,amount'
+                fields='ts_code,trade_date,open,high,low,close,pre_close,vol,amount'
             )
             return df if df is not None and len(df) > 0 else None
         except:
@@ -88,7 +88,9 @@ def merge_to_files(df):
         group['date'] = pd.to_datetime(group['trade_date'], format='%Y%m%d')
         group = group.rename(columns={'vol': 'volume'})
         group['symbol'] = ts_code
-        group = group[['date', 'open', 'high', 'low', 'close', 'volume', 'amount', 'symbol']]
+        if 'pre_close' not in group.columns:
+            group['pre_close'] = pd.NA
+        group = group[['date', 'open', 'high', 'low', 'close', 'pre_close', 'volume', 'amount', 'symbol']]
         group = group.sort_values('date')
 
         if file_path.exists():
