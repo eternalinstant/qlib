@@ -280,9 +280,9 @@ def test_run_data_precheck_ignores_orphan_feature_dirs(monkeypatch, tmp_path):
 
     pd.DataFrame(
         {
-            "index_code": ["000300.SH"],
-            "con_code": ["000001.SZ"],
-            "trade_date": ["20260320"],
+            "index_code": ["000300.SH", "000300.SH"],
+            "con_code": ["000001.SZ", "000001.SZ"],
+            "trade_date": ["20190101", "20260320"],
         }
     ).to_parquet(tushare_root / "index_weight.parquet", index=False)
     pd.DataFrame(

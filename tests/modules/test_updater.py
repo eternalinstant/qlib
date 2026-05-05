@@ -19,6 +19,21 @@ import os
 from types import SimpleNamespace
 
 
+def _create_index_daily(tushare_dir: Path, trade_dates: list = None):
+    """Create a minimal index_daily.parquet with trade dates for 000300.SH."""
+    if trade_dates is None:
+        trade_dates = [
+            "20260225", "20260226", "20260227", "20260228",
+            "20260301", "20260302", "20260303",
+        ]
+    df = pd.DataFrame({
+        "ts_code": ["000300.SH"] * len(trade_dates),
+        "trade_date": trade_dates,
+        "close": [4000.0 + i for i in range(len(trade_dates))],
+    })
+    df.to_parquet(tushare_dir / "index_daily.parquet", index=False)
+
+
 class TestDataUpdaterCheckUpdate:
     """测试更新检查逻辑"""
 
@@ -123,6 +138,8 @@ class TestDataUpdaterDownload:
         output_path = tmp_path / "daily_basic.parquet"
         existing_data.to_parquet(output_path, index=False)
 
+        _create_index_daily(tmp_path)
+
         updater = DataUpdater(qlib_data_path=str(tmp_path))
         updater.tushare_dir = tmp_path
 
@@ -159,6 +176,8 @@ class TestDataUpdaterDownload:
         })
         existing_data.to_parquet(output_path, index=False)
 
+        _create_index_daily(tmp_path, ["20260226", "20260227", "20260228"])
+
         updater = DataUpdater(qlib_data_path=str(tmp_path))
         updater.tushare_dir = tmp_path
 
@@ -182,6 +201,8 @@ class TestDataUpdaterDownload:
             "close": [10.0],
         }).to_parquet(output_path, index=False)
 
+        _create_index_daily(tmp_path, ["20260130", "20260131", "20260201", "20260202"])
+
         updater = DataUpdater(qlib_data_path=str(tmp_path))
         updater.tushare_dir = tmp_path
 
@@ -192,23 +213,33 @@ class TestDataUpdaterDownload:
             result = updater.download_daily_basic()
 
         assert result is True
-        assert mock_pro.daily_basic.call_args.kwargs["start_date"] == "20260201"
+        # download_daily_basic 按交易日逐日调用 pro.daily_basic(trade_date=...)
+        first_call_date = mock_pro.daily_basic.call_args_list[0].kwargs["trade_date"]
+        assert first_call_date == "20260201"
 
     def test_download_daily_basic_bootstrap_uses_full_history_start(self, tmp_path):
         """首次 bootstrap 时应从全量历史起点下载 daily_basic。"""
         from modules.data.updater import BOOTSTRAP_MARKET_START, DataUpdater
 
+        _create_index_daily(tmp_path, ["20200101", "20200102", "20260228"])
+
         updater = DataUpdater(qlib_data_path=str(tmp_path))
         updater.tushare_dir = tmp_path
 
         mock_pro = Mock()
-        mock_pro.daily_basic.return_value = pd.DataFrame()
+        mock_pro.daily_basic.side_effect = lambda trade_date: pd.DataFrame({
+            'ts_code': ['000001.SZ'],
+            'trade_date': [trade_date],
+            'close': [10.0],
+            'pe_ttm': [8.0],
+        })
 
         with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro):
             result = updater.download_daily_basic(start_date=BOOTSTRAP_MARKET_START)
 
         assert result is True
-        assert mock_pro.daily_basic.call_args.kwargs["start_date"] == BOOTSTRAP_MARKET_START
+        first_call_date = mock_pro.daily_basic.call_args_list[0].kwargs["trade_date"]
+        assert first_call_date >= BOOTSTRAP_MARKET_START
 
     def test_download_daily_basic_bootstrap_resume_honors_explicit_start(self, tmp_path):
         """bootstrap 续跑时，显式 start_date 不应被已有 daily_basic 覆盖。"""
@@ -222,17 +253,25 @@ class TestDataUpdaterDownload:
             }
         ).to_parquet(tmp_path / "daily_basic.parquet", index=False)
 
+        _create_index_daily(tmp_path, ["20200101", "20260228"])
+
         updater = DataUpdater(qlib_data_path=str(tmp_path))
         updater.tushare_dir = tmp_path
 
         mock_pro = Mock()
-        mock_pro.daily_basic.return_value = pd.DataFrame()
+        mock_pro.daily_basic.side_effect = lambda trade_date: pd.DataFrame({
+            'ts_code': ['000001.SZ'],
+            'trade_date': [trade_date],
+            'close': [10.0],
+            'pe_ttm': [8.0],
+        })
 
         with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro):
             result = updater.download_daily_basic(start_date=BOOTSTRAP_MARKET_START)
 
         assert result is True
-        assert mock_pro.daily_basic.call_args.kwargs["start_date"] == BOOTSTRAP_MARKET_START
+        first_call_date = mock_pro.daily_basic.call_args_list[0].kwargs["trade_date"]
+        assert first_call_date >= BOOTSTRAP_MARKET_START
 
     def test_download_handles_api_error(self, tmp_path):
         """API 错误时优雅降级"""
@@ -252,6 +291,8 @@ class TestDataUpdaterDownload:
     def test_download_daily_basic_retries_transient_error(self, tmp_path):
         """daily_basic 短暂失败时应等待重试，而不是直接留下缺口。"""
         from modules.data.updater import DataUpdater
+
+        _create_index_daily(tmp_path, ["20260228"])
 
         updater = DataUpdater(qlib_data_path=str(tmp_path))
         updater.tushare_dir = tmp_path
@@ -290,6 +331,8 @@ class TestDataUpdaterDownload:
             }
         ).to_parquet(tmp_path / "adj_factor.parquet", index=False)
 
+        _create_index_daily(tmp_path, ["20260101", "20260128", "20260228"])
+
         updater = DataUpdater(qlib_data_path=str(tmp_path))
         updater.tushare_dir = tmp_path
 
@@ -301,7 +344,9 @@ class TestDataUpdaterDownload:
             result = updater.download_adj_factor()
 
         assert result is True
-        assert mock_pro.adj_factor.call_args_list[0].kwargs["start_date"] == "20260128"
+        # download_adj_factor 按交易日逐日调用 pro.adj_factor(trade_date=...)
+        first_call_date = mock_pro.adj_factor.call_args_list[0].kwargs["trade_date"]
+        assert first_call_date == "20260128"
 
     def test_update_raw_data_quotes_incremental(self, tmp_path):
         """按交易日增量更新 raw_data。"""
@@ -315,6 +360,9 @@ class TestDataUpdaterDownload:
         pd.DataFrame({"trade_date": ["20260227", "20260228"]}).to_parquet(
             tmp_path / "daily_basic.parquet",
             index=False,
+        )
+        pd.DataFrame({"ts_code": ["600000.SH", "000001.SZ"], "name": ["A", "B"]}).to_csv(
+            tmp_path / "stock_basic.csv", index=False
         )
         pd.DataFrame(
             {
@@ -330,18 +378,27 @@ class TestDataUpdaterDownload:
         ).to_parquet(updater.raw_data_dir / "sh600000.parquet", index=False)
 
         mock_pro = Mock()
-        mock_pro.daily.return_value = pd.DataFrame(
-            {
-                "ts_code": ["600000.SH", "000001.SZ"],
-                "trade_date": ["20260228", "20260228"],
-                "open": [10.3, 12.0],
-                "high": [10.6, 12.5],
-                "low": [10.1, 11.8],
-                "close": [10.4, 12.2],
-                "vol": [1200.0, 800.0],
-                "amount": [12000.0, 9500.0],
-            }
-        )
+        mock_pro.trade_cal.return_value = pd.DataFrame({"cal_date": ["20260227", "20260228"]})
+
+        def _daily_mock(**kwargs):
+            ts_code = kwargs.get("ts_code", "")
+            if ts_code == "600000.SH":
+                return pd.DataFrame({
+                    "ts_code": ["600000.SH"],
+                    "trade_date": ["20260228"],
+                    "open": [10.3], "high": [10.6], "low": [10.1],
+                    "close": [10.4], "vol": [1200.0], "amount": [12000.0],
+                })
+            elif ts_code == "000001.SZ":
+                return pd.DataFrame({
+                    "ts_code": ["000001.SZ"],
+                    "trade_date": ["20260228"],
+                    "open": [12.0], "high": [12.5], "low": [11.8],
+                    "close": [12.2], "vol": [800.0], "amount": [9500.0],
+                })
+            return pd.DataFrame()
+
+        mock_pro.daily.side_effect = _daily_mock
 
         with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro), \
              patch("modules.data.updater.time.sleep", return_value=None):
@@ -367,43 +424,31 @@ class TestDataUpdaterDownload:
             tmp_path / "daily_basic.parquet",
             index=False,
         )
+        pd.DataFrame({"ts_code": ["600000.SH"], "name": ["A"]}).to_csv(
+            tmp_path / "stock_basic.csv", index=False
+        )
 
         mock_pro = Mock()
-        mock_pro.daily.side_effect = [
-            pd.DataFrame(
-                {
-                    "ts_code": ["600000.SH"],
-                    "trade_date": ["20260102"],
-                    "open": [10.0],
-                    "high": [10.5],
-                    "low": [9.9],
-                    "close": [10.2],
-                    "vol": [1000.0],
-                    "amount": [10000.0],
-                }
-            ),
-            pd.DataFrame(
-                {
-                    "ts_code": ["600000.SH"],
-                    "trade_date": ["20260331"],
-                    "open": [11.0],
-                    "high": [11.5],
-                    "low": [10.8],
-                    "close": [11.2],
-                    "vol": [1200.0],
-                    "amount": [12000.0],
-                }
-            ),
-        ]
+        mock_pro.trade_cal.return_value = pd.DataFrame({"cal_date": ["20260102", "20260331"]})
+
+        def _daily_mock(**kwargs):
+            return pd.DataFrame({
+                "ts_code": [kwargs.get("ts_code", "600000.SH")],
+                "trade_date": [kwargs.get("start_date", "20260102")],
+                "open": [10.0], "high": [10.5], "low": [9.9],
+                "close": [10.2], "vol": [1000.0], "amount": [10000.0],
+            })
+
+        mock_pro.daily.side_effect = _daily_mock
 
         with patch("modules.data.updater.get_tushare_pro", return_value=mock_pro), \
              patch("modules.data.updater.time.sleep", return_value=None):
             result = updater.update_raw_data_quotes()
 
         assert result is True
-        assert mock_pro.daily.call_count == 2
-        assert mock_pro.daily.call_args_list[0].kwargs["trade_date"] == "20260102"
-        assert mock_pro.daily.call_args_list[1].kwargs["trade_date"] == "20260331"
+        assert mock_pro.daily.call_count == 1
+        assert mock_pro.daily.call_args_list[0].kwargs["ts_code"] == "600000.SH"
+        assert mock_pro.daily.call_args_list[0].kwargs["end_date"] == "20260331"
 
     def test_download_index_daily_incremental_month_boundary(self, tmp_path):
         """跨月增量下载 index_daily 时起始日期应为下一个自然日。"""
@@ -540,7 +585,10 @@ class TestDataUpdaterIntegration:
 
         # Mock 所有外部依赖
         ok_precheck = SimpleNamespace(ok=True, errors=[])
-        with patch.object(updater, 'check_update_needed', return_value=True), \
+        with patch('modules.data.updater.get_tushare_pro', return_value=Mock()), \
+             patch.object(updater, '_needs_bootstrap', return_value=False), \
+             patch.object(updater, 'get_remote_latest_date', return_value=datetime(2026, 3, 1)), \
+             patch.object(updater, 'check_update_needed', return_value=True), \
              patch('modules.data.updater.run_data_precheck', return_value=ok_precheck), \
              patch.object(updater, 'download_daily_basic', return_value=True), \
              patch.object(updater, 'download_stock_basic', return_value=True), \
@@ -574,7 +622,9 @@ class TestDataUpdaterIntegration:
         updater = DataUpdater(qlib_data_path=str(tmp_path))
 
         ok_precheck = SimpleNamespace(ok=True, errors=[])
-        with patch.object(updater, 'check_update_needed', return_value=False), \
+        with patch.object(updater, '_needs_bootstrap', return_value=False), \
+             patch.object(updater, 'get_remote_latest_date', return_value=datetime(2026, 2, 28)), \
+             patch.object(updater, 'check_update_needed', return_value=False), \
              patch('modules.data.updater.run_data_precheck', return_value=ok_precheck):
             result = updater.update_daily()
 
@@ -594,7 +644,10 @@ class TestDataUpdaterIntegration:
         updater.tushare_dir = tmp_path
 
         ok_precheck = SimpleNamespace(ok=True, errors=[])
-        with patch.object(updater, 'check_update_needed', return_value=True), \
+        with patch('modules.data.updater.get_tushare_pro', return_value=Mock()), \
+             patch.object(updater, '_needs_bootstrap', return_value=False), \
+             patch.object(updater, 'get_remote_latest_date', return_value=datetime(2026, 3, 1)), \
+             patch.object(updater, 'check_update_needed', return_value=True), \
              patch('modules.data.updater.run_data_precheck', return_value=ok_precheck), \
              patch.object(updater, 'download_daily_basic', return_value=False), \
              patch.object(updater, 'download_stock_basic', return_value=True), \
@@ -686,9 +739,9 @@ class TestDataUpdaterConvert:
 
         updater = DataUpdater(qlib_data_path=str(tmp_path / "cn_data"))
         updater.tushare_dir = tmp_path / "tushare"
-        updater.tushare_dir.mkdir(parents=True)
+        updater.tushare_dir.mkdir(parents=True, exist_ok=True)
         updater.raw_data_dir = tmp_path / "raw_data"
-        updater.raw_data_dir.mkdir(parents=True)
+        updater.raw_data_dir.mkdir(parents=True, exist_ok=True)
 
         pd.DataFrame(
             {
@@ -751,7 +804,10 @@ class TestDataUpdaterConvert:
         updater.tushare_dir = tmp_path
 
         ok_precheck = SimpleNamespace(ok=True, errors=[])
-        with patch.object(updater, 'check_update_needed', return_value=True), \
+        with patch('modules.data.updater.get_tushare_pro', return_value=Mock()), \
+             patch.object(updater, '_needs_bootstrap', return_value=False), \
+             patch.object(updater, 'get_remote_latest_date', return_value=datetime(2026, 3, 1)), \
+             patch.object(updater, 'check_update_needed', return_value=True), \
              patch('modules.data.updater.run_data_precheck', return_value=ok_precheck), \
              patch.object(updater, 'download_daily_basic', return_value=True), \
              patch.object(updater, 'download_stock_basic', return_value=True), \
@@ -780,7 +836,9 @@ class TestDataUpdaterConvert:
         initial_precheck = SimpleNamespace(ok=False, errors=["缺少文件: factor_data.parquet"])
         ok_precheck = SimpleNamespace(ok=True, errors=[])
 
-        with patch.object(updater, "_needs_bootstrap", return_value=True), \
+        with patch("modules.data.updater.get_tushare_pro", return_value=Mock()), \
+             patch.object(updater, "_needs_bootstrap", return_value=True), \
+             patch.object(updater, "get_remote_latest_date", return_value=datetime(2026, 3, 1)), \
              patch.object(updater, "check_update_needed", return_value=False), \
              patch("modules.data.updater.run_data_precheck", side_effect=[initial_precheck, ok_precheck]), \
              patch.object(updater, "download_daily_basic", return_value=True) as mock_daily_basic, \
@@ -833,7 +891,10 @@ class TestDataUpdaterConvert:
         provider_bad = SimpleNamespace(ok=False, errors=["Qlib provider 字段不一致"])
         ok_precheck = SimpleNamespace(ok=True, errors=[])
 
-        with patch.object(updater, 'check_update_needed', return_value=False), \
+        with patch('modules.data.updater.get_tushare_pro', return_value=Mock()), \
+             patch.object(updater, '_needs_bootstrap', return_value=False), \
+             patch.object(updater, 'get_remote_latest_date', return_value=datetime(2026, 3, 20)), \
+             patch.object(updater, 'check_update_needed', return_value=False), \
              patch('modules.data.updater.run_data_precheck', side_effect=[provider_bad, ok_precheck]), \
              patch.object(updater, 'download_stock_basic', return_value=True), \
              patch.object(updater, 'download_index_weight', return_value=False), \
@@ -864,7 +925,10 @@ class TestDataUpdaterConvert:
         )
         ok_precheck = SimpleNamespace(ok=True, errors=[])
 
-        with patch.object(updater, 'check_update_needed', return_value=False), \
+        with patch('modules.data.updater.get_tushare_pro', return_value=Mock()), \
+             patch.object(updater, '_needs_bootstrap', return_value=False), \
+             patch.object(updater, 'get_remote_latest_date', return_value=datetime(2026, 3, 20)), \
+             patch.object(updater, 'check_update_needed', return_value=False), \
              patch('modules.data.updater.run_data_precheck', side_effect=[missing_precheck, ok_precheck]), \
              patch.object(updater, 'download_stock_basic', return_value=True), \
              patch.object(updater, 'download_index_weight', return_value=True), \

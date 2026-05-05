@@ -429,6 +429,10 @@ def step_build_qlib_data(
         )
         return False
 
+    # 3f. 生成 supplement_daily.parquet（OHLCV 补充数据，供测试使用）
+    logger.info("  3f. 生成 supplement_daily.parquet...")
+    converter.build_supplement_daily()
+
     logger.info("  Qlib 数据构建完成")
     return True
 

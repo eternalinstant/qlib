@@ -985,6 +985,81 @@ class TushareToQlibConverter:
         )
         return counts
 
+    def build_supplement_daily(self) -> bool:
+        """从 raw_data 生成 supplement_daily.parquet（OHLCV 补充日线数据）。
+
+        遍历 raw_data/*.parquet，合并为统一的 OHLCV 明细文件。
+        按交易日历过滤，只保留开市日的数据。
+        """
+        output_path = self.qlib_dir / "supplement_daily.parquet"
+        raw_dir = self.qlib_dir.parent / "raw_data"
+
+        if not raw_dir.exists():
+            logger.warning("raw_data 目录不存在，无法生成 supplement_daily.parquet")
+            return False
+
+        # 加载交易日历
+        cal_path = self.qlib_dir / "calendars" / "day.txt"
+        if not cal_path.exists():
+            logger.warning("交易日历不存在，无法生成 supplement_daily.parquet")
+            return False
+
+        cal_dates = set()
+        with open(cal_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    cal_dates.add(line)
+
+        # 遍历 raw_data 文件，逐文件追加到目标 parquet
+        raw_files = sorted(raw_dir.glob("*.parquet"))
+        files_to_process = [f for f in raw_files if f.name != ".download_state.json"]
+        if not files_to_process:
+            logger.warning("raw_data 目录无 parquet 文件")
+            return False
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        logger.info(f"开始构建 supplement_daily.parquet (共 {len(files_to_process)} 个文件)")
+
+        frames_for_batch = []
+        batch_size = 200
+        total_written = 0
+        writer = None
+
+        try:
+            for i, file_path in enumerate(files_to_process):
+                try:
+                    raw = pd.read_parquet(file_path)
+                except Exception:
+                    continue
+
+                # 过滤到交易日历中的日期
+                raw["date_str"] = pd.to_datetime(raw["date"]).dt.strftime("%Y-%m-%d")
+                raw = raw[raw["date_str"].isin(cal_dates)]
+                if raw.empty:
+                    continue
+
+                raw = raw.rename(columns={"date": "datetime", "symbol": "instrument"})
+                raw = raw[["instrument", "datetime", "open", "high", "low", "close", "volume"]]
+                frames_for_batch.append(raw)
+
+                if len(frames_for_batch) >= batch_size or i == len(files_to_process) - 1:
+                    batch = pd.concat(frames_for_batch, ignore_index=True)
+                    table = pa.Table.from_pandas(batch)
+                    if writer is None:
+                        writer = pq.ParquetWriter(output_path, table.schema)
+                    writer.write_table(table)
+                    total_written += len(frames_for_batch)
+                    frames_for_batch = []
+        finally:
+            if writer is not None:
+                writer.close()
+
+        logger.info(f"supplement_daily.parquet 生成完成，共 {total_written} 个文件")
+        return True
+
     def save(self, df: pd.DataFrame, filename: str = "factor_data.parquet"):
         """保存（增量模式，内存安全）
 

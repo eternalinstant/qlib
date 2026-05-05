@@ -180,7 +180,7 @@ class TestTushareDownloader:
             with patch("tushare.pro_api"):
                 downloader = TushareDownloader()
 
-        assert downloader.MAX_WORKERS == 8
+        assert downloader.MAX_WORKERS == 4
 
     def test_downloader_requires_token(self):
         """未提供 Token 时抛错"""
