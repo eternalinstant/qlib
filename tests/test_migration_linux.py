@@ -154,6 +154,23 @@ def test_daily_run_sh_dynamic():
     return False
 
 
+def test_platform_helper_centralizes_os_detection():
+    """平台差异统一通过 utils.platform 识别。"""
+    print("\n" + "=" * 70)
+    print("测试: 平台差异统一入口")
+    print("=" * 70)
+
+    from utils.platform import is_linux, is_macos, project_root, runtime_profile
+
+    root = project_root()
+    profile = runtime_profile()
+    assert root == PROJECT_ROOT
+    assert profile["project_root"] == str(PROJECT_ROOT)
+    assert is_macos() or is_linux() or profile["system"]
+    print(f"  {PASS} utils.platform.runtime_profile = {profile}")
+    return True
+
+
 def test_import_functions():
     """验证 core 模块可以正常导入（sys.path 已修正）"""
     print("\n" + "=" * 70)
@@ -197,6 +214,7 @@ def main():
     results["工具脚本动态路径解析"] = test_project_root_resolve()
     results["测试文件 sys.path 动态"] = test_sys_path_dynamic()
     results["daily_run.sh 动态路径"] = test_daily_run_sh_dynamic()
+    results["平台差异统一入口"] = test_platform_helper_centralizes_os_detection()
     results["核心模块导入"] = test_import_functions()
 
     print("\n" + "=" * 70)
@@ -219,4 +237,3 @@ def main():
 
 if __name__ == "__main__":
     exit(main())
-

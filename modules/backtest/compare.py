@@ -465,6 +465,8 @@ def run_compare(
             universe_values.add(getattr(strategy, "universe", "all"))
     if universe_values == {"csi300"}:
         scope_tag = "historical_csi300"
+    elif universe_values == {"csi800"}:
+        scope_tag = "historical_csi800"
     elif universe_values == {"all"}:
         scope_tag = "all_market"
     else:
@@ -545,7 +547,9 @@ def plot_multi_strategy(
 
     ax2.set_ylabel("超额收益")
     ax2.set_title("相对沪深300超额收益")
-    ax2.legend(loc="upper left", fontsize=9)
+    handles, labels = ax2.get_legend_handles_labels()
+    if handles:
+        ax2.legend(loc="upper left", fontsize=9)
     ax2.grid(True, alpha=0.3)
 
     # --- 子图3: 回撤对比 ---
