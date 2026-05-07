@@ -599,3 +599,54 @@ class TestSelectionParquetOptimization:
         assert by_date[dates[0]] == ["SZ000001"]
         assert by_date[dates[1]] == ["SZ000001"]
 
+
+class TestTieBreakingDeterminism:
+    """同分时选股结果必须确定。"""
+
+    @staticmethod
+    def _make_tied_signal():
+        dt = pd.Timestamp("2024-01-05")
+        stocks = [f"SZ{i:06d}" for i in range(1, 21)]
+        idx = pd.MultiIndex.from_tuples(
+            [(dt, s) for s in stocks],
+            names=["datetime", "instrument"],
+        )
+        scores = [0.5] * 8 + [0.3] * 12
+        return pd.Series(scores, index=idx)
+
+    def test_tied_scores_topk_deterministic(self):
+        signal = self._make_tied_signal()
+        dt = pd.DatetimeIndex([pd.Timestamp("2024-01-05")])
+
+        result = extract_topk(signal, dt, topk=8)
+
+        assert result.sort_values("rank")["symbol"].tolist() == [
+            f"SZ{i:06d}" for i in range(1, 9)
+        ]
+
+    def test_buffer_mode_tied_deterministic(self):
+        dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+        stocks = [f"SZ{i:06d}" for i in range(1, 16)]
+        idx = pd.MultiIndex.from_product([dates, stocks], names=["datetime", "instrument"])
+        scores = [0.5] * 10 + [0.3] * 5 + [0.3] * 5 + [0.5] * 10
+        signal = pd.Series(scores, index=idx)
+
+        result = extract_topk(signal, pd.DatetimeIndex(dates), topk=8, buffer=3)
+        by_date = {dt: grp.sort_values("rank")["symbol"].tolist() for dt, grp in result.groupby("date")}
+
+        assert by_date[dates[0]] == [f"SZ{i:06d}" for i in range(1, 9)]
+
+    def test_churn_limit_tied_deterministic(self):
+        dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+        stocks = [f"SZ{i:06d}" for i in range(1, 16)]
+        idx = pd.MultiIndex.from_product([dates, stocks], names=["datetime", "instrument"])
+        scores = (
+            [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+            + [0.3, 0.3, 0.3, 0.3, 0.3, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.2, 0.1, 0.05, 0.05]
+        )
+        signal = pd.Series(scores, index=idx)
+
+        result = extract_topk(signal, pd.DatetimeIndex(dates), topk=5, buffer=3, churn_limit=2)
+        result2 = extract_topk(signal, pd.DatetimeIndex(dates), topk=5, buffer=3, churn_limit=2)
+
+        pd.testing.assert_frame_equal(result, result2)
