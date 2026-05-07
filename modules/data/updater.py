@@ -3,6 +3,7 @@
 每日收盘后自动更新 Tushare 数据 → 重新计算选股
 """
 
+import json
 import os
 import time
 import logging
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 PROVIDER_PRECHECK_KEYWORD = "Qlib provider 字段不一致"
 BOOTSTRAP_MARKET_START = "20160101"
+MARKET_DATA_READY_HOUR = 18
 
 
 def get_tushare_pro():
@@ -273,6 +275,64 @@ class DataUpdater:
 
         return len(instruments)
 
+    @staticmethod
+    def _atomic_write_json(path: Path, data) -> None:
+        """原子写入 JSON 状态文件，避免中断留下半截文件。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(".tmp")
+        with open(tmp_path, "w") as f:
+            json.dump(data, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+
+    @staticmethod
+    def _raw_instrument_to_ts_code(instrument: str) -> Optional[str]:
+        inst = str(instrument).strip().lower()
+        if len(inst) <= 2:
+            return None
+        exchange = inst[:2].upper()
+        code = inst[2:]
+        if exchange not in {"SH", "SZ", "BJ"} or not code:
+            return None
+        return f"{code}.{exchange}"
+
+    def _rebuild_raw_download_state(self, state_path: Path) -> dict:
+        """从现有 raw_data 文件反推出下载断点。"""
+        state = {}
+        raw_files = sorted(self.raw_data_dir.glob("*.parquet")) if self.raw_data_dir.exists() else []
+        for raw_path in raw_files:
+            ts_code = self._raw_instrument_to_ts_code(raw_path.stem)
+            if ts_code is None:
+                continue
+            try:
+                df = pd.read_parquet(raw_path, columns=["date"])
+                dates = pd.to_datetime(df["date"], errors="coerce").dropna()
+            except Exception as exc:
+                logger.warning("重建 raw_data 下载状态时跳过 %s: %s", raw_path, exc)
+                continue
+            if dates.empty:
+                continue
+            state[ts_code] = dates.max().strftime("%Y%m%d")
+
+        self._atomic_write_json(state_path, state)
+        logger.info("raw_data 下载状态已重建: %s entries=%s", state_path, len(state))
+        return state
+
+    def _load_raw_download_state(self, state_path: Path) -> dict:
+        """加载 raw_data 下载状态；缺失或损坏时从 raw_data 自动重建。"""
+        if state_path.exists():
+            try:
+                with open(state_path, "r") as f:
+                    state = json.load(f)
+                if isinstance(state, dict):
+                    return {str(k): str(v) for k, v in state.items() if v is not None}
+                logger.warning("raw_data 下载状态格式异常，将从 raw_data 重建")
+            except Exception as exc:
+                logger.warning("raw_data 下载状态读取失败，将从 raw_data 重建: %s", exc)
+
+        return self._rebuild_raw_download_state(state_path)
+
     def get_last_trading_date(self) -> datetime:
         """获取本地最新交易日"""
         cal_file = self.qlib_data_path / "calendars" / "day.txt"
@@ -332,7 +392,23 @@ class DataUpdater:
             days_since_update = (datetime.now().date() - local_date.date()).days
             return days_since_update > 3  # 超过3天没更新
 
+        if remote_date.date() > local_date.date() and not self._is_market_data_ready(remote_date):
+            logger.info(
+                "远程交易日 %s 是今天且当前早于 %s:00，暂不触发市场数据更新",
+                remote_date.strftime("%Y-%m-%d"),
+                MARKET_DATA_READY_HOUR,
+            )
+            return False
+
         return remote_date.date() > local_date.date()
+
+    @staticmethod
+    def _is_market_data_ready(remote_date: datetime, now: datetime = None) -> bool:
+        """当天交易日早盘/盘中时，Tushare 日线数据可能尚未发布。"""
+        now = now or datetime.now()
+        if remote_date.date() == now.date() and now.hour < MARKET_DATA_READY_HOUR:
+            return False
+        return True
 
     def _get_index_trade_dates(self) -> Optional[pd.Series]:
         """从 index_daily.parquet 读取完整交易日列表（000300.SH 沪深300）。"""
@@ -1044,8 +1120,6 @@ class DataUpdater:
 
     def update_raw_data_quotes(self, start_date: str = None, end_date: str = None, max_stocks: int = None) -> bool:
         """按股票维度增量下载 raw_data 行情，支持断点续传。"""
-        import json as _json
-
         pro = get_tushare_pro()
         if pro is None:
             logger.warning("Tushare API 不可用，跳过 raw_data 更新")
@@ -1109,14 +1183,7 @@ class DataUpdater:
 
         # ── 3. 加载状态文件 ──
         state_path = self.raw_data_dir / ".download_state.json"
-        state_dict = {}
-        if state_path.exists():
-            try:
-                with open(state_path, "r") as f:
-                    state_dict = _json.load(f)
-            except Exception:
-                logger.warning("状态文件损坏，将重新下载所有股票")
-                state_dict = {}
+        state_dict = self._load_raw_download_state(state_path)
 
         # ── 4. 过滤阶段：确定需下载的股票 ──
         download_tasks = []
@@ -1151,15 +1218,6 @@ class DataUpdater:
         completed = [0]
         completed_lock = threading.Lock()
 
-        def _atomic_write_json(path: Path, data):
-            """原子写 JSON 文件。"""
-            tmp_path = path.with_suffix(".tmp")
-            with open(tmp_path, "w") as f:
-                _json.dump(data, f, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, path)
-
         with ThreadPoolExecutor(max_workers=self.MAX_WORKERS) as executor:
             futures = {
                 executor.submit(
@@ -1193,7 +1251,7 @@ class DataUpdater:
                     n = completed[0]
                     # 每 100 只或最后一只：原子写状态文件
                     if n % 100 == 0 or n == len(download_tasks):
-                        _atomic_write_json(state_path, state_dict)
+                        self._atomic_write_json(state_path, state_dict)
                     if n % 50 == 0 or n == len(download_tasks):
                         logger.info(
                             f"raw_data 进度: {n}/{len(download_tasks)}, "
@@ -1201,11 +1259,11 @@ class DataUpdater:
                         )
 
         # ── 6. 最终写入状态文件和失败文件 ──
-        _atomic_write_json(state_path, state_dict)
+        self._atomic_write_json(state_path, state_dict)
 
         if failures:
             fail_path = self.raw_data_dir / ".download_failures.json"
-            _atomic_write_json(fail_path, failures)
+            self._atomic_write_json(fail_path, failures)
             logger.warning(f"raw_data 下载失败 {len(failures)} 只股票，已记录到 {fail_path}")
 
         logger.info(
@@ -1419,11 +1477,28 @@ class DataUpdater:
             if any(v > 0 for v in ohlcv_counts.values()):
                 logger.info(f"OHLCV bin 已更新: {ohlcv_counts}")
 
+            # update_*_bins 可能会把已退市股票补到日历末尾，最后再按 raw_data 覆盖区间收敛一次。
+            final_repair_stats = converter.repair_price_provider()
+            if any(v > 0 for v in final_repair_stats.values()):
+                logger.info(f"Provider 最终修复完成: {final_repair_stats}")
+
             return True
 
         except Exception as e:
             logger.error(f"数据转换失败: {e}")
             return False
+
+    def repair_price_provider(self) -> dict:
+        """只修复 Qlib provider 价格字段，不重新转换 factor_data。"""
+        try:
+            converter = TushareToQlibConverter(
+                tushare_dir=str(self.tushare_dir),
+                qlib_dir=str(self.qlib_data_path),
+            )
+            return converter.repair_price_provider()
+        except Exception as e:
+            logger.error(f"Provider 修复失败: {e}")
+            return {}
 
     def _update_calendar(self):
         """从 daily_basic.parquet 提取交易日更新日历文件"""
@@ -1525,8 +1600,10 @@ class DataUpdater:
         results = {
             "data_updated": False,
             "raw_data_updated": False,
+            "index_daily_updated": False,
             "reference_updated": False,
             "converted": False,
+            "provider_repaired": False,
             "selections_updated": False,
             "precheck_ok": False,
         }
@@ -1536,7 +1613,9 @@ class DataUpdater:
         local_date = self.get_last_trading_date()
         remote_date = self.get_remote_latest_date()
         precheck_before = run_data_precheck(universe="csi300", require_st_history=True)
-        need_market_update = bootstrap_needed or self.check_update_needed()
+        need_market_update = bootstrap_needed or self.check_update_needed() or any(
+            "daily_basic" in msg for msg in precheck_before.errors
+        )
         need_reference_update = bootstrap_needed or not precheck_before.ok
         need_provider_repair = bootstrap_needed or any(
             PROVIDER_PRECHECK_KEYWORD in msg for msg in precheck_before.errors
@@ -1570,6 +1649,13 @@ class DataUpdater:
         if self.download_stock_basic():
             print("      股票基本信息 ✓")
 
+        if need_index_daily_refresh:
+            if self.download_index_daily():
+                print("      指数日线 ✓")
+                results["index_daily_updated"] = True
+            else:
+                print("      指数日线 (跳过)")
+
         if need_market_update:
             market_start = BOOTSTRAP_MARKET_START if bootstrap_needed else None
             if self.download_daily_basic(start_date=market_start):
@@ -1595,12 +1681,6 @@ class DataUpdater:
                 print("      raw_data 原始行情 (跳过)")
         else:
             print("      行情/财务数据已是最新，跳过增量下载")
-
-        if need_index_daily_refresh:
-            if self.download_index_daily():
-                print("      指数日线 ✓")
-            else:
-                print("      指数日线 (跳过)")
 
         ref_updated = False
         if self.download_index_weight():
@@ -1631,6 +1711,16 @@ class DataUpdater:
         # 4. 正式预检
         print(f"\n[4/5] 正式数据预检...")
         precheck_after = run_data_precheck(universe="csi300", require_st_history=True)
+        if not precheck_after.ok and any(
+            PROVIDER_PRECHECK_KEYWORD in msg for msg in precheck_after.errors
+        ):
+            print("      检测到 provider 覆盖不一致，执行最终修复...")
+            repair_stats = self.repair_price_provider()
+            results["provider_repaired"] = any(v > 0 for v in repair_stats.values())
+            if repair_stats:
+                print(f"      provider 修复: {repair_stats}")
+            precheck_after = run_data_precheck(universe="csi300", require_st_history=True)
+
         results["precheck_ok"] = precheck_after.ok
         if precheck_after.ok:
             print("      历史沪深300成分 + 历史 ST 预检 ✓")
@@ -1645,12 +1735,19 @@ class DataUpdater:
             results["selections_updated"] = True
 
         success = results["precheck_ok"] and (
-            results["data_updated"] or results["reference_updated"] or results["selections_updated"]
+            results["data_updated"]
+            or results["raw_data_updated"]
+            or results["index_daily_updated"]
+            or results["reference_updated"]
+            or results["converted"]
+            or results["provider_repaired"]
+            or results["selections_updated"]
         )
         message = (
-            f"数据更新: {results['data_updated']}, raw_data: {results['raw_data_updated']}, 历史数据更新: {results['reference_updated']}, "
+            f"数据更新: {results['data_updated']}, raw_data: {results['raw_data_updated']}, 指数日线: {results['index_daily_updated']}, "
+            f"历史数据更新: {results['reference_updated']}, "
             f"转换: {results['converted']}, 预检: {results['precheck_ok']}, "
-            f"选股更新: {results['selections_updated']}"
+            f"provider修复: {results['provider_repaired']}, 选股更新: {results['selections_updated']}"
         )
 
         return {
@@ -1658,8 +1755,10 @@ class DataUpdater:
             "message": message,
             "data_updated": results["data_updated"],
             "raw_data_updated": results["raw_data_updated"],
+            "index_daily_updated": results["index_daily_updated"],
             "reference_updated": results["reference_updated"],
             "converted": results["converted"],
+            "provider_repaired": results["provider_repaired"],
             "precheck_ok": results["precheck_ok"],
             "selections_updated": results["selections_updated"],
         }
