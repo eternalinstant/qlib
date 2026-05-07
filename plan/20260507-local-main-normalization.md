@@ -30,11 +30,11 @@
 
 暂缓合入项保持不变：`csi800_opt` 批量扫参、`push25_cq10_v3_vol_norm`、`push25_cq10_k8d2_csi800`、一次性分析脚本和结果目录。
 
-## 当前状态
+## 执行前状态
 
-- 当前本地分支：`main`
-- 当前远端基线：`origin/main`
-- 分支关系：本地 `main` 相对 `origin/main` 为 `ahead 1, behind 14`
+- 执行前本地分支：`main`
+- 执行前远端基线：`origin/main`
+- 执行前分支关系：本地 `main` 相对 `origin/main` 为 `ahead 1, behind 14`
 - 已有云端备份分支：`backup_pre_sync_20260506_010757`
 - 当前工作区仍有未提交改动，不能直接把本地 `main` 推到远端 `main`
 
