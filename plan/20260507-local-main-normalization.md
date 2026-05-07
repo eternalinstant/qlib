@@ -2,6 +2,34 @@
 
 日期：2026-05-07
 
+## 执行结果
+
+执行日期：2026-05-07
+
+- 本地备份分支：`backup_local_main_before_normalization_20260507`
+- GitHub 备份分支：`origin/backup_local_main_before_normalization_20260507`
+- 归一集成分支：`integrate/main-normalization-20260507`
+- GitHub 集成分支：`origin/integrate/main-normalization-20260507`
+- 归一基线：`origin/main` at `db08695`
+- 备份快照提交：`f041dc3 backup: local state before main normalization 2026-05-07`
+
+已合入集成分支的主题提交：
+
+1. `c1b1486 fix: normalize data updater idempotency`
+2. `bff0326 feat: add csi800 universe support and deterministic selection`
+3. `c3975f1 feat: add cq10 model signal pipeline`
+4. `03b8f59 fix: normalize backtest data and platform paths`
+
+已验证：
+
+- `python3 -m pytest tests/modules/test_precheck.py tests/modules/test_data_processing.py tests/modules/test_updater.py tests/test_migration_linux.py` → `76 passed`
+- `python3 -m pytest tests/core/test_universe.py tests/core/test_selection.py` → `34 passed`
+- `python3 -m pytest tests/modules/test_feature_pruning.py tests/modules/test_portfolio_overlay.py tests/modules/test_predictive_signal.py` → `38 passed`
+- `python3 -m pytest tests/modules/test_backtest.py tests/modules/test_composite.py tests/modules/test_compare.py` → `60 passed`
+- `PYTHONPYCACHEPREFIX=/tmp/qlib_pycache python3 -m py_compile ...` → 通过
+
+暂缓合入项保持不变：`csi800_opt` 批量扫参、`push25_cq10_v3_vol_norm`、`push25_cq10_k8d2_csi800`、一次性分析脚本和结果目录。
+
 ## 当前状态
 
 - 当前本地分支：`main`
