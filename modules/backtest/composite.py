@@ -27,6 +27,8 @@ def _results_dir() -> Path:
 def _scope_tag(universe: str) -> str:
     if universe == "csi300":
         return "historical_csi300"
+    if universe == "csi800":
+        return "historical_csi800"
     if universe == "all":
         return "all_market"
     return "mixed_universe"

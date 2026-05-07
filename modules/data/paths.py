@@ -8,14 +8,15 @@
 from pathlib import Path
 
 from config.config import CONFIG
+from utils.platform import project_root, resolve_path
 
 
 def get_qlib_root() -> Path:
     """Qlib provider 根目录 → .../data/qlib_data/cn_data"""
     raw = CONFIG.get("paths.data.qlib_data", CONFIG.get("qlib_data_path", ""))
     if raw:
-        return Path(raw).expanduser()
-    return Path(__file__).resolve().parent.parent.parent / "data" / "qlib_data" / "cn_data"
+        return resolve_path(raw)
+    return project_root() / "data" / "qlib_data" / "cn_data"
 
 
 def get_data_root() -> Path:
@@ -37,7 +38,7 @@ def get_selection_csv_path() -> Path:
     """月度选股 CSV 文件路径（paths.data.selections）"""
     raw = CONFIG.get("paths.data.selections", "")
     if raw:
-        return Path(raw).expanduser()
+        return resolve_path(raw)
     return get_data_root() / "monthly_selections.csv"
 
 
@@ -50,7 +51,7 @@ def get_cache_dir() -> Path:
     """缓存目录（paths.data.cache）"""
     raw = CONFIG.get("paths.data.cache", "")
     if raw:
-        return Path(raw).expanduser()
+        return resolve_path(raw)
     return get_data_root() / "cache"
 
 
@@ -58,5 +59,5 @@ def get_results_dir() -> Path:
     """结果输出目录（output.results）"""
     raw = CONFIG.get("output.results", "")
     if raw:
-        return Path(raw).expanduser()
-    return Path(__file__).resolve().parent.parent.parent / "results"
+        return resolve_path(raw)
+    return project_root() / "results"
