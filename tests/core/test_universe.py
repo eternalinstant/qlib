@@ -55,6 +55,33 @@ def test_filter_instruments_by_universe_with_history(tmp_path, monkeypatch):
     ) == ["SZ000002", "SZ000003"]
 
 
+def test_filter_instruments_by_csi800_uses_csi300_and_csi500(tmp_path, monkeypatch):
+    csv_path = tmp_path / "index_weight.csv"
+    pd.DataFrame(
+        [
+            {"index_code": "000300.SH", "con_code": "000001.SZ", "trade_date": "20240229", "weight": 1.0},
+            {"index_code": "000905.SH", "con_code": "000002.SZ", "trade_date": "20240229", "weight": 1.0},
+            {"index_code": "000905.SH", "con_code": "000003.SZ", "trade_date": "20240229", "weight": 1.0},
+        ]
+    ).to_csv(csv_path, index=False)
+
+    monkeypatch.setattr(universe, "_index_weight_df", None)
+    monkeypatch.setattr(universe, "_index_constituents_as_of_cache", {})
+    monkeypatch.setattr(universe, "_iter_index_weight_paths", lambda: [csv_path])
+
+    assert universe.has_historical_universe_data("csi800") is True
+    assert universe.get_universe_constituents_as_of("csi800", "2024-03-01") == [
+        "SZ000001",
+        "SZ000002",
+        "SZ000003",
+    ]
+    assert universe.filter_instruments_by_universe(
+        ["SZ000001", "SZ000002", "SZ000004"],
+        "2024-03-01",
+        universe="csi800",
+    ) == ["SZ000001", "SZ000002"]
+
+
 def test_filter_instruments_by_universe_accepts_lowercase_inputs(tmp_path, monkeypatch):
     csv_path = tmp_path / "index_weight.csv"
     pd.DataFrame(
@@ -125,4 +152,3 @@ def test_filter_instruments_excludes_lowercase_index_like_codes(monkeypatch):
     )
 
     assert filtered == ["sh600000", "sz000001"]
-
