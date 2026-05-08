@@ -37,6 +37,7 @@ qlib/
 - [modules/backtest/qlib_engine.py](/Users/sxt/code/qlib/modules/backtest/qlib_engine.py)：Qlib 回测引擎
 - [modules/backtest/pybroker_engine.py](/Users/sxt/code/qlib/modules/backtest/pybroker_engine.py)：PyBroker 回测引擎
 - [modules/data/tushare_downloader.py](/Users/sxt/code/qlib/modules/data/tushare_downloader.py)：Tushare 数据下载
+- [docs/current_strategy_summary.md](/Users/sxt/code/qlib/docs/current_strategy_summary.md)：当前策略与因子速记
 
 ## 策略分层管理
 
