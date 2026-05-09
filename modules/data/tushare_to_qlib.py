@@ -418,6 +418,35 @@ class TushareToQlibConverter:
             quarterlies.append(balance)
             del balance
 
+        # 2b. 资金流因子（moneyflow）
+        moneyflow = self.load_tushare_data('moneyflow')
+        if moneyflow is not None:
+            moneyflow['instrument'] = _ts_code_to_instrument(moneyflow['ts_code'])
+            moneyflow['datetime'] = pd.to_datetime(moneyflow['trade_date'], format='%Y%m%d')
+            # net_mf_amount_5d / net_mf_amount_20d
+            moneyflow['net_mf_amount'] = pd.to_numeric(moneyflow['net_mf_amount'], errors='coerce')
+            moneyflow = moneyflow.sort_values(['instrument', 'datetime'])
+            moneyflow['net_mf_amount_5d'] = moneyflow.groupby('instrument')['net_mf_amount'].transform(
+                lambda s: s.rolling(5, min_periods=1).sum()
+            )
+            moneyflow['net_mf_amount_20d'] = moneyflow.groupby('instrument')['net_mf_amount'].transform(
+                lambda s: s.rolling(20, min_periods=1).sum()
+            )
+            # smart_ratio_5d
+            for col in ['buy_lg_amount', 'buy_elg_amount', 'sell_lg_amount', 'sell_elg_amount']:
+                moneyflow[col] = pd.to_numeric(moneyflow[col], errors='coerce')
+            buy_big = moneyflow['buy_lg_amount'] + moneyflow['buy_elg_amount']
+            total_big = buy_big + moneyflow['sell_lg_amount'] + moneyflow['sell_elg_amount']
+            moneyflow['smart_ratio'] = buy_big / total_big.replace(0, np.nan)
+            moneyflow['smart_ratio_5d'] = moneyflow.groupby('instrument')['smart_ratio'].transform(
+                lambda s: s.rolling(5, min_periods=1).mean()
+            )
+            mf_merge = moneyflow[['instrument', 'datetime', 'net_mf_amount_5d',
+                                   'net_mf_amount_20d', 'smart_ratio_5d']].copy()
+            daily = daily.merge(mf_merge, on=['instrument', 'datetime'], how='left')
+            logger.info(f"合并资金流因子: +3 列, daily shape {daily.shape}")
+            del moneyflow, mf_merge
+
         # 3. 分批处理：按股票分组，每批 500 只
         all_instruments = daily['instrument'].unique()
         batch_size = 500

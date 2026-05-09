@@ -1,65 +1,68 @@
 name: push25_cq10_k8d2_very_tight
-
 data:
   source: hybrid
-  start_date: "2019-01-01"
-  end_date: "2026-04-15"
-  alpha158_universe: "csi300"
+  start_date: '2019-01-01'
+  end_date: '2026-04-15'
+  alpha158_universe: csi300
   parquet_feature_columns:
-    - ocf_to_ev
-    - fcff_to_mv
-    - roe_fina
-    - current_ratio_fina
-    - n_cashflow_act
-    - rank_value_profit_core
-    - rank_balance_core
-    - qvf_core_interaction
+  - ocf_to_ev
+  - fcff_to_mv
+  - roe_fina
+  - current_ratio_fina
+  - n_cashflow_act
+  - rank_value_profit_core
+  - rank_balance_core
+  - qvf_core_interaction
   alpha158_feature_columns:
-    - ROC20
-    - CORD20
+  - ROC20
+  - CORD20
   alpha158:
     kbar: {}
     price:
-      windows: [0]
-      feature: [OPEN, HIGH, LOW, VWAP]
+      windows:
+      - 0
+      feature:
+      - OPEN
+      - HIGH
+      - LOW
+      - VWAP
     rolling:
-      windows: [10, 20, 60]
+      windows:
+      - 10
+      - 20
+      - 60
       include:
-        - ROC
-        - MA
-        - STD
-        - BETA
-        - RSQR
-        - RESI
-        - MAX
-        - LOW
-        - RANK
-        - RSV
-        - IMAX
-        - IMIN
-        - IMXD
-        - CORR
-        - CORD
-        - CNTP
-        - CNTD
-        - SUMP
-        - VSTD
-        - WVMA
-        - VSUMD
-
+      - ROC
+      - MA
+      - STD
+      - BETA
+      - RSQR
+      - RESI
+      - MAX
+      - LOW
+      - RANK
+      - RSV
+      - IMAX
+      - IMIN
+      - IMXD
+      - CORR
+      - CORD
+      - CNTP
+      - CNTD
+      - SUMP
+      - VSTD
+      - WVMA
+      - VSUMD
 label:
   horizon_days: 20
-
 training:
-  train_start: "2019-01-01"
-  train_end: "2022-12-31"
-  valid_start: "2023-01-01"
-  valid_end: "2023-12-31"
-
+  train_start: '2019-01-01'
+  train_end: '2022-12-31'
+  valid_start: '2023-01-01'
+  valid_end: '2023-12-31'
 scoring:
-  start_date: "2019-01-01"
-  end_date: "2026-04-15"
-
+  start_date: '2019-01-01'
+  end_date: '2026-04-15'
 model:
   preferred_backend: lightgbm
   params:
@@ -69,7 +72,6 @@ model:
     min_child_samples: 32
     random_state: 42
     verbosity: -1
-
 selection:
   freq: biweek
   topk: 8
@@ -88,14 +90,12 @@ selection:
   exit_persist_days: 1
   min_hold_days: 0
   stoploss_lookback_days: 20
-  stoploss_drawdown: 0.10
+  stoploss_drawdown: 0.1
   replacement_pool_size: 0
-
 position:
   model: fixed
   params:
-    stock_pct: 0.80
-
+    stock_pct: 0.8
 overlay:
   enabled: true
   target_vol: 0.20
@@ -108,15 +108,13 @@ overlay:
   hard_exposure: 0.35
   exposure_min: 0.0
   exposure_max: 1.0
-
 trading:
   buy_commission_rate: 0.0003
   sell_commission_rate: 0.0003
-  sell_stamp_tax_rate: 0.0010
+  sell_stamp_tax_rate: 0.001
   min_buy_commission: 5.0
   min_sell_commission: 5.0
   slippage_bps: 5.0
   impact_bps: 5.0
-
 output:
-  root: "results/model_signals/push25_cq10_k8d2_very_tight"
+  root: results/model_signals/push25_cq10_k8d2_very_tight
