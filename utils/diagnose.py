@@ -8,6 +8,9 @@ warnings.filterwarnings("ignore")
 import os, sys
 import numpy as np
 import pandas as pd
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # ============================================================
 # 0. 公共配置 & Qlib 初始化
@@ -19,7 +22,7 @@ CONFIG = {
     "initial_capital": 500_000,
     "open_cost":  0.0003,
     "close_cost": 0.0013,
-    "qlib_data_path": "/Users/sxt/code/qlib/data/qlib_data/cn_data",
+    "qlib_data_path": str(PROJECT_ROOT / "data/qlib_data/cn_data"),
     "w_alpha":   0.65,
     "w_risk":    0.20,
     "w_enhance": 0.15,

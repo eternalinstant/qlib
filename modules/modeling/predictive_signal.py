@@ -534,6 +534,19 @@ def load_predictive_config(config_path: str | Path) -> dict:
     selection.setdefault("stoploss_drawdown", 0.10)
     selection.setdefault("replacement_pool_size", 0)
 
+    source = str(data.get("source", "parquet")).lower()
+    selection_universe = str(selection.get("universe", "all"))
+    alpha158_universe = data.get("alpha158_universe")
+    if source in {"alpha158", "hybrid"}:
+        if alpha158_universe is None:
+            data["alpha158_universe"] = selection_universe
+        elif selection_universe != "all" and str(alpha158_universe) != selection_universe:
+            raise ValueError(
+                "data.alpha158_universe must match selection.universe for alpha158/hybrid "
+                f"features: alpha158_universe={alpha158_universe!r}, "
+                f"selection.universe={selection_universe!r}"
+            )
+
     training = cfg.setdefault("training", {})
     training.setdefault("train_start", data["start_date"])
     training.setdefault("train_end", "2022-12-31")

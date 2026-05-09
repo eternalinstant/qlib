@@ -11,12 +11,15 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import multiprocessing
+from utils.platform import is_macos, project_root
 
-if sys.platform == "darwin":
+if is_macos():
     multiprocessing.set_start_method('fork', force=True)
 
+PROJECT_ROOT = project_root(Path(__file__))
+
 # qlib配置
-qlib_data_path = "/Users/sxt/code/qlib/data/qlib_data/cn_data"
+qlib_data_path = str(PROJECT_ROOT / "data/qlib_data/cn_data")
 os.environ["JOBLIB_START_METHOD"] = "fork"
 
 import qlib

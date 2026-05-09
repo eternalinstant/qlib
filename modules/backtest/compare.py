@@ -465,6 +465,8 @@ def run_compare(
             universe_values.add(getattr(strategy, "universe", "all"))
     if universe_values == {"csi300"}:
         scope_tag = "historical_csi300"
+    elif universe_values == {"csi800"}:
+        scope_tag = "historical_csi800"
     elif universe_values == {"all"}:
         scope_tag = "all_market"
     else:

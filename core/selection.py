@@ -177,17 +177,64 @@ def _rolling_max_over_time(series: pd.Series, window: int, value_name: str = "va
 _factor_parquet_columns_cache: Optional[set] = None
 
 
-def _to_parquet_instruments(instruments: Optional[list]) -> Optional[list]:
-    """将 qlib instrument 格式转换为 factor_data.parquet 使用的格式。"""
+def _to_provider_instruments(instruments: Optional[list]) -> Optional[list]:
+    """将内部 instrument 转成 qlib provider 使用的小写前缀格式。"""
     if not instruments:
         return None
-    return sorted({inst[2:] + inst[:2].lower() for inst in instruments})
+
+    normalized = []
+    for inst in instruments:
+        text = str(inst)
+        if "." in text:
+            code, exchange = text.split(".", 1)
+            normalized.append(f"{exchange.lower()}{code}")
+        elif len(text) >= 2:
+            normalized.append(f"{text[:2].lower()}{text[2:]}")
+        else:
+            normalized.append(text.lower())
+    return sorted(set(normalized))
+
+
+def _to_parquet_instruments(instruments: Optional[list]) -> Optional[list]:
+    """将 qlib instrument 格式转换为 factor_data.parquet 使用的格式。"""
+    provider_instruments = _to_provider_instruments(instruments)
+    if not provider_instruments:
+        return None
+    return sorted({inst[2:] + inst[:2] for inst in provider_instruments})
 
 
 def _to_qlib_instruments(series: pd.Series) -> pd.Series:
-    """将 factor_data.parquet 的 instrument 列转回 qlib 格式。"""
+    """将 provider/parquet 的 instrument 列转回内部统一的大写前缀格式。"""
     series = series.astype(str)
-    return series.str[-2:].str.upper() + series.str[:-2]
+    dot_mask = series.str.contains(".", regex=False, na=False)
+    parquet_mask = (~dot_mask) & series.str.match(r"^\d+[A-Za-z]{2}$", na=False)
+    out = series.copy()
+    if dot_mask.any():
+        parts = series[dot_mask].str.split(".", n=1, expand=True)
+        out.loc[dot_mask] = parts[1].str.upper() + parts[0]
+
+    if parquet_mask.any():
+        out.loc[parquet_mask] = (
+            out.loc[parquet_mask].str[-2:].str.upper() + out.loc[parquet_mask].str[:-2]
+        )
+
+    plain_mask = (~dot_mask) & (~parquet_mask)
+    if plain_mask.any():
+        out.loc[plain_mask] = (
+            out.loc[plain_mask].str[:2].str.upper() + out.loc[plain_mask].str[2:]
+        )
+    return out
+
+
+def _normalize_multiindex_instruments(df: pd.DataFrame) -> pd.DataFrame:
+    """把 MultiIndex 中的 instrument 统一到内部大写前缀格式。"""
+    if df.empty or not isinstance(df.index, pd.MultiIndex) or "instrument" not in df.index.names:
+        return df
+
+    index_names = list(df.index.names)
+    work = df.reset_index()
+    work["instrument"] = _to_qlib_instruments(work["instrument"])
+    return work.set_index(index_names)
 
 
 def _get_factor_parquet_columns() -> set:
@@ -458,9 +505,18 @@ get_name_map = _load_name_map  # public alias for external modules
 
 def _enrich_selections(df_sel: pd.DataFrame, total_mv_frame: pd.DataFrame = None) -> pd.DataFrame:
     """为选股 DataFrame 添加 name 和 total_mv 列"""
+    df_sel = df_sel.copy()
+    for col, dtype in (
+        ("date", "datetime64[ns]"),
+        ("rank", "int64"),
+        ("symbol", "object"),
+        ("score", "float64"),
+    ):
+        if col not in df_sel.columns:
+            df_sel[col] = pd.Series(dtype=dtype)
+
     # 添加股票名称
     name_map = _load_name_map()
-    df_sel = df_sel.copy()
     df_sel["name"] = df_sel["symbol"].map(name_map).fillna("")
 
     # 从 factor_data.parquet 读取 total_mv，按股票前向填充后匹配选股日期
@@ -632,7 +688,9 @@ def load_factor_data(
 
     qlib_start = time.perf_counter()
     if qlib_fields:
-        df_qlib = D.features(valid_instruments, qlib_fields, start_date, end_date, "day")
+        provider_instruments = _to_provider_instruments(valid_instruments)
+        df_qlib = D.features(provider_instruments, qlib_fields, start_date, end_date, "day")
+        df_qlib = _normalize_multiindex_instruments(df_qlib)
         df_qlib.columns = qlib_names
         available_instruments = filter_instruments(
             df_qlib.index.get_level_values("instrument").unique().tolist(),
@@ -701,16 +759,17 @@ def _load_close_series(
 
     from qlib.data import D
 
-    df_close = D.features(instruments, ["$close"], start_date, end_date, "day")
+    provider_instruments = _to_provider_instruments(instruments)
+    df_close = D.features(provider_instruments, ["$close"], start_date, end_date, "day")
     if df_close.empty:
         return pd.Series(dtype=float)
 
+    if list(df_close.index.names) == ["instrument", "datetime"]:
+        df_close = df_close.swaplevel().sort_index()
+    df_close = _normalize_multiindex_instruments(df_close)
+
     close_col = df_close.columns[0]
-    close_series = df_close[close_col].astype(float)
-    if list(close_series.index.names) == ["instrument", "datetime"]:
-        close_series = close_series.swaplevel().sort_index()
-    else:
-        close_series = close_series.sort_index()
+    close_series = df_close[close_col].astype(float).sort_index()
     return close_series
 
 
@@ -923,8 +982,11 @@ def extract_topk(
         if len(day_scores) < topk:
             continue
 
-        # 排序获取候选列表
-        day_sorted = day_scores.sort_values(ascending=False)
+        # 第二排序键固定为股票代码，避免同分时受集合顺序或 hash seed 影响。
+        _df = day_scores.reset_index()
+        _df.columns = ["symbol", "score"]
+        _df = _df.sort_values(["score", "symbol"], ascending=[False, True], kind="mergesort")
+        day_sorted = _df.set_index("symbol")["score"]
         day_index_set = set(day_scores.index)
         effective_entry_rank = min(max(int(entry_rank or topk), 1), len(day_sorted))
         default_exit_rank = topk + buffer if buffer > 0 else topk
@@ -1009,7 +1071,7 @@ def extract_topk(
                     dropped.add(sym)
 
             if churn_limit > 0 and len(dropped) > churn_limit:
-                drop_scores = day_scores.reindex(list(dropped)).fillna(float("-inf"))
+                drop_scores = day_scores.reindex(sorted(dropped)).fillna(float("-inf"))
                 actually_drop = set(drop_scores.nsmallest(churn_limit).index)
                 keep_set = keep_set | (dropped - actually_drop)
                 dropped = actually_drop
@@ -1059,7 +1121,7 @@ def extract_topk(
                 dropped = prev_symbols - keep_set
                 if len(dropped) > max_sell:
                     # 只卖掉排名最差的 max_sell 只
-                    drop_scores = day_scores.reindex(list(dropped)).dropna()
+                    drop_scores = day_scores.reindex(sorted(dropped)).dropna()
                     actually_drop = set(drop_scores.nsmallest(max_sell).index)
                     keep_set = keep_set | (dropped - actually_drop)
 
@@ -1067,11 +1129,11 @@ def extract_topk(
             remaining = topk - len(keep_set)
             if remaining > 0:
                 available = day_index_set - keep_set
-                new_scores = day_scores[list(available)].nlargest(min(remaining, len(available)))
+                new_scores = day_scores[sorted(available)].nlargest(min(remaining, len(available)))
                 selected_symbols = keep_set | set(new_scores.index)
             elif len(keep_set) > topk:
                 # 保留太多：淘汰排名最低的
-                keep_scores = day_scores[list(keep_set)].nlargest(topk)
+                keep_scores = day_scores[sorted(keep_set)].nlargest(topk)
                 selected_symbols = set(keep_scores.index)
             else:
                 selected_symbols = keep_set
@@ -1099,7 +1161,7 @@ def extract_topk(
                     keep_candidates = keep_candidates | margin_candidates
 
                 if keep_candidates:
-                    keep_scores = day_scores[list(keep_candidates)].nlargest(
+                    keep_scores = day_scores[sorted(keep_candidates)].nlargest(
                         min(sticky, len(keep_candidates))
                     )
                     keep_set = set(keep_scores.index)
@@ -1116,7 +1178,7 @@ def extract_topk(
                     remaining = topk - len(keep_set)
                     if remaining > 0:
                         available_symbols = day_index_set - keep_set
-                        new_scores = day_scores[list(available_symbols)].nlargest(
+                        new_scores = day_scores[sorted(available_symbols)].nlargest(
                             min(remaining, len(available_symbols))
                         )
                         selected_symbols = keep_set | set(new_scores.index)
@@ -1136,7 +1198,10 @@ def extract_topk(
 
         # 按得分排序输出（过滤掉当天无数据的股票）
         selected_symbols = selected_symbols & day_index_set
-        selected_scores = day_scores[list(selected_symbols)].sort_values(ascending=False)
+        _out = day_scores[sorted(selected_symbols)].reset_index()
+        _out.columns = ["symbol", "score"]
+        _out = _out.sort_values(["score", "symbol"], ascending=[False, True], kind="mergesort")
+        selected_scores = _out.set_index("symbol")["score"]
         for rank, (sym, score) in enumerate(selected_scores.items(), 1):
             rows.append({"date": dt, "rank": rank, "symbol": sym, "score": score})
 
@@ -1144,7 +1209,7 @@ def extract_topk(
         prev_symbols = selected_symbols
         prev_top_scores = dict(day_sorted.head(topk))
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=["date", "rank", "symbol", "score"])
 
 
 def compute_selections(
@@ -1180,6 +1245,9 @@ def compute_selections(
     update_start_date: str = None,
     update_lookback_days: int = 60,
     factor_window_scale: int = 1,
+    scorer: str = "linear",
+    lgbm_train_start: str = None,
+    lgbm_train_end: str = None,
 ) -> pd.DataFrame:
     """
     计算月度 Top-K 选股列表（纯内存，不写 CSV）。
@@ -1257,11 +1325,22 @@ def compute_selections(
     )
 
     signal_start = time.perf_counter()
-    signal = compute_signal(
-        monthly_df, registry=registry, weights=weights, neutralize_industry=neutralize_industry
-    )
+    if scorer == "lgbm":
+        from core.lgbm_scorer import compute_lgbm_signal
+
+        signal = compute_lgbm_signal(
+            monthly_df,
+            neutralize_industry=neutralize_industry,
+            train_start=lgbm_train_start,
+            train_end=lgbm_train_end,
+        )
+    else:
+        signal = compute_signal(
+            monthly_df, registry=registry, weights=weights, neutralize_industry=neutralize_industry
+        )
     print(
-        f"[INFO] 综合信号计算完成: {len(signal)} 行, 用时 {time.perf_counter() - signal_start:.1f}s"
+        f"[INFO] 综合信号计算完成 (scorer={scorer}): {len(signal)} 行, "
+        f"用时 {time.perf_counter() - signal_start:.1f}s"
     )
 
     # 加载市值数据用于过滤

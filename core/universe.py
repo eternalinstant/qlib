@@ -26,8 +26,17 @@ EXCLUDED_PREFIXES = (
 )
 UNIVERSE_ALL = "all"
 UNIVERSE_CSI300 = "csi300"
+UNIVERSE_CSI500 = "csi500"
+UNIVERSE_CSI800 = "csi800"
 INDEX_CODE_BY_UNIVERSE = {
     UNIVERSE_CSI300: "000300.SH",
+    UNIVERSE_CSI500: "000905.SH",
+}
+INDEX_CODES_BY_UNIVERSE = {
+    UNIVERSE_CSI300: ("000300.SH",),
+    UNIVERSE_CSI500: ("000905.SH",),
+    # Tushare 本地数据没有单独 000906.SH 时，按中证定义用 CSI300 + CSI500 合成。
+    UNIVERSE_CSI800: ("000300.SH", "000905.SH"),
 }
 
 _st_instruments: set = None
@@ -43,6 +52,17 @@ _index_constituents_as_of_cache: Dict[Tuple[str, str], Tuple[str, ...]] = {}
 
 def _normalize_cache_date(as_of_date) -> str:
     return pd.Timestamp(as_of_date).normalize().strftime("%Y-%m-%d")
+
+
+def _instrument_key(instrument: str) -> str:
+    """统一成大写前缀格式做集合比较，兼容大小写和 ts_code 形式。"""
+    text = str(instrument)
+    if "." in text:
+        code, exchange = text.split(".", 1)
+        return f"{exchange.upper()}{code}"
+    if len(text) >= 2:
+        return f"{text[:2].upper()}{text[2:]}"
+    return text.upper()
 
 
 def _load_st_set() -> set:
@@ -245,12 +265,14 @@ def _required_index_weight_path_hint() -> str:
 def has_historical_universe_data(universe: str) -> bool:
     if universe == UNIVERSE_ALL:
         return True
-    if universe not in INDEX_CODE_BY_UNIVERSE:
+    index_codes = INDEX_CODES_BY_UNIVERSE.get(universe)
+    if not index_codes:
         return False
     table = _load_index_weight_table()
     if table.empty:
         return False
-    return table["index_code"].eq(INDEX_CODE_BY_UNIVERSE[universe]).any()
+    available_codes = set(table["index_code"].dropna().astype(str).unique())
+    return all(code in available_codes for code in index_codes)
 
 
 def get_index_constituents_as_of(index_code: str, as_of_date) -> List[str]:
@@ -282,6 +304,21 @@ def get_index_constituents_as_of(index_code: str, as_of_date) -> List[str]:
     return list(result)
 
 
+def get_universe_constituents_as_of(universe: str, as_of_date) -> List[str]:
+    """返回指定股票池在某一历史时点的成分。"""
+    if universe == UNIVERSE_ALL:
+        return get_universe_instruments(as_of_date, as_of_date, universe=universe)
+
+    index_codes = INDEX_CODES_BY_UNIVERSE.get(universe)
+    if not index_codes:
+        raise ValueError(f"未知股票池: {universe}")
+
+    result = set()
+    for index_code in index_codes:
+        result.update(get_index_constituents_as_of(index_code, as_of_date))
+    return sorted(result)
+
+
 def get_universe_instruments(
     start_date,
     end_date,
@@ -307,8 +344,8 @@ def get_universe_instruments(
         df["instrument"] = df["instrument"].str[:2].str.upper() + df["instrument"].str[2:]
         return sorted(df["instrument"].dropna().unique().tolist())
 
-    index_code = INDEX_CODE_BY_UNIVERSE.get(universe)
-    if index_code is None:
+    index_codes = INDEX_CODES_BY_UNIVERSE.get(universe)
+    if not index_codes:
         raise ValueError(f"未知股票池: {universe}")
 
     table = _load_index_weight_table()
@@ -319,9 +356,9 @@ def get_universe_instruments(
         )
 
     end_ts = pd.Timestamp(end_date)
-    subset = table[(table["index_code"] == index_code) & (table["trade_date"] <= end_ts)]
+    subset = table[(table["index_code"].isin(index_codes)) & (table["trade_date"] <= end_ts)]
     if subset.empty:
-        raise ValueError(f"指数 {index_code} 在 {pd.Timestamp(start_date).date()} ~ {end_ts.date()} 无可用成分数据")
+        raise ValueError(f"股票池 {universe} 在 {pd.Timestamp(start_date).date()} ~ {end_ts.date()} 无可用成分数据")
     return sorted(subset["instrument"].unique().tolist())
 
 
@@ -334,12 +371,8 @@ def filter_instruments_by_universe(
     if universe == UNIVERSE_ALL:
         return list(instruments)
 
-    index_code = INDEX_CODE_BY_UNIVERSE.get(universe)
-    if index_code is None:
-        raise ValueError(f"未知股票池: {universe}")
-
-    constituent_set = set(get_index_constituents_as_of(index_code, as_of_date))
-    return [inst for inst in instruments if inst in constituent_set]
+    constituent_set = {_instrument_key(inst) for inst in get_universe_constituents_as_of(universe, as_of_date)}
+    return [inst for inst in instruments if _instrument_key(inst) in constituent_set]
 
 
 def filter_instruments(instruments: List[str], exclude_st: bool = True) -> List[str]:
@@ -349,11 +382,15 @@ def filter_instruments(instruments: List[str], exclude_st: bool = True) -> List[
     如需回测无偏差，请传入 exclude_st=False。
     """
     st_set = _load_st_set() if exclude_st else set()
-    return [
-        i for i in instruments
-        if not any(i.startswith(p) for p in EXCLUDED_PREFIXES)
-        and i not in st_set
-    ]
+    result = []
+    for inst in instruments:
+        inst_key = _instrument_key(inst)
+        if any(inst_key.startswith(prefix) for prefix in EXCLUDED_PREFIXES):
+            continue
+        if inst_key in st_set:
+            continue
+        result.append(inst)
+    return result
 
 
 def has_historical_st_data() -> bool:
@@ -408,8 +445,8 @@ def filter_st_instruments_by_date(
     if not has_historical_st_data():
         return list(instruments)
 
-    blocked = set(get_st_instruments_on_date(as_of_date))
-    return [inst for inst in instruments if inst not in blocked]
+    blocked = {_instrument_key(inst) for inst in get_st_instruments_on_date(as_of_date)}
+    return [inst for inst in instruments if _instrument_key(inst) not in blocked]
 
 
 def get_newly_listed_instruments_on_date(
@@ -445,5 +482,5 @@ def filter_new_listed_instruments(
     if min_days_listed <= 0:
         return list(instruments)
 
-    blocked = set(get_newly_listed_instruments_on_date(as_of_date, min_days_listed))
-    return [inst for inst in instruments if inst not in blocked]
+    blocked = {_instrument_key(inst) for inst in get_newly_listed_instruments_on_date(as_of_date, min_days_listed)}
+    return [inst for inst in instruments if _instrument_key(inst) not in blocked]

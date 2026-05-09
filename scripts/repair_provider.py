@@ -5,20 +5,32 @@ Qlib provider 一致性修复脚本
 修复三类问题：
 1. close.day.bin 超过日历长度 → 截断到日历末尾
 2. OHLCVA.bin 超过日历长度 → 截断到日历末尾
-3. close 与 OHLCVA end_idx 不一致 → 从 raw_data 全量重建
+3. close 与 OHLCVA/VWAP end_idx 不一致 → 从 raw_data 全量重建
 """
 import logging
 import numpy as np
 import pandas as pd
+import sys
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from modules.data.tushare_to_qlib import (
+    PRICE_FIELDS,
+    QLIB_MARKET_FIELDS,
+    RAW_MARKET_FIELDS,
+    ensure_vwap,
+    write_dense_bin_file,
+)
+
 QLIB_DIR = PROJECT_ROOT / "data" / "qlib_data" / "cn_data"
 RAW_DIR = PROJECT_ROOT / "data" / "qlib_data" / "raw_data"
-FIELDS = ["open", "high", "low", "close", "volume", "amount"]
+TUSHARE_DIR = PROJECT_ROOT / "data" / "tushare"
+FIELDS = QLIB_MARKET_FIELDS
 
 
 def _load_calendar():
@@ -80,10 +92,65 @@ def _is_consistent(inst_dir: Path) -> bool:
     return len(ends) <= 1
 
 
+def _needs_raw_coverage_rebuild(inst_dir: Path, date_to_idx) -> bool:
+    """检查 close.bin 是否被压缩，导致覆盖范围短于 raw_data 实际交易日跨度。"""
+    close_bin = inst_dir / "close.day.bin"
+    raw_file = RAW_DIR / f"{inst_dir.name}.parquet"
+    if not close_bin.exists() or not raw_file.exists():
+        return False
+
+    try:
+        close_raw = np.fromfile(close_bin, dtype="<f4")
+        if len(close_raw) < 2 or np.isnan(close_raw[0]):
+            return False
+        close_start = int(close_raw[0])
+        close_end = close_start + len(close_raw) - 2
+
+        raw_df = pd.read_parquet(raw_file, columns=["date"])
+        raw_dates = pd.to_datetime(raw_df["date"], errors="coerce").dropna().dt.normalize()
+        raw_dates = raw_dates[raw_dates.isin(set(date_to_idx.keys()))]
+        if raw_dates.empty:
+            return False
+
+        raw_idx = raw_dates.map(date_to_idx).dropna().astype(int)
+        return close_start != int(raw_idx.min()) or close_end != int(raw_idx.max())
+    except Exception:
+        return False
+
+
+def _load_adj_ratio_map(date_to_idx) -> dict:
+    """加载 adj_factor 并返回 {instrument: {cal_idx: adj_ratio}}"""
+    adj_path = TUSHARE_DIR / "adj_factor.parquet"
+    if not adj_path.exists():
+        return {}
+
+    adj_df = pd.read_parquet(adj_path, columns=["ts_code", "trade_date", "adj_factor"])
+    adj_df["date"] = pd.to_datetime(adj_df["trade_date"], format="%Y%m%d").dt.normalize()
+    adj_df = adj_df[adj_df["date"].isin(date_to_idx)]
+    adj_df["instrument"] = adj_df["ts_code"].apply(
+        lambda x: x.split(".")[1].lower() + x.split(".")[0] if "." in x else x.lower()
+    )
+
+    result = {}
+    for inst, grp in adj_df.groupby("instrument"):
+        grp = grp.sort_values("date")
+        latest_adj = grp["adj_factor"].iloc[-1]
+        if latest_adj <= 0:
+            continue
+        ratios = grp["adj_factor"] / latest_adj
+        cal_idxs = grp["date"].map(date_to_idx)
+        result[inst] = dict(zip(cal_idxs, ratios))
+    return result
+
+
 def rebuild_from_raw_data():
-    """从 raw_data 全量重建 OHLCVA 字段不一致的股票"""
+    """从 raw_data 全量重建 OHLCVA 字段不一致的股票（前复权）"""
     date_to_idx, cal_last_idx = _load_calendar()
     features = QLIB_DIR / "features"
+
+    idx_to_date = {i: d for d, i in date_to_idx.items()}
+    adj_maps = _load_adj_ratio_map(date_to_idx)
+
     rebuilt = 0
 
     for inst_dir in features.iterdir():
@@ -95,16 +162,16 @@ def rebuild_from_raw_data():
         if not cb.exists():
             continue
 
-        if _is_consistent(inst_dir):
+        if _is_consistent(inst_dir) and not _needs_raw_coverage_rebuild(inst_dir, date_to_idx):
             continue
 
-        # 不一致，从 raw_data 重建
         raw_file = RAW_DIR / f"{inst}.parquet"
         if not raw_file.exists():
             continue
 
         try:
-            df = pd.read_parquet(raw_file, columns=["date"] + FIELDS)
+            df = pd.read_parquet(raw_file, columns=["date"] + RAW_MARKET_FIELDS)
+            df = ensure_vwap(df)
         except Exception:
             continue
 
@@ -119,18 +186,33 @@ def rebuild_from_raw_data():
         df = df.dropna(subset=["cal_idx"])
         df["cal_idx"] = df["cal_idx"].astype(int)
 
+        inst_adj = adj_maps.get(inst, {})
+        if not inst_adj:
+            logger.warning(f"{inst} 缺少 adj_factor，跳过前复权重建")
+            continue
+
         for fld in FIELDS:
-            fld_data = df[["cal_idx", fld]].dropna(subset=[fld]).sort_values("cal_idx")
+            fld_data = (
+                df[["cal_idx", fld]]
+                .dropna(subset=[fld])
+                .drop_duplicates(subset=["cal_idx"], keep="last")
+                .sort_values("cal_idx")
+            )
             if fld_data.empty:
                 continue
-            start_idx = int(fld_data["cal_idx"].min())
-            vals = fld_data[fld].values.astype(np.float32)
-            out = np.concatenate([[np.float32(start_idx)], vals])
-            out.tofile(inst_dir / f"{fld}.day.bin")
+
+            if fld in PRICE_FIELDS and inst_adj:
+                ratios = fld_data["cal_idx"].map(inst_adj)
+                valid = ratios.notna() & np.isfinite(ratios) & np.isfinite(fld_data[fld])
+                vals = np.where(valid, fld_data[fld] * ratios, np.nan).astype(np.float32)
+            else:
+                vals = fld_data[fld].values.astype(np.float32)
+
+            write_dense_bin_file(inst_dir / f"{fld}.day.bin", fld_data["cal_idx"], vals)
 
         rebuilt += 1
 
-    logger.info(f"从 raw_data 重建: {rebuilt} 只股票")
+    logger.info(f"从 raw_data 前复权重建: {rebuilt} 只股票")
     return rebuilt
 
 

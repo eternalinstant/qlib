@@ -39,6 +39,16 @@ CLAUDE.md
 start_claude.sh
 run_backtest_tmp.py
 
+# Secrets
+.env
+.env.*
+!.env.example
+!.env.template
+env.sh
+*.key
+*.pem
+*.secret
+
 # Project specific
 logs/
 *.log

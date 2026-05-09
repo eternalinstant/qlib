@@ -27,7 +27,7 @@ SELECTIONS_DIR = PROJECT_ROOT / "data" / "selections"
 VALID_POSITION_MODELS = {"trend", "fixed", "full", "gate"}
 VALID_REBALANCE_FREQS = {"day", "week", "biweek", "month"}
 VALID_SOURCES = {"qlib", "parquet"}
-VALID_SELECTION_UNIVERSES = {"all", "csi300"}
+VALID_SELECTION_UNIVERSES = {"all", "csi300", "csi800"}
 VALID_SELECTION_MODES = {"factor_topk", "stoploss_replace"}
 SELECTION_CACHE_VERSION = 1
 
@@ -305,7 +305,7 @@ class Strategy:
     weights: Dict[str, float]
     topk: int
     neutralize_industry: bool
-    universe: str  # "all" | "csi300"
+    universe: str  # "all" | "csi300" | "csi800"
     min_market_cap: float  # 市值下限（亿元），0 = 不过滤
     exclude_st: bool  # 排除历史 ST（无本地历史文件时自动 no-op）
     exclude_new_days: int  # 排除上市 N 天内股票
@@ -337,6 +337,9 @@ class Strategy:
     composition_components: List[Dict[str, Any]] = field(default_factory=list)
     cash_weight: float = 0.0
     factor_window_scale: int = 1
+    scorer: str = "linear"  # "linear" | "lgbm"
+    lgbm_train_start: str = ""  # 空=滚动训练, "2019-01-01"=固定训练
+    lgbm_train_end: str = ""
 
     @classmethod
     def load(cls, name: str) -> "Strategy":
@@ -501,6 +504,9 @@ class Strategy:
             composition_components=components,
             cash_weight=cash_weight,
             factor_window_scale=int(cfg.get("factor_window_scale", 1)),
+            scorer=cfg.get("scorer", "linear"),
+            lgbm_train_start=str(cfg.get("lgbm_train_start", "")),
+            lgbm_train_end=str(cfg.get("lgbm_train_end", "")),
         )
 
     @classmethod
@@ -710,6 +716,7 @@ class Strategy:
             PROJECT_ROOT / "config" / "strategy.yaml",
             PROJECT_ROOT / "core" / "factors.py",
             PROJECT_ROOT / "core" / "selection.py",
+            PROJECT_ROOT / "core" / "lgbm_scorer.py",
             PROJECT_ROOT / "core" / "universe.py",
             PROJECT_ROOT / "data" / "tushare" / "index_weight.parquet",
             PROJECT_ROOT / "data" / "tushare" / "index_weight.csv",
@@ -726,6 +733,9 @@ class Strategy:
             "factor_window_scale": self.factor_window_scale,
             "industry_leader_field": self.industry_leader_field,
             "industry_leader_top_n": self.industry_leader_top_n,
+            "scorer": self.scorer,
+            "lgbm_train_start": self.lgbm_train_start,
+            "lgbm_train_end": self.lgbm_train_end,
         }
 
     def _write_selection_cache_metadata(self) -> None:
@@ -818,6 +828,9 @@ class Strategy:
             else None,
             industry_leader_field=self.industry_leader_field,
             industry_leader_top_n=self.industry_leader_top_n,
+            scorer=self.scorer,
+            lgbm_train_start=self.lgbm_train_start or None,
+            lgbm_train_end=self.lgbm_train_end or None,
         )
         self._write_selection_cache_metadata()
         return df

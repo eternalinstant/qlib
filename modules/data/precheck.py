@@ -104,6 +104,7 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
     _check_exists(errors, resolved, "qlib_instruments", qlib_root / "instruments" / "all.txt")
     _check_exists(errors, resolved, "qlib_factor_data", qlib_root / "factor_data.parquet")
     cal_path = qlib_root / "calendars" / "day.txt"
+    cal_dates = pd.DatetimeIndex([])
     cal_last_idx = None
     if cal_path.exists():
         try:
@@ -153,10 +154,14 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
             errors.append(f"{index_daily_path} 日期检查失败: {exc}")
 
     # Historical index constituents
-    if universe == "csi300":
+    required_index_codes = {
+        "csi300": ["000300.SH"],
+        "csi800": ["000300.SH", "000905.SH"],
+    }.get(universe, [])
+    if required_index_codes:
         index_weight = _first_existing(_iter_index_weight_paths())
         if index_weight is None:
-            errors.append("缺少历史指数成分文件 index_weight.parquet/csv（csi300 股票池必需）")
+            errors.append(f"缺少历史指数成分文件 index_weight.parquet/csv（{universe} 股票池必需）")
         else:
             resolved["index_weight"] = str(index_weight)
             err = _check_table_columns(index_weight, ["index_code", "con_code", "trade_date"])
@@ -167,16 +172,19 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
                     df = pd.read_parquet(index_weight, columns=["index_code", "trade_date"])
                 else:
                     df = pd.read_csv(index_weight, usecols=["index_code", "trade_date"])
-                if "000300.SH" not in set(df["index_code"].astype(str)):
-                    errors.append(f"{index_weight} 不包含 000300.SH 成分数据")
+                available_index_codes = set(df["index_code"].astype(str))
+                for index_code in required_index_codes:
+                    if index_code not in available_index_codes:
+                        errors.append(f"{index_weight} 不包含 {index_code} 成分数据")
                 if not df.empty:
                     trade_dates = pd.to_datetime(df["trade_date"], errors="coerce").dropna()
                     if trade_dates.empty:
                         errors.append(f"{index_weight} trade_date 全部无效")
                     else:
                         if trade_dates.min() > start_date:
-                            warnings.append(
-                                f"index_weight 最早快照 {trade_dates.min().date()} 晚于回测起点 {start_date.date()}"
+                            errors.append(
+                                f"index_weight 最早快照 {trade_dates.min().date()} 晚于回测起点 {start_date.date()}。"
+                                f"当前 {universe} 回测在早期日期将缺少成分快照，请先补齐历史 index_weight。"
                             )
                         # 指数成分通常按月更新，允许 62 天窗口
                         if trade_dates.max() < end_date - pd.Timedelta(days=62):
@@ -217,6 +225,9 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
         import numpy as np
 
         _OHLCV_FIELDS = ["close", "open", "high", "low", "volume", "amount"]
+        raw_root = qlib_root.parent / "raw_data"
+        cal_date_set = set(cal_dates)
+        cal_idx_map = {d: i for i, d in enumerate(cal_dates)}
         tracked_instruments = set()
         instruments_path = qlib_root / "instruments" / "all.txt"
         if instruments_path.exists():
@@ -260,6 +271,25 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
                     mismatch_details.append(
                         f"{inst}: close end_idx={close_end} 超出 calendar end_idx={cal_last_idx}"
                     )
+
+            raw_path = raw_root / f"{inst}.parquet"
+            if raw_path.exists():
+                try:
+                    raw_df = pd.read_parquet(raw_path, columns=["date"])
+                    raw_dates = pd.to_datetime(raw_df["date"], errors="coerce").dropna().dt.normalize()
+                    raw_dates = raw_dates[raw_dates.isin(cal_date_set)]
+                    if not raw_dates.empty:
+                        raw_idx = raw_dates.map(cal_idx_map).dropna().astype(int)
+                        raw_start = int(raw_idx.min())
+                        raw_end = int(raw_idx.max())
+                        if close_start != raw_start or close_end != raw_end:
+                            mismatch_count += 1
+                            if len(mismatch_details) < 5:
+                                mismatch_details.append(
+                                    f"{inst}: close 覆盖 {close_start}-{close_end} ≠ raw_data 覆盖 {raw_start}-{raw_end}"
+                                )
+                except Exception as exc:
+                    warnings.append(f"{raw_path} 日期覆盖检查失败: {exc}")
 
             for fld in _OHLCV_FIELDS:
                 if fld == "close":

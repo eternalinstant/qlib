@@ -354,7 +354,7 @@ class TestDataConversion:
         features_dir = PROJECT_ROOT / "data" / "qlib_data" / "cn_data" / "features"
         
         # 检查一个样本股票
-        sample_files = list(features_dir.glob("SH600000/*.bin"))
+        sample_files = list(features_dir.glob("sh600000/*.bin"))
         
         # 应该有 close, open, high, low, volume 等文件（去掉 .day 后缀）
         names = [f.stem.replace('.day', '') for f in sample_files]
@@ -459,8 +459,13 @@ class TestDataQuality:
         # 检查覆盖率
         factor_stocks = set(factor_df['instrument'].unique())
         
-        # 转换行业数据的股票代码
-        industry_df['instrument'] = industry_df['ts_code'].str.lower().str.replace('.', '', regex=False)
+        # 转换行业数据的股票代码 (ts_code "000001.SZ" → instrument "sz000001")
+        def _to_instrument(ts):
+            if '.' in str(ts):
+                parts = str(ts).split('.')
+                return parts[1].lower() + parts[0]
+            return str(ts).lower()
+        industry_df['instrument'] = industry_df['ts_code'].apply(_to_instrument)
         industry_stocks = set(industry_df['instrument'].unique())
         
         # 应该有较高的覆盖率

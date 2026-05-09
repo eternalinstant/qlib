@@ -3,7 +3,8 @@
 运行: cd /Users/sxt/code/qlib && python tests/test_bugs.py
 """
 import sys
-sys.path.insert(0, "/Users/sxt/code/qlib")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 import numpy as np
@@ -101,7 +102,7 @@ def check_bug2_st_lookahead():
         print(f"\n  {FAIL} 确认Bug: ST名单无时间维度，存在前视偏差!")
         # 量化影响
         from pathlib import Path
-        csv = Path("/Users/sxt/code/qlib/data/tushare/stock_basic.csv")
+        csv = Path(__file__).resolve().parent.parent / "data/tushare/stock_basic.csv"
         if csv.exists():
             df = pd.read_csv(csv, dtype=str)
             st_count = df[df["name"].str.contains("ST", na=False)].shape[0]
@@ -151,7 +152,7 @@ def check_bug4_report_type_not_filtered():
 
     # 检查实际数据中是否有重复
     from pathlib import Path
-    fina_path = Path("/Users/sxt/code/qlib/data/tushare/fina_indicator.parquet")
+    fina_path = Path(__file__).resolve().parent.parent / "data/tushare/fina_indicator.parquet"
     if not fina_path.exists():
         print(f"  {WARN} fina_indicator.parquet 不存在，跳过")
         return None

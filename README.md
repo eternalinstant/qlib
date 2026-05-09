@@ -79,10 +79,7 @@ qlib/
 - [modules/backtest/qlib_engine.py](/Users/sxt/code/qlib/modules/backtest/qlib_engine.py)：Qlib 回测引擎
 - [modules/backtest/pybroker_engine.py](/Users/sxt/code/qlib/modules/backtest/pybroker_engine.py)：PyBroker 回测引擎
 - [modules/data/tushare_downloader.py](/Users/sxt/code/qlib/modules/data/tushare_downloader.py)：Tushare 数据下载
-- [modules/modeling/predictive_signal.py](/Users/sxt/code/qlib/modules/modeling/predictive_signal.py)：模型信号训练、打分与回测配置加载
-- [scripts/generate_model_scores.py](/Users/sxt/code/qlib/scripts/generate_model_scores.py)：按 `config/models` 生成模型分数
-- [scripts/backtest_model_signal.py](/Users/sxt/code/qlib/scripts/backtest_model_signal.py)：按模型分数执行 Qlib/PyBroker 回测
-- [scripts/historical_allocation_sim.py](/Users/sxt/code/qlib/scripts/historical_allocation_sim.py)：阶段一最终主备组合历史仿真
+- [docs/current_strategy_summary.md](/Users/sxt/code/qlib/docs/current_strategy_summary.md)：当前策略与因子速记
 
 ## 策略分层管理
 
@@ -140,7 +137,19 @@ qlib/
 export TUSHARE_TOKEN=your_token_here
 ```
 
-### 1. 跑阶段一最终组合仿真
+新机器首次启动，先执行：
+
+```bash
+pip install -e .[full]
+python main.py update
+```
+
+这条命令现在同时承担两件事：
+
+- 首次 bootstrap：从 `2016-01-01` 拉历史 Tushare 数据，生成 Qlib provider，并重算选股
+- 后续更新：只做增量更新和必要修复
+
+### 1. 列出策略
 
 ```bash
 python3 scripts/historical_allocation_sim.py
@@ -170,17 +179,7 @@ python3 scripts/backtest_model_signal.py --config config/models/push25_cq10_v3_v
 python main.py update
 ```
 
-正式数据更新会检查必要数据，缺少历史沪深300成分或历史 ST 数据时会失败，不会静默降级。
-
-### 4. 旧框架策略对照
-
-```bash
-python main.py backtest --list
-python main.py backtest -s experimental/regime/bullbear_regime_guard_all -e qlib
-python main.py compare -s top15_core_trend,top15_core_day,top15_amp_day --no-benchmark
-```
-
-旧 `select / backtest / compare` 仍用于 `config/strategies` 体系的历史策略对照；阶段一最终优选不再通过 `top15_*` 口径表达。
+正式 `select / backtest / compare` 前会自动执行数据预检；如果缺少历史沪深300成分或历史 ST 数据，会直接失败，不会再静默降级。新环境首次执行 `python main.py update` 就会自动补这批历史数据。
 
 ## 策略配置
 
@@ -495,6 +494,12 @@ position:
 ### 下载历史指数成分和名称变更
 
 ```bash
+python main.py update
+```
+
+如果只是单独排查下载问题，才需要手工调用下载器：
+
+```bash
 python modules/data/tushare_downloader.py --type index_weight --start 20160101
 python modules/data/tushare_downloader.py --type namechange --start 20100101
 ```
@@ -522,6 +527,111 @@ python3 scripts/audit_price_fields.py --sample-size 20 --days 10
 - 涨跌停可成交约束使用 [data/qlib_data/raw_data](/Users/sxt/code/qlib/data/qlib_data/raw_data) 下的原始日线文件
 - `modules/data/updater.py` 会在日更时自动回补最近一段交易日的 `raw_data`
 - 如果启用了 `block_limit_up_buy / block_limit_down_sell`，但本地缺少对应 `raw_data` 文件，回测会直接报错，不会静默降级
+
+## 数据处理链路
+
+### 数据流
+
+```
+Tushare API
+  │
+  ├─ tushare_downloader.py / data_update.py
+  │   → data/tushare/*.parquet (9 个核心文件: daily_basic, adj_factor, income,
+  │      balancesheet, cashflow, fina_indicator, index_daily, index_weight, namechange)
+  │
+  ├─ build_qlib_data.py step 2
+  │   → data/qlib_data/raw_data/{inst}.parquet (5751 只股票 OHLCV)
+  │
+  ├─ tushare_to_qlib.py (build_adjusted_bins_batched)
+  │   → data/qlib_data/cn_data/
+  │       ├── calendars/day.txt           (交易日历)
+  │       ├── instruments/all.txt         (股票列表 + 日期范围)
+  │       ├── factor_data.parquet         (前向填充因子, ~10M行 × 42列)
+  │       └── features/{inst}/{open,high,low,close,volume,amount}.day.bin
+  │                                        (前复权 bin 文件, Qlib 可读)
+```
+
+### 数据质量检查与自动修复
+
+运行 `data_quality_guard.py` 进行全量检查和自动修复（最多 5 轮循环）：
+
+```bash
+source env.sh
+python scripts/data_quality_guard.py
+```
+
+脚本会自动执行以下流程：
+1. **全量检查**：复用 `validate_data.py` 的 24 项检查
+2. **自动诊断**：根据检查结果判断根因
+3. **自动修复**：调用下载/更新/重建等修复函数
+4. **循环重验**：最多 5 轮，直到全部 PASS
+5. **人工介入**：如果 5 轮未通过，自动生成 `Q&A/YYYYMMDD.md` 供人工排查
+
+如果只想做检查不做修复：
+
+```bash
+python scripts/validate_data.py
+```
+
+### 手动重建
+
+- **全量重建**: `python scripts/build_qlib_data.py build --force`
+- **只重建 Qlib 格式（复用已有下载和 raw_data）**: `python scripts/build_qlib_data.py build --skip-download --skip-raw --workers 8`
+- **增量更新**: `python main.py update`
+
+**注意：** 全量构建过程内存峰值约 8-10GB，建议在 16GB 以上机器运行。脚本已内置分批处理，每批 500-1000 只股票，避免 OOM。
+
+## 数据流与验证
+
+### 构建数据
+
+**首次全量构建：**
+
+```bash
+python scripts/build_qlib_data.py build --workers 8
+```
+
+### 验证数据
+
+```bash
+python scripts/validate_data.py
+```
+
+24 项检查分为三级：
+
+| 级别 | 含义 | 目标 |
+|------|------|------|
+| P0 | 致命问题（回测结果错误） | 必须全部 PASS |
+| P1 | 重要问题（影响回测质量） | 不应有 FAIL |
+| P2 | 数据健康指标 | 参考 |
+
+验证报告会输出彩色终端摘要，同时保存 JSON 到 `results/` 目录。
+
+### 内存优化说明
+
+数据处理脚本针对 16GB 内存机器做了以下优化：
+
+- **`save()`**：用 PyArrow 只读 instrument 列做差集，避免同时加载新旧两份全量数据
+- **`build_adjusted_bins_batched()`**：每批 1000 只股票计算前复权并写 bin，之后 `gc.collect()` 释放
+- **`convert()`**：分批处理 500 只股票，concat 前释放 quarterlies 和 daily
+
+### 常见问题
+
+**Q: 日历覆盖率 WARN（510 只股票 >70% 缺失）**
+
+A: 属退市/新上市股票的正常现象。instruments.txt 已写入每只股票的实际日期范围，退市股票覆盖其实际存续期即可。
+
+**Q: Adj_ratio WARN（极低值 <0.001）**
+
+A: 源自极端复权场景（如大量拆股的历史股票），阈值已放宽至 0.001，83 条记录属正常范围。
+
+**Q: instruments 日期全部相同**
+
+A: 旧版代码写死日期。运行 `build_qlib_data.py build --skip-download --skip-raw` 重建即可修复。
+
+**Q: 构建时 OOM**
+
+A: 减少并发数或分批处理。脚本已内置分批逻辑（因子处理每批 500 只，bin 写入每批 1000 只）。如仍 OOM，可进一步降低 `batch_size` 参数。
 
 ## 结果文件
 

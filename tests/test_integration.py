@@ -2,7 +2,8 @@
 集成测试：确保原有代码仍能正常工作
 """
 import sys
-sys.path.insert(0, "/Users/sxt/code/qlib")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def test_factors_import():
     """测试因子模块导入"""

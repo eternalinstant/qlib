@@ -2,7 +2,8 @@
 测试配置管理模块
 """
 import sys
-sys.path.insert(0, "/Users/sxt/code/qlib")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config.config import ConfigManager, AppConfig, get_config_manager
 
