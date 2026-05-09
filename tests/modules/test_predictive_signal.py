@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from modules.modeling.predictive_signal import (
     ModelSignalStrategy,
     _alpha158_feature_map,
+    _load_alpha158_features_resilient,
     backtest_from_config,
     build_walk_forward_windows,
     augment_with_derived_features,
@@ -634,6 +635,44 @@ class TestBacktestOverlay:
 
 
 class TestAlpha158Source:
+    def test_alpha158_loader_falls_back_when_one_symbol_field_is_broken(self, monkeypatch):
+        dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
+
+        def make_frame(symbols, value, field_name):
+            index = pd.MultiIndex.from_product(
+                [list(symbols), dates],
+                names=["instrument", "datetime"],
+            )
+            return pd.DataFrame({field_name: [value] * len(index)}, index=index)
+
+        def fake_load_features_safe(instruments, fields, start_time, end_time, freq="day"):
+            symbols = list(instruments)
+            expr = fields[0]
+            if len(fields) > 1:
+                raise ValueError("multi-field provider failure")
+            if expr == "expr_a":
+                return make_frame(symbols, 1.0, expr)
+            if "BAD" in symbols:
+                raise ValueError("bad symbol provider length mismatch")
+            return make_frame(symbols, 2.0, expr)
+
+        monkeypatch.setattr(
+            "modules.modeling.predictive_signal.load_features_safe",
+            fake_load_features_safe,
+        )
+
+        frame = _load_alpha158_features_resilient(
+            ["GOOD", "BAD"],
+            {"A": "expr_a", "B": "expr_b"},
+            start_date="2024-01-01",
+            end_date="2024-01-31",
+        )
+
+        assert frame.loc[(dates[0], "GOOD"), "A"] == pytest.approx(1.0)
+        assert frame.loc[(dates[0], "GOOD"), "B"] == pytest.approx(2.0)
+        assert frame.loc[(dates[0], "BAD"), "A"] == pytest.approx(1.0)
+        assert pd.isna(frame.loc[(dates[0], "BAD"), "B"])
+
     def test_load_feature_frame_limits_alpha158_to_selection_universe(self, monkeypatch):
         captured = {}
         index = pd.MultiIndex.from_tuples(

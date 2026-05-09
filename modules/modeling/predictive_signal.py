@@ -42,6 +42,7 @@ from core.universe import get_universe_instruments
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RESULTS_ROOT = Path(CONFIG.get("paths.results", "./results")).expanduser()
 DEFAULT_FEATURE_EXCLUDES = {"datetime", "instrument", "label", "score", "rank", "symbol", "date"}
+logger = logging.getLogger(__name__)
 
 
 def _empty_index() -> pd.MultiIndex:
@@ -703,6 +704,137 @@ def _alpha158_feature_map(alpha158_cfg: Optional[Dict[str, Any]] = None) -> dict
     return {str(name): str(field) for field, name in zip(fields, names)}
 
 
+def _normalize_alpha158_frame(df: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(index=_empty_index(), columns=list(columns))
+    out = df.copy()
+    out.columns = list(columns)
+    if list(out.index.names) == ["instrument", "datetime"]:
+        out = out.swaplevel().sort_index()
+    else:
+        out = out.sort_index()
+        out.index = out.index.set_names(["datetime", "instrument"])
+    return out
+
+
+def _load_alpha158_single_column_resilient(
+    instruments,
+    column: str,
+    expression: str,
+    start_date: str,
+    end_date: str,
+    chunk_size: int = 64,
+) -> pd.DataFrame:
+    initial_exc = None
+    try:
+        return _normalize_alpha158_frame(
+            load_features_safe(
+                instruments,
+                [expression],
+                start_time=start_date,
+                end_time=end_date,
+                freq="day",
+            ),
+            [column],
+        )
+    except Exception as exc:
+        initial_exc = exc
+        logger.warning("Alpha158 批量加载失败，降级到分块加载: column=%s, error=%s", column, exc)
+
+    if isinstance(instruments, (str, bytes)) or not isinstance(instruments, Sequence):
+        raise initial_exc
+
+    parts = []
+    bad_symbols = []
+    instrument_list = list(instruments)
+    for pos in range(0, len(instrument_list), chunk_size):
+        chunk = instrument_list[pos : pos + chunk_size]
+        try:
+            parts.append(
+                _normalize_alpha158_frame(
+                    load_features_safe(
+                        chunk,
+                        [expression],
+                        start_time=start_date,
+                        end_time=end_date,
+                        freq="day",
+                    ),
+                    [column],
+                )
+            )
+            continue
+        except Exception:
+            pass
+
+        for symbol in chunk:
+            try:
+                parts.append(
+                    _normalize_alpha158_frame(
+                        load_features_safe(
+                            [symbol],
+                            [expression],
+                            start_time=start_date,
+                            end_time=end_date,
+                            freq="day",
+                        ),
+                        [column],
+                    )
+                )
+            except Exception as symbol_exc:
+                bad_symbols.append(str(symbol))
+                logger.warning(
+                    "Alpha158 单票加载失败，跳过该列: column=%s, symbol=%s, error=%s",
+                    column,
+                    symbol,
+                    symbol_exc,
+                )
+
+    if bad_symbols:
+        preview = ", ".join(bad_symbols[:20])
+        suffix = " ..." if len(bad_symbols) > 20 else ""
+        logger.warning("Alpha158 %s 跳过 %s 只异常股票: %s%s", column, len(bad_symbols), preview, suffix)
+    if not parts:
+        return pd.DataFrame(index=_empty_index(), columns=[column])
+    return pd.concat(parts, axis=0).sort_index()
+
+
+def _load_alpha158_features_resilient(
+    instruments,
+    expressions_by_column: Dict[str, str],
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    columns = list(expressions_by_column)
+    expressions = [expressions_by_column[col] for col in columns]
+    try:
+        return _normalize_alpha158_frame(
+            load_features_safe(
+                instruments,
+                expressions,
+                start_time=start_date,
+                end_time=end_date,
+                freq="day",
+            ),
+            columns,
+        )
+    except Exception as exc:
+        logger.warning("Alpha158 多列批量加载失败，按列容错重载: error=%s", exc)
+
+    frames = [
+        _load_alpha158_single_column_resilient(
+            instruments,
+            column,
+            expression,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        for column, expression in expressions_by_column.items()
+    ]
+    if not frames:
+        return pd.DataFrame(index=_empty_index(), columns=columns)
+    return pd.concat(frames, axis=1, join="outer").sort_index()
+
+
 def load_alpha158_feature_frame(
     start_date: str,
     end_date: str,
@@ -725,21 +857,15 @@ def load_alpha158_feature_frame(
         from qlib.data import D
 
         qlib_instruments = D.instruments(market=qlib_instruments)
-    df = load_features_safe(
+    df = _load_alpha158_features_resilient(
         qlib_instruments,
-        [feature_map[col] for col in selected_columns],
-        start_time=start_date,
-        end_time=end_date,
-        freq="day",
+        {col: feature_map[col] for col in selected_columns},
+        start_date=start_date,
+        end_date=end_date,
     )
     if df.empty:
         return pd.DataFrame(index=_empty_index(), columns=selected_columns), rebalance_dates, selected_columns
 
-    df.columns = selected_columns
-    if list(df.index.names) == ["instrument", "datetime"]:
-        df = df.swaplevel().sort_index()
-    else:
-        df = df.sort_index()
     df = df[df.index.get_level_values("datetime").isin(rebalance_dates)].copy()
     df = df.replace([np.inf, -np.inf], np.nan)
     return df, rebalance_dates, selected_columns
@@ -967,8 +1093,9 @@ def resolve_regressor(
             if "min_samples_leaf" in lgb_params and "min_child_samples" not in lgb_params:
                 lgb_params["min_child_samples"] = int(lgb_params["min_samples_leaf"])
                 lgb_params.pop("min_samples_leaf", None)
-            # 避免在受限环境里触发 joblib 对物理核心数的探测告警。
             lgb_params.setdefault("n_jobs", 1)
+            lgb_params.setdefault("deterministic", True)
+            lgb_params.setdefault("force_col_wise", True)
             model = LGBMRegressor(**lgb_params)
             return model, "lightgbm"
         except Exception:
