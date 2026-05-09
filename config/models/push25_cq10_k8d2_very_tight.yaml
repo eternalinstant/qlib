@@ -98,14 +98,14 @@ position:
 
 overlay:
   enabled: true
-  target_vol: 0.19
+  target_vol: 0.20
   vol_lookback: 20
   trend_lookback: 20
-  trend_exposure: 0.60
-  dd_soft: 0.010
-  dd_hard: 0.025
-  soft_exposure: 0.65
-  hard_exposure: 0.25
+  trend_exposure: 0.80
+  dd_soft: 0.04
+  dd_hard: 0.10
+  soft_exposure: 0.75
+  hard_exposure: 0.35
   exposure_min: 0.0
   exposure_max: 1.0
 

@@ -1093,8 +1093,9 @@ def resolve_regressor(
             if "min_samples_leaf" in lgb_params and "min_child_samples" not in lgb_params:
                 lgb_params["min_child_samples"] = int(lgb_params["min_samples_leaf"])
                 lgb_params.pop("min_samples_leaf", None)
-            # 避免在受限环境里触发 joblib 对物理核心数的探测告警。
             lgb_params.setdefault("n_jobs", 1)
+            lgb_params.setdefault("deterministic", True)
+            lgb_params.setdefault("force_col_wise", True)
             model = LGBMRegressor(**lgb_params)
             return model, "lightgbm"
         except Exception:
