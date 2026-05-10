@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional, Sequence
 import numpy as np
 import pandas as pd
 import yaml
-from qlib.contrib.data.loader import Alpha158DL
+from qlib.contrib.data.loader import Alpha158DL, Alpha360DL
 from sklearn.ensemble import HistGradientBoostingRegressor
 
 from config.config import CONFIG
@@ -538,7 +538,7 @@ def load_predictive_config(config_path: str | Path) -> dict:
     source = str(data.get("source", "parquet")).lower()
     selection_universe = str(selection.get("universe", "all"))
     alpha158_universe = data.get("alpha158_universe")
-    if source in {"alpha158", "hybrid"}:
+    if source in {"alpha158", "alpha360", "hybrid"}:
         if alpha158_universe is None:
             data["alpha158_universe"] = selection_universe
         elif selection_universe != "all" and str(alpha158_universe) != selection_universe:
@@ -701,6 +701,11 @@ def apply_overlay_to_backtest_result(result: BacktestResult, cfg: dict) -> tuple
 
 def _alpha158_feature_map(alpha158_cfg: Optional[Dict[str, Any]] = None) -> dict[str, str]:
     fields, names = Alpha158DL.get_feature_config(alpha158_cfg or {})
+    return {str(name): str(field) for field, name in zip(fields, names)}
+
+
+def _alpha360_feature_map() -> dict[str, str]:
+    fields, names = Alpha360DL.get_feature_config()
     return {str(name): str(field) for field, name in zip(fields, names)}
 
 
@@ -871,6 +876,42 @@ def load_alpha158_feature_frame(
     return df, rebalance_dates, selected_columns
 
 
+def load_alpha360_feature_frame(
+    start_date: str,
+    end_date: str,
+    rebalance_freq: str,
+    feature_columns: Sequence[str],
+    instruments: str = "all",
+) -> tuple[pd.DataFrame, pd.DatetimeIndex, list[str]]:
+    feature_map = _alpha360_feature_map()
+    selected_columns = list(feature_columns)
+    missing = sorted(set(selected_columns) - set(feature_map))
+    if missing:
+        raise ValueError(f"Alpha360 不支持特征列: {missing}")
+
+    calendar = _load_trade_calendar(start_date, end_date)
+    rebalance_dates = compute_rebalance_dates(pd.Series(calendar), freq=rebalance_freq)
+    qlib_instruments = instruments or "all"
+    init_qlib()
+    if isinstance(qlib_instruments, str):
+        from qlib.data import D
+
+        qlib_instruments = D.instruments(market=qlib_instruments)
+
+    df = _load_alpha158_features_resilient(
+        qlib_instruments,
+        {col: feature_map[col] for col in selected_columns},
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if df.empty:
+        return pd.DataFrame(index=_empty_index(), columns=selected_columns), rebalance_dates, selected_columns
+
+    df = df[df.index.get_level_values("datetime").isin(rebalance_dates)].copy()
+    df = df.replace([np.inf, -np.inf], np.nan)
+    return df, rebalance_dates, selected_columns
+
+
 def _resolve_alpha158_instruments(
     start_date: str,
     end_date: str,
@@ -996,6 +1037,24 @@ def load_feature_frame(
             columns=selected_columns,
         )
         return frame, parquet_dates.intersection(alpha_dates), selected_columns
+
+    if source == "alpha360":
+        selected_columns = list(feature_columns or data_cfg.get("feature_columns", []))
+        if not selected_columns:
+            raise ValueError("Alpha360 模式必须显式提供 feature_columns")
+        instruments = _resolve_alpha158_instruments(
+            start_date=start_date,
+            end_date=end_date,
+            data_cfg=data_cfg,
+            selection_cfg=selection_cfg,
+        )
+        return load_alpha360_feature_frame(
+            start_date=start_date,
+            end_date=end_date,
+            rebalance_freq=rebalance_freq,
+            feature_columns=selected_columns,
+            instruments=instruments,
+        )
 
     return load_parquet_feature_frame(
         start_date=start_date,
