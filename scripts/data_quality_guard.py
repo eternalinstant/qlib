@@ -309,7 +309,7 @@ class DataQualityGuard:
                     logger.warning(f"  -> 未知修复类型: {action.fix_type}")
                     all_ok = False
                     continue
-                ok = handler(action.targets) if action.targets else handler()
+                ok = handler(self, action.targets) if action.targets else handler(self)
                 if ok:
                     logger.info("  -> 成功")
                 else:
@@ -323,8 +323,8 @@ class DataQualityGuard:
 
         return all_ok
 
-    # Dict dispatch for fix types
-    _dispatch_table: dict = {}  # populated after method definitions
+    # Placeholder overridden below
+    _dispatch_table: dict = {}
 
     def _fix_download(self, targets: list) -> bool:
         """重新下载缺失的 tushare 文件"""

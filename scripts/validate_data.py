@@ -178,7 +178,6 @@ class DataValidator:
 
     def check_ohlc_integrity(self) -> dict:
         """检查全部 raw_data 的 OHLC 逻辑约束"""
-        cal = self._load_calendar()
         violations_detail = []
         total_violations = 0
         files_checked = 0
@@ -229,7 +228,6 @@ class DataValidator:
 
     def check_price_nonnegative(self) -> dict:
         """检查 OHLC 价格非负/非零（非停牌日）"""
-        cal = self._load_calendar()
         files_checked = 0
         total_nonpositive = 0
         bad_files = []
@@ -611,8 +609,7 @@ class DataValidator:
         return self._results[-1]
 
     def check_zero_volume_flat(self) -> dict:
-        """零量/持续平盘检测"""
-        cal = self._load_calendar()
+        """零量/持续平盘检测（使用 close 变化判断平盘，避免依赖可能损坏的 high/low）"""
         files_checked = 0
         zero_vol_stocks = 0
         flat_stocks = 0
@@ -620,7 +617,7 @@ class DataValidator:
 
         for raw_path in self._iter_raw_files():
             try:
-                df = pd.read_parquet(raw_path, columns=["date", "high", "low", "volume"])
+                df = pd.read_parquet(raw_path, columns=["date", "close", "volume"])
             except Exception:
                 continue
 
@@ -634,8 +631,9 @@ class DataValidator:
             zero_vol = (df["volume"] == 0)
             zero_vol_days = int(zero_vol.sum())
 
-            # Consecutive flat: high==low for CONSECUTIVE_FLAT_DAYS+
-            is_flat = (df["high"] == df["low"]).astype(int)
+            # Consecutive flat: close unchanged for CONSECUTIVE_FLAT_DAYS+
+            df = df.sort_values("date").reset_index(drop=True)
+            is_flat = (df["close"].diff().fillna(1) == 0).astype(int)
             consecutive = 0
             max_consecutive = 0
             for v in is_flat:
@@ -665,7 +663,7 @@ class DataValidator:
             desc = (f"{files_checked} 只股票, {zero_vol_stocks} 只有零量日, "
                     f"{flat_stocks} 只连续平盘 ≥{CONSECUTIVE_FLAT_DAYS}天")
 
-        self._add_result("P1", f"零量/持续平盘 (连续{CONSECUTIVE_FLAT_DAYS}天 high=low)",
+        self._add_result("P1", f"零量/持续平盘 (连续{CONSECUTIVE_FLAT_DAYS}天 close不变)",
                          status, desc,
                          {"files_checked": files_checked,
                           "zero_vol_stocks": zero_vol_stocks,
@@ -1133,10 +1131,11 @@ class DataValidator:
                              STATUS_SKIP, f"读取失败: {e}")
             return self._results[-1]
 
-        # 计算最新复权因子
+        # 计算最新复权因子（按日期排序确保 last() 取到最新值）
+        df = df.sort_values("trade_date")
         latest_adj = df.groupby("ts_code")["adj_factor"].last()
         df["adj_ratio"] = df["adj_factor"] / df["ts_code"].map(latest_adj)
-        df["adj_ratio"] = df["adj_ratio"].replace([np.inf, -np.inf], np.nan).dropna()
+        df["adj_ratio"] = df["adj_ratio"].replace([np.inf, -np.inf], np.nan)
 
         too_low = int((df["adj_ratio"] < 0.001).sum())
         too_high = int((df["adj_ratio"] > 100).sum())
@@ -1182,6 +1181,7 @@ class DataValidator:
         adj_df["instrument"] = adj_df["ts_code"].apply(
             lambda x: x.split(".")[1].lower() + x.split(".")[0] if "." in x else x.lower()
         )
+        adj_df = adj_df.sort_values("date")
         latest_adj = adj_df.groupby("instrument")["adj_factor"].last()
         adj_df["adj_ratio"] = adj_df["adj_factor"] / adj_df["instrument"].map(latest_adj)
         adj_map = {}

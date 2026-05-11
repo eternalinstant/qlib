@@ -38,6 +38,7 @@ htmlcov/
 CLAUDE.md
 start_claude.sh
 run_backtest_tmp.py
+tmp/
 
 # Secrets
 .env

@@ -987,8 +987,12 @@ def load_feature_frame(
     data_cfg = dict(data_cfg or {})
     source = str(data_cfg.get("source", "parquet")).lower()
 
-    if source == "alpha158":
-        selected_columns = list(feature_columns or data_cfg.get("feature_columns", []))
+    if source in ("alpha158", "qlib"):
+        selected_columns = list(
+            feature_columns
+            or data_cfg.get("alpha158_feature_columns")
+            or data_cfg.get("feature_columns", [])
+        )
         if not selected_columns:
             raise ValueError("Alpha158 模式必须显式提供 feature_columns")
         instruments = _resolve_alpha158_instruments(

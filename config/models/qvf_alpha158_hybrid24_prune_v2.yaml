@@ -1,20 +1,34 @@
-name: push25_cq10_k8d2_very_tight
+name: qvf_alpha158_hybrid24_prune_v2
 data:
   source: hybrid
   start_date: '2019-01-01'
   end_date: '2026-04-15'
   alpha158_universe: csi300
   parquet_feature_columns:
-  - ocf_to_ev
+  - book_to_market
+  - roic_proxy
+  - ebit_to_mv
+  - ebitda_to_mv
+  - ocf_to_mv
   - fcff_to_mv
   - roe_fina
+  - roe_dt_fina
+  - roa_fina
   - current_ratio_fina
+  - quick_ratio_fina
+  - net_margin
+  - total_revenue_inc
+  - operate_profit_inc
   - n_cashflow_act
   - rank_value_profit_core
+  - rank_flow_momentum_core
+  - rank_growth_quality_core
   - rank_balance_core
+  - qvf_core_alpha
   - qvf_core_interaction
   alpha158_feature_columns:
   - ROC20
+  - RANK20
   - CORD20
   alpha158:
     kbar: {}
@@ -67,23 +81,23 @@ model:
   preferred_backend: lightgbm
   params:
     learning_rate: 0.05
-    n_estimators: 200
+    n_estimators: 320
     max_depth: 4
     min_child_samples: 32
     random_state: 42
     verbosity: -1
 selection:
   freq: biweek
-  topk: 8
+  topk: 6
   universe: csi300
   min_market_cap: 120
   exclude_st: true
   exclude_new_days: 120
-  sticky: 6
+  sticky: 0
   threshold: 0.0
-  churn_limit: 2
+  churn_limit: 0
   margin_stable: false
-  buffer: 0
+  buffer: 1
   score_smoothing_days: 1
   mode: factor_topk
   entry_persist_days: 1
@@ -101,13 +115,17 @@ overlay:
   target_vol: 0.19
   vol_lookback: 20
   trend_lookback: 20
-  trend_exposure: 0.60
-  dd_soft: 0.010
-  dd_hard: 0.025
-  soft_exposure: 0.65
-  hard_exposure: 0.25
+  trend_exposure: 0.75
+  dd_soft: 0.025
+  dd_hard: 0.05
+  soft_exposure: 0.82
+  hard_exposure: 0.48
   exposure_min: 0.0
   exposure_max: 1.0
+  market_trend_lookback: 0
+  market_trend_min_return: 0.0
+  market_trend_exposure_floor: 0.0
+  market_trend_max_strategy_drawdown: null
 trading:
   buy_commission_rate: 0.0003
   sell_commission_rate: 0.0003
@@ -117,4 +135,9 @@ trading:
   slippage_bps: 5.0
   impact_bps: 5.0
 output:
-  root: results/model_signals/push25_cq10_k8d2_very_tight
+  root: /Users/sxt/code/qlib/results/model_signals/qvf_alpha158_hybrid24_prune_v2
+walk_forward:
+  enabled: false
+  min_train_years: 3
+  retrain_months: 12
+  train_years: null

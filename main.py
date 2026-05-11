@@ -244,6 +244,23 @@ def cmd_compare(args):
     )
 
 
+def cmd_leaderboard(args):
+    """策略 Leaderboard"""
+    from scripts.strategy_leaderboard import run_leaderboard
+    run_leaderboard(
+        sort_by=args.sort,
+        top=args.top,
+        min_sharpe=args.min_sharpe,
+        max_dd=args.max_dd,
+        not_stale_days=args.not_stale_days,
+        grep=args.grep,
+        has_config=args.has_config,
+        no_save=args.no_save,
+        fmt=args.fmt,
+        stale_days=args.stale_days,
+    )
+
+
 def cmd_report(args):
     """生成 QuantStats 回测报告"""
     from utils.quantstats_report import generate_report, print_summary
@@ -511,6 +528,29 @@ def main():
     run_parser.add_argument("--strategy", "-s", default=None,
                             help="策略名称 (默认: 使用全局配置)")
 
+    # Leaderboard 命令
+    lb_parser = subparsers.add_parser("leaderboard", help="策略 Leaderboard（扫描回测结果排序/过滤）")
+    lb_parser.add_argument("--sort", default="sharpe",
+                           choices=["sharpe","cagr","calmar","max_dd","oos_sharpe",
+                                    "oos_cagr","oos_decay","cost_ratio","last_run","turnover"],
+                           help="排序字段 (默认: sharpe)")
+    lb_parser.add_argument("--top", type=int, default=None, help="只显示前 N 条")
+    lb_parser.add_argument("--min-sharpe", type=float, default=None, dest="min_sharpe",
+                           help="最低 Sharpe 过滤")
+    lb_parser.add_argument("--max-dd", type=float, default=None, dest="max_dd",
+                           help="最大回撤下限，如 -0.10")
+    lb_parser.add_argument("--not-stale", type=int, default=None, dest="not_stale_days",
+                           help="仅最近 N 天内有回测")
+    lb_parser.add_argument("--stale-days", type=int, default=30, dest="stale_days",
+                           help="过期阈值天数 (默认: 30)")
+    lb_parser.add_argument("--grep", default=None, help="策略名关键字过滤")
+    lb_parser.add_argument("--has-config", action="store_true", dest="has_config",
+                           help="只显示有 YAML 配置文件（可重测）的策略")
+    lb_parser.add_argument("--no-save", action="store_true", dest="no_save",
+                           help="只展示不存快照")
+    lb_parser.add_argument("--format", choices=["cli","markdown"], default="cli", dest="fmt",
+                           help="输出格式 (默认: cli)")
+
     # QuantStats 报告命令
     qs_parser = subparsers.add_parser("report", help="生成 QuantStats 回测报告")
     qs_parser.add_argument("--result", "-r", default=None,
@@ -535,6 +575,7 @@ def main():
         "plot": cmd_plot,
         "analyze": cmd_analyze,
         "compare": cmd_compare,
+        "leaderboard": cmd_leaderboard,
         "run": cmd_run,
         "report": cmd_report,
     }

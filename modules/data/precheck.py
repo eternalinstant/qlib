@@ -54,13 +54,16 @@ def _first_existing(paths: List[Path]) -> Optional[Path]:
 def _check_table_columns(path: Path, required_cols: List[str]) -> Optional[str]:
     try:
         if path.suffix == ".parquet":
-            df = pd.read_parquet(path)
+            import pyarrow.parquet as pq
+            schema = pq.read_schema(path)
+            columns = set(schema.names)
         else:
-            df = pd.read_csv(path, nrows=5)
+            df = pd.read_csv(path, nrows=0)
+            columns = set(df.columns)
     except Exception as exc:
         return f"{path} 无法读取: {exc}"
 
-    missing = [col for col in required_cols if col not in df.columns]
+    missing = [col for col in required_cols if col not in columns]
     if missing:
         return f"{path} 缺少字段: {missing}"
     return None
@@ -271,6 +274,7 @@ def run_data_precheck(universe: str = "all", require_st_history: bool = False) -
                     mismatch_details.append(
                         f"{inst}: close end_idx={close_end} 超出 calendar end_idx={cal_last_idx}"
                     )
+                continue  # 已超范围，跳过后续检查避免双倍计数
 
             raw_path = raw_root / f"{inst}.parquet"
             if raw_path.exists():
