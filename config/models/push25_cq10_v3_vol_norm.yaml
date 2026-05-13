@@ -120,6 +120,12 @@ trading:
   min_sell_commission: 5.0
   slippage_bps: 5.0
   impact_bps: 5.0
+  # P0 实盘约束
+  next_open_execution: false
+  block_limit_up_buy: false
+  block_limit_down_sell: false
+  t1_sell_lock_days: 0
+  volume_cap_pct: null
 
 output:
   root: "results/model_signals/push25_cq10_v3_vol_norm"

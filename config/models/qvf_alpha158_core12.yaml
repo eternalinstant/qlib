@@ -124,6 +124,12 @@ trading:
   min_sell_commission: 5.0
   slippage_bps: 5.0
   impact_bps: 5.0
+  # P0 实盘约束（baseline 默认关闭，realistic 模式时由 run_p0_audit.py 覆盖）
+  next_open_execution: false
+  block_limit_up_buy: false
+  block_limit_down_sell: false
+  t1_sell_lock_days: 0
+  volume_cap_pct: null
 output:
   root: /Users/sxt/code/qlib/results/model_signals/qvf_alpha158_core12
 walk_forward:
