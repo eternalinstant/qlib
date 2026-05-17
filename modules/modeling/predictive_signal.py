@@ -823,20 +823,47 @@ def _load_alpha158_features_resilient(
             columns,
         )
     except Exception as exc:
-        logger.warning("Alpha158 多列批量加载失败，按列容错重载: error=%s", exc)
+        logger.warning("Alpha158 多列批量加载失败，用二分法定位问题列: error=%s", exc)
 
-    frames = [
-        _load_alpha158_single_column_resilient(
-            instruments,
-            column,
-            expression,
-            start_date=start_date,
-            end_date=end_date,
+    return _load_alpha158_bisect(instruments, expressions_by_column, start_date, end_date)
+
+
+def _load_alpha158_bisect(
+    instruments,
+    expressions_by_column: Dict[str, str],
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    """二分法定位问题列：只有真正失败的列走慢路径，其余列继续批量加载。"""
+    if len(expressions_by_column) == 1:
+        col, expr = next(iter(expressions_by_column.items()))
+        return _load_alpha158_single_column_resilient(
+            instruments, col, expr, start_date=start_date, end_date=end_date
         )
-        for column, expression in expressions_by_column.items()
-    ]
+
+    items = list(expressions_by_column.items())
+    mid = len(items) // 2
+    frames = []
+    for batch in [dict(items[:mid]), dict(items[mid:])]:
+        cols = list(batch.keys())
+        exprs = [batch[c] for c in cols]
+        try:
+            frames.append(
+                _normalize_alpha158_frame(
+                    load_features_safe(
+                        instruments, exprs,
+                        start_time=start_date, end_time=end_date, freq="day",
+                    ),
+                    cols,
+                )
+            )
+        except Exception:
+            frames.append(
+                _load_alpha158_bisect(instruments, batch, start_date, end_date)
+            )
+
     if not frames:
-        return pd.DataFrame(index=_empty_index(), columns=columns)
+        return pd.DataFrame(index=_empty_index(), columns=list(expressions_by_column.keys()))
     return pd.concat(frames, axis=1, join="outer").sort_index()
 
 

@@ -420,7 +420,7 @@ class TushareToQlibConverter:
 
         # 2b. 资金流因子（moneyflow）
         moneyflow = self.load_tushare_data('moneyflow')
-        if moneyflow is not None:
+        if moneyflow is not None and not moneyflow.empty:
             moneyflow['instrument'] = _ts_code_to_instrument(moneyflow['ts_code'])
             moneyflow['datetime'] = pd.to_datetime(moneyflow['trade_date'], format='%Y%m%d')
             # net_mf_amount_5d / net_mf_amount_20d

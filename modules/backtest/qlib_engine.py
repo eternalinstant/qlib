@@ -28,9 +28,19 @@ from utils.platform import resolve_path
 CHINEXT_REFORM_DATE = pd.Timestamp("2020-08-24")
 PRICE_LIMIT_TOL = 1e-6
 
+# 进度回调 hook：每个交易日完成时调用。供 qlib_ui worker 实时显示用。
+# 签名: fn(date: pd.Timestamp, return_value: float, portfolio_value: float, stock_pct: float, current_value: float) -> None
+_DAY_PROGRESS_HOOK = None
+
+
+def set_day_progress_hook(fn):
+    """设置每日进度回调；传 None 清除。回调异常不会中断回测。"""
+    global _DAY_PROGRESS_HOOK
+    _DAY_PROGRESS_HOOK = fn
+
 # 国债ETF数据路径
 BOND_ETF_PATH = Path(__file__).parent.parent.parent / "data" / "tushare" / "bond_etf_daily.parquet"
-EMPTY_RAW_DAY_QUOTES = pd.DataFrame(columns=["open", "close", "prev_close"])
+EMPTY_RAW_DAY_QUOTES = pd.DataFrame(columns=["open", "close", "prev_close", "amount"])
 
 
 @lru_cache(maxsize=1)
@@ -124,6 +134,41 @@ def _can_sell_at_open(
     return float(open_price) > float(down_limit) + PRICE_LIMIT_TOL
 
 
+def _compute_next_open_return_adj(
+    raw_day_quotes: pd.DataFrame,
+    actual_sell: set,
+    actual_buy: set,
+    topk: int,
+) -> float:
+    """T+1 开盘成交的收益调整量。
+
+    基础收益使用旧持仓（old portfolio）的 close-to-close 日收益。
+    卖出标的在 T+1 开盘成交：只赚隔夜段（open/prev_close - 1），
+        → 需减去日内段：-(close/open - 1) / topk
+    新买入标的在 T+1 开盘成交：只赚日内段（close/open - 1），
+        不赚隔夜段（旧持仓里没有此标的，故基础收益贡献为 0）
+        → 需加上日内段：+(close/open - 1) / topk
+    """
+    if topk <= 0 or (not actual_sell and not actual_buy):
+        return 0.0
+    adj = 0.0
+    for symbol in actual_sell:
+        row = _quote_row(raw_day_quotes, symbol)
+        if row is not None:
+            o = float(row.get("open") or 0)
+            c = float(row.get("close") or 0)
+            if o > 0 and c > 0:
+                adj -= (c / o - 1.0) / topk
+    for symbol in actual_buy:
+        row = _quote_row(raw_day_quotes, symbol)
+        if row is not None:
+            o = float(row.get("open") or 0)
+            c = float(row.get("close") or 0)
+            if o > 0 and c > 0:
+                adj += (c / o - 1.0) / topk
+    return adj
+
+
 def _ensure_tradability_constraints_supported(
     block_limit_up_buy: bool, block_limit_down_sell: bool
 ) -> None:
@@ -212,7 +257,8 @@ def _load_raw_trade_quotes(instruments, start_date: str, end_date: str) -> pd.Da
     raw = raw.rename(columns={"date": "datetime"})
     raw = raw[raw["datetime"] >= pd.Timestamp(start_date)].copy()
     raw = raw.drop_duplicates(subset=["datetime", "instrument"], keep="last")
-    return raw.set_index(["datetime", "instrument"])[["open", "close", "prev_close"]].sort_index()
+    raw_cols = [c for c in ["open", "close", "prev_close", "amount"] if c in raw.columns]
+    return raw.set_index(["datetime", "instrument"])[raw_cols].sort_index()
 
 
 def _load_provider_close_frame(instruments, start_date: str, end_date: str) -> pd.DataFrame:
@@ -370,23 +416,37 @@ def _compute_rebalance_day(
     trade_date=None,
     block_limit_up_buy: bool = False,
     block_limit_down_sell: bool = False,
+    t1_locked_symbols=None,
+    volume_cap_pct=None,
+    per_position_notional: float = 0.0,
+    partial_fill_min_scale: float = 0.20,
 ):
-    """按 close-to-close 口径计算调仓日收益。
+    """按 close-to-close 口径计算调仓日决策。
 
     这里显式不用同日 open/close 拆收益。当前本地 Qlib 日线字段中，
     $open 与 $close 不能可靠组成同日收益比值；强行拆成隔夜/日内会明显放大回测。
+    T+1 开盘成交的收益调整由调用方通过 _compute_next_open_return_adj 完成。
     """
     prev_selected = set(prev_selected)
     selected = set(selected)
     ranked_selected = list(ranked_selected or sorted(selected))
+    t1_locked = set(t1_locked_symbols) if t1_locked_symbols else set()
 
     held_symbols = set(prev_selected & selected)
+    actual_sell_symbols: set = set()
+    actual_buy_symbols: set = set()
     sell_count = 0
     buy_count = 0
     blocked_sell_count = 0
     blocked_buy_count = 0
+    t1_locked_count = 0
+    volume_capped_count = 0
 
     for symbol in sorted(prev_selected - selected):
+        if t1_locked and symbol in t1_locked:
+            held_symbols.add(symbol)
+            t1_locked_count += 1
+            continue
         sellable = True
         if block_limit_down_sell:
             row = _quote_row(raw_day_quotes, symbol)
@@ -402,6 +462,7 @@ def _compute_rebalance_day(
             )
         if sellable:
             sell_count += 1
+            actual_sell_symbols.add(symbol)
         else:
             held_symbols.add(symbol)
             blocked_sell_count += 1
@@ -426,11 +487,26 @@ def _compute_rebalance_day(
                     is_st=is_st_on_date(symbol, trade_date),
                 )
             )
+        was_volume_capped = False
+        if buyable and volume_cap_pct and per_position_notional > 0:
+            row = _quote_row(raw_day_quotes, symbol)
+            if row is not None:
+                daily_amount_yuan = float(row.get("amount") or 0) * 10000  # 万元 → 元
+                if daily_amount_yuan > 0:
+                    max_notional = daily_amount_yuan * volume_cap_pct
+                    if max_notional < per_position_notional:
+                        scale = max_notional / per_position_notional
+                        if scale < partial_fill_min_scale:
+                            buyable = False
+                            was_volume_capped = True
+                            volume_capped_count += 1
+
         if buyable:
             held_symbols.add(symbol)
+            actual_buy_symbols.add(symbol)
             buy_count += 1
             available_buy_slots -= 1
-        else:
+        elif not was_volume_capped:
             blocked_buy_count += 1
 
     held_sum, available_selected, missing_symbols = _sum_symbol_returns(
@@ -444,10 +520,14 @@ def _compute_rebalance_day(
     return {
         "stock_slot_return": held_sum / topk if topk > 0 else 0.0,
         "held_symbols": available_selected,
+        "actual_sell": actual_sell_symbols,
+        "actual_buy": actual_buy_symbols,
         "sell_count": sell_count,
         "buy_count": buy_count,
         "blocked_sell_count": blocked_sell_count,
         "blocked_buy_count": blocked_buy_count,
+        "t1_locked_count": t1_locked_count,
+        "volume_capped_count": volume_capped_count,
         "cash_slot_count": max(topk - len(available_selected), 0),
         "missing_count": len(missing_symbols),
     }
@@ -782,10 +862,16 @@ class QlibBacktestEngine(BacktestEngine):
         impact_rate = float(trading_cost.get("impact_bps", 0.0) or 0.0) / 10000
         block_limit_up_buy = trading_cost.get("block_limit_up_buy", False)
         block_limit_down_sell = trading_cost.get("block_limit_down_sell", False)
+        next_open_execution = bool(trading_cost.get("next_open_execution", False))
+        t1_sell_lock_days = int(trading_cost.get("t1_sell_lock_days", 0) or 0)
+        _volume_cap_raw = trading_cost.get("volume_cap_pct", None)
+        volume_cap_pct: float | None = float(_volume_cap_raw) if _volume_cap_raw else None
+        partial_fill_min_scale = float(trading_cost.get("partial_fill_min_scale", 0.20) or 0.20)
         _ensure_tradability_constraints_supported(block_limit_up_buy, block_limit_down_sell)
+        need_raw = block_limit_up_buy or block_limit_down_sell or next_open_execution or bool(volume_cap_pct)
         ranked_selection_orders = {}
         raw_quotes = pd.DataFrame()
-        if block_limit_up_buy or block_limit_down_sell:
+        if need_raw:
             ranked_selection_orders = _load_ranked_selection_orders(strategy)
             required_instruments = {
                 symbol
@@ -793,6 +879,14 @@ class QlibBacktestEngine(BacktestEngine):
                 for symbol in ranked_symbols
             }
             raw_quotes = _load_raw_trade_quotes(required_instruments, start_date, end_date)
+            _active = [k for k, v in [
+                ("next_open_execution", next_open_execution),
+                ("block_limit_up_buy", block_limit_up_buy),
+                ("block_limit_down_sell", block_limit_down_sell),
+                ("t1_sell_lock", t1_sell_lock_days > 0),
+                ("volume_cap", volume_cap_pct is not None),
+            ] if v]
+            logger.info(f"[P0] 实盘约束已启用: {', '.join(_active)}")
         raw_quotes_by_date = _split_by_datetime(raw_quotes)
 
         position_model = str(getattr(strategy, "position_model", "") or "").lower()
@@ -811,6 +905,7 @@ class QlibBacktestEngine(BacktestEngine):
             )
 
         current_held_symbols = set()  # 上一个收盘后真实持仓（调仓失败后会偏离 target）
+        current_hold_days: dict = {}  # symbol → 持仓天数（用于 T+1 卖出锁定）
         current_symbol_weights = {}
         current_cash_slot_count = topk
         current_stock_pct = 0.0  # T+1 close 口径：首个可交易日白天仍视为现金/债券仓
@@ -858,10 +953,64 @@ class QlibBacktestEngine(BacktestEngine):
                 blocked_sell_count = 0
                 blocked_buy_count = 0
                 missing_count = 0
+                t1_locked_count = 0
+                volume_capped_count = 0
 
-                # 获取当天的国债ETF收益率（如果有数据）
                 bond_daily_ret = bond_etf_map.get(hd, default_bond_daily_ret)
 
+                # T+1 lock：非调仓日对已持仓标的递增持仓天数
+                if t1_sell_lock_days > 0 and not is_rebal:
+                    for _s in list(current_hold_days.keys()):
+                        if _s in current_held_symbols:
+                            current_hold_days[_s] = current_hold_days.get(_s, 0) + 1
+                        else:
+                            current_hold_days.pop(_s, None)
+
+                # ===== 调仓日：先执行调仓决策，后计算收益 =====
+                raw_day_quotes_hd = None
+                rebal_result = None
+                next_held_symbols = current_held_symbols.copy()
+                next_cash_slot_count = current_cash_slot_count
+                next_symbol_weights = current_symbol_weights.copy()
+
+                if is_rebal:
+                    if need_raw:
+                        raw_day_quotes_hd = raw_quotes_by_date.get(hd, EMPTY_RAW_DAY_QUOTES)
+
+                    t1_locked = (
+                        frozenset(s for s, d in current_hold_days.items() if d < t1_sell_lock_days)
+                        if t1_sell_lock_days > 0 else frozenset()
+                    )
+                    per_pos_notional = (
+                        current_value * target_stock_pct / topk
+                        if volume_cap_pct and topk > 0 else 0.0
+                    )
+                    rebal_result = _compute_rebalance_day(
+                        day_returns,
+                        selected=target_selected,
+                        prev_selected=current_held_symbols,
+                        topk=topk,
+                        penalized_missing=penalized_missing,
+                        ranked_selected=ranked_selected,
+                        raw_day_quotes=raw_day_quotes_hd,
+                        trade_date=hd,
+                        block_limit_up_buy=block_limit_up_buy,
+                        block_limit_down_sell=block_limit_down_sell,
+                        t1_locked_symbols=t1_locked,
+                        volume_cap_pct=volume_cap_pct,
+                        per_position_notional=per_pos_notional,
+                        partial_fill_min_scale=partial_fill_min_scale,
+                    )
+                    next_held_symbols = rebal_result["held_symbols"]
+                    next_cash_slot_count = rebal_result["cash_slot_count"]
+                    sell_count = rebal_result["sell_count"]
+                    buy_count = rebal_result["buy_count"]
+                    blocked_sell_count = rebal_result["blocked_sell_count"]
+                    blocked_buy_count = rebal_result["blocked_buy_count"]
+                    t1_locked_count = rebal_result.get("t1_locked_count", 0)
+                    volume_capped_count = rebal_result.get("volume_capped_count", 0)
+
+                # ===== 计算组合收益 =====
                 if enable_vol_norm:
                     stock_slot_return, missing_count = _compute_weighted_stock_return(
                         day_returns,
@@ -879,6 +1028,19 @@ class QlibBacktestEngine(BacktestEngine):
                     )
                     stock_slot_return = held_sum / topk if topk > 0 else 0.0
                     missing_count = len(held_missing)
+                    # T+1 开盘成交：调整卖出/买入标的的收益拆分
+                    if (
+                        is_rebal and next_open_execution
+                        and raw_day_quotes_hd is not None
+                        and not raw_day_quotes_hd.empty
+                        and rebal_result is not None
+                    ):
+                        stock_slot_return += _compute_next_open_return_adj(
+                            raw_day_quotes_hd,
+                            rebal_result.get("actual_sell", set()),
+                            rebal_result.get("actual_buy", set()),
+                            topk,
+                        )
                     stock_return_component = stock_slot_return + (
                         current_cash_slot_count / topk * bond_daily_ret if topk > 0 else 0.0
                     )
@@ -891,32 +1053,8 @@ class QlibBacktestEngine(BacktestEngine):
 
                 fee_amount = 0.0
                 cost_deduction = 0.0
-                next_held_symbols = current_held_symbols.copy()
-                next_cash_slot_count = current_cash_slot_count
-                next_symbol_weights = current_symbol_weights.copy()
-                if is_rebal:
-                    raw_day_quotes = None
-                    if block_limit_up_buy or block_limit_down_sell:
-                        raw_day_quotes = raw_quotes_by_date.get(hd, EMPTY_RAW_DAY_QUOTES)
-                    rebal_result = _compute_rebalance_day(
-                        day_returns,
-                        selected=target_selected,
-                        prev_selected=current_held_symbols,
-                        topk=topk,
-                        penalized_missing=penalized_missing,
-                        ranked_selected=ranked_selected,
-                        raw_day_quotes=raw_day_quotes,
-                        trade_date=hd,
-                        block_limit_up_buy=block_limit_up_buy,
-                        block_limit_down_sell=block_limit_down_sell,
-                    )
-                    next_held_symbols = rebal_result["held_symbols"]
-                    next_cash_slot_count = rebal_result["cash_slot_count"]
-                    sell_count = rebal_result["sell_count"]
-                    buy_count = rebal_result["buy_count"]
-                    blocked_sell_count = rebal_result["blocked_sell_count"]
-                    blocked_buy_count = rebal_result["blocked_buy_count"]
 
+                if is_rebal:
                     if enable_vol_norm:
                         target_symbol_weights = _compute_vol_norm_target_weights(
                             target_selected,
@@ -987,12 +1125,26 @@ class QlibBacktestEngine(BacktestEngine):
                         "buy_count": buy_count if is_rebal else 0,
                         "blocked_sell_count": blocked_sell_count if is_rebal else 0,
                         "blocked_buy_count": blocked_buy_count if is_rebal else 0,
+                        "t1_locked_count": t1_locked_count if is_rebal else 0,
+                        "volume_capped_count": volume_capped_count if is_rebal else 0,
                         "cash_slot_count": current_cash_slot_count,
                         "missing_count": missing_count,
                     }
                 )
                 total_fee_amount += fee_amount
                 current_value = end_value
+
+                if _DAY_PROGRESS_HOOK is not None:
+                    try:
+                        _DAY_PROGRESS_HOOK(
+                            hd,
+                            port_ret,
+                            current_value / initial_capital,
+                            current_stock_pct,
+                            current_value,
+                        )
+                    except Exception:
+                        pass
 
                 if is_rebal:
                     current_held_symbols = next_held_symbols.copy()
@@ -1003,6 +1155,12 @@ class QlibBacktestEngine(BacktestEngine):
                     current_regime = target_regime
                     current_opp = target_opp
                     current_mkt_dd = target_mkt_dd
+                    # T+1 lock：更新持仓天数
+                    if t1_sell_lock_days > 0 and rebal_result is not None:
+                        for _s in rebal_result.get("actual_sell", set()):
+                            current_hold_days.pop(_s, None)
+                        for _s in rebal_result.get("actual_buy", set()):
+                            current_hold_days[_s] = 0
 
         if not portfolio_returns:
             logger.error("无有效回测数据")
@@ -1013,6 +1171,16 @@ class QlibBacktestEngine(BacktestEngine):
 
         df_result = pd.DataFrame(portfolio_returns).set_index("date")
         df_result.index = pd.to_datetime(df_result.index)
+
+        # P0 约束诊断日志
+        if next_open_execution or t1_sell_lock_days > 0 or volume_cap_pct:
+            total_t1 = int(df_result.get("t1_locked_count", pd.Series(0)).sum())
+            total_vc = int(df_result.get("volume_capped_count", pd.Series(0)).sum())
+            total_blk = int(df_result.get("blocked_buy_count", pd.Series(0)).sum())
+            logger.info(
+                f"[P0诊断] 涨停阻买={total_blk}次 | T+1锁定={total_t1}次 | "
+                f"成交量约束={total_vc}次"
+            )
 
         daily_returns = df_result["return"]
         portfolio_value = (1 + daily_returns).cumprod()

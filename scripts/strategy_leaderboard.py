@@ -202,16 +202,54 @@ def compute_metrics_from_daily(path: Path) -> dict:
 
 # ── YAML metadata ─────────────────────────────────────────────────────────────
 
+_DERIV_SUFFIXES = ("__holdout", "__valid", "__baseline")
+
+
 def _find_yaml(slug: str, config_dirs: List[Path]) -> Optional[Path]:
-    for d in config_dirs:
-        # direct match
-        p = d / f"{slug}.yaml"
-        if p.exists():
-            return p
-        # recursive search under subdirectories
-        for candidate in d.rglob(f"{slug}.yaml"):
-            return candidate
+    """优先精确匹配；失败时剥离 __holdout/__valid/__baseline 等衍生后缀再找。"""
+    candidates_slugs = [slug]
+    for sfx in _DERIV_SUFFIXES:
+        if slug.endswith(sfx):
+            candidates_slugs.append(slug[: -len(sfx)])
+            break
+    for s in candidates_slugs:
+        for d in config_dirs:
+            p = d / f"{s}.yaml"
+            if p.exists():
+                return p
+            for candidate in d.rglob(f"{s}.yaml"):
+                return candidate
     return None
+
+
+def _count_factors(cfg: dict) -> Optional[int]:
+    """因子数量统计：
+    - 因子策略（factors.{alpha,risk,enhance}）：累加各桶 list 长度
+    - 模型策略 alpha158：data.feature_columns 长度
+    - 模型策略 hybrid：data.parquet_feature_columns + alpha158_feature_columns 长度
+    无法判断时返回 None。
+    """
+    facs = cfg.get("factors")
+    if isinstance(facs, dict):
+        total = 0
+        seen = False
+        for bucket in ("alpha", "risk", "enhance"):
+            v = facs.get(bucket)
+            if isinstance(v, list):
+                total += len(v)
+                seen = True
+        if seen:
+            return total
+
+    data = cfg.get("data") or {}
+    # 累加 data 下所有以 *feature_columns 结尾的列表（覆盖 alpha158/hybrid/parquet/qlib 等）
+    total = 0
+    seen = False
+    for k, v in data.items():
+        if k.endswith("feature_columns") and isinstance(v, list):
+            total += len(v)
+            seen = True
+    return total if seen else None
 
 
 def _load_yaml_meta(slug: str, config_dirs: List[Path]) -> dict:
@@ -227,6 +265,7 @@ def _load_yaml_meta(slug: str, config_dirs: List[Path]) -> dict:
             "freq":     sel.get("freq", "?"),
             "topk":     sel.get("topk", "?"),
             "universe": sel.get("universe", "?"),
+            "factor_count": _count_factors(cfg),
         }
     except Exception:
         return {}
@@ -362,6 +401,7 @@ def build_leaderboard(
         freq     = yaml_meta.get("freq",     "?")
         topk     = yaml_meta.get("topk",     "?")
         universe = yaml_meta.get("universe", "?")
+        factor_count = yaml_meta.get("factor_count")
         # fallback: infer universe from agg path column
         if universe == "?" and "path" in r:
             _, uni = _parse_slug(str(r["path"]))
@@ -386,6 +426,7 @@ def build_leaderboard(
             "dd_recovery":   dd_recovery,
             "freq":          freq,
             "topk":          topk,
+            "factor_count":  factor_count,
             "universe":      universe,
             "last_run":      last_run.strftime("%Y-%m-%d"),
             "stale":         is_stale,
@@ -477,6 +518,7 @@ _HEADERS = [
     ("win_rate",      "WinRate",         8, "r"),
     ("freq",          "Freq",            6, "c"),
     ("topk",          "K",               3, "r"),
+    ("factor_count",  "Factors",         7, "r"),
     ("universe",      "Univ",            8, "l"),
     ("last_run",      "LastRun",        10, "l"),
     ("stale",         "Stale",           5, "c"),
@@ -501,6 +543,8 @@ def _cell(val, key: str, width: int, align: str) -> str:
     elif key == "stale":
         s = "Y" if val else "N"
     elif key == "topk":
+        s = _fmt_int(val)
+    elif key == "factor_count":
         s = _fmt_int(val)
     else:
         s = str(val) if val is not None else "--"
@@ -564,6 +608,7 @@ def render_markdown_table(df: pd.DataFrame) -> str:
         ("win_rate",   "日胜率"),
         ("freq",       "调仓频率"),
         ("topk",       "持股数"),
+        ("factor_count","因子数"),
         ("universe",   "股票池"),
         ("last_run",   "最近回测"),
         ("stale",      "是否过期"),
@@ -576,6 +621,8 @@ def render_markdown_table(df: pd.DataFrame) -> str:
             return _fmt_f(val).strip()
         if key == "stale":
             return "是" if val else "否"
+        if key in ("topk", "factor_count"):
+            return _fmt_int(val)
         return str(val) if val is not None else "--"
 
     header = "| " + " | ".join(label for _, label in cols) + " |"
