@@ -27,7 +27,7 @@ SELECTIONS_DIR = PROJECT_ROOT / "data" / "selections"
 VALID_POSITION_MODELS = {"trend", "fixed", "full", "gate"}
 VALID_REBALANCE_FREQS = {"day", "week", "biweek", "month"}
 VALID_SOURCES = {"qlib", "parquet"}
-VALID_SELECTION_UNIVERSES = {"all", "csi300", "csi800"}
+VALID_SELECTION_UNIVERSES = {"all", "csi300", "csi500", "csi800"}
 VALID_SELECTION_MODES = {"factor_topk", "stoploss_replace"}
 SELECTION_CACHE_VERSION = 1
 
@@ -729,6 +729,7 @@ class Strategy:
         return {
             "cache_version": SELECTION_CACHE_VERSION,
             "strategy_name": self.name,
+            "universe": self.universe,
             "selection_mode": self.selection_mode,
             "factor_window_scale": self.factor_window_scale,
             "industry_leader_field": self.industry_leader_field,
