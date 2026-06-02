@@ -1,0 +1,88 @@
+# 实验策略 - 低波动 + 盈利质量 + ma120_dev 反向增强
+# 目标：用低波动和盈利质量做低换手主线，再用 ma120_dev 提供有限日频增强
+name: lowvol_profitability_ma120_roll_k30
+description: "低波动+盈利质量+ma120_dev 反向增强，Top30 日频观测慢执行版"
+
+weights:
+  alpha: 0.50
+  risk: 0.30
+  enhance: 0.20
+
+factors:
+  alpha:
+    - name: roa_fina
+      expression: roa_fina
+      source: parquet
+      ir: 0.20
+    - name: roe_dt_fina
+      expression: roe_dt_fina
+      source: parquet
+      ir: 0.18
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+  risk:
+    - name: ret_vol_20d
+      expression: "Std($close / Ref($close, 1) - 1, 20)"
+      source: qlib
+      negate: true
+      ir: 0.30
+    - name: ret_vol_60d
+      expression: "Std($close / Ref($close, 1) - 1, 60)"
+      source: qlib
+      negate: true
+      ir: 0.24
+    - name: turnover_rate_f
+      expression: turnover_rate_f
+      source: parquet
+      negate: true
+      ir: 0.42
+  enhance:
+    - name: ma120_dev
+      expression: "$close / Mean($close, 120) - 1"
+      source: qlib
+      negate: true
+      ir: 0.41
+
+selection:
+  mode: factor_topk
+  topk: 30
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 15
+  score_smoothing_days: 5
+  entry_rank: 22
+  exit_rank: 45
+  entry_persist_days: 2
+  exit_persist_days: 3
+  min_hold_days: 10
+  hard_filters:
+    roa_fina: 0
+    ocf_to_ev: 0
+
+stability:
+  churn_limit: 1
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.00008
+  sell_commission_rate: 0.00008
+  min_buy_commission: 5.0
+  min_sell_commission: 5.0
+  sell_stamp_tax_rate: 0.0005
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

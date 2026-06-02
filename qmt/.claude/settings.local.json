@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Process | Where-Object { $_.ProcessName -match \"xttrade|QMT|miniqmt|XtMini\" } | Select-Object ProcessName, Id)",
+      "PowerShell(Get-Command conda -ErrorAction SilentlyContinue)",
+      "PowerShell($env:PATH -split \";\" | Where-Object { $_ -match \"python|Python\" })",
+      "PowerShell(reg query \"HKLM\\\\SOFTWARE\\\\Python\" /s 2>&1)",
+      "PowerShell(reg query \"HKCU\\\\SOFTWARE\\\\Python\" /s 2>&1)",
+      "PowerShell(& \"C:\\\\Python314\\\\python.exe\" --version)",
+      "PowerShell(& \"C:\\\\Python314\\\\python.exe\" -m pip list 2>&1)",
+      "PowerShell(& \"C:\\\\Python314\\\\python.exe\" -m pip install xtquant 2>&1)",
+      "PowerShell(Start-Process -FilePath \"C:\\\\Users\\\\Administrator\\\\Documents\\\\python-3.12.10-amd64.exe\" -ArgumentList \"/quiet InstallAllUsers=0 TargetDir=C:\\\\Python312 PrependPath=1 Include_pip=1\" -Wait -PassThru)",
+      "PowerShell($env:HTTP_PROXY; $env:HTTPS_PROXY; $env:http_proxy; $env:https_proxy; $env:ALL_PROXY; $env:all_proxy)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"https://api.anthropic.com\" -Method Head -TimeoutSec 10 -UseBasicParsing; \"Status: $\\($r.StatusCode\\)\" } catch { \"Failed: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"https://claude.ai\" -Method Head -TimeoutSec 10 -UseBasicParsing; \"Status: $\\($r.StatusCode\\)\" } catch { \"Failed: $\\($_.Exception.Message\\)\" })",
+      "PowerShell($env:HTTP_PROXY; $env:HTTPS_PROXY; $env:ALL_PROXY)",
+      "PowerShell(netsh winhttp *)",
+      "PowerShell([System.Environment]::SetEnvironmentVariable\\(\"HTTP_PROXY\", \"http://127.0.0.1:7897\", \"User\"\\); [System.Environment]::SetEnvironmentVariable\\(\"HTTPS_PROXY\", \"http://127.0.0.1:7897\", \"User\"\\); [System.Environment]::SetEnvironmentVariable\\(\"ALL_PROXY\", \"http://127.0.0.1:7897\", \"User\"\\); \"Done\")",
+      "PowerShell($r = [System.Environment]::GetEnvironmentVariable\\(\"HTTP_PROXY\", \"User\"\\); \"HTTP_PROXY = $r\"; $r2 = [System.Environment]::GetEnvironmentVariable\\(\"HTTPS_PROXY\", \"User\"\\); \"HTTPS_PROXY = $r2\"; $r3 = [System.Environment]::GetEnvironmentVariable\\(\"ALL_PROXY\", \"User\"\\); \"ALL_PROXY = $r3\")",
+      "PowerShell($PROFILE)",
+      "PowerShell($env:HTTP_PROXY = \"http://127.0.0.1:7897\"; $env:HTTPS_PROXY = \"http://127.0.0.1:7897\"; $env:ALL_PROXY = \"http://127.0.0.1:7897\"; $env:HTTP_PROXY; $env:HTTPS_PROXY; $env:ALL_PROXY)",
+      "PowerShell($env:HTTP_PROXY = \"http://127.0.0.1:7897\"; $env:HTTPS_PROXY = \"http://127.0.0.1:7897\"; try { $r = Invoke-WebRequest -Uri \"https://claude.ai\" -Method Head -TimeoutSec 15 -UseBasicParsing; \"Status: $\\($r.StatusCode\\)\" } catch { \"Status: $\\($_.Exception.Response.StatusCode.value__\\) | $\\($_.Exception.Message\\)\" })",
+      "PowerShell($env:HTTP_PROXY = \"http://127.0.0.1:7897\"; $env:HTTPS_PROXY = \"http://127.0.0.1:7897\"; try { $r = Invoke-WebRequest -Uri \"https://api.anthropic.com\" -Method Head -TimeoutSec 15 -UseBasicParsing; \"Status: $\\($r.StatusCode\\)\" } catch { \"Status: $\\($_.Exception.Response.StatusCode.value__\\) | $\\($_.Exception.Message\\)\" })",
+      "PowerShell($env:HTTP_PROXY = \"http://127.0.0.1:7897\"; $env:HTTPS_PROXY = \"http://127.0.0.1:7897\"; try { $r = Invoke-WebRequest -Uri \"https://www.google.com\" -Method Head -TimeoutSec 15 -UseBasicParsing; \"Status: $\\($r.StatusCode\\)\" } catch { \"Failed: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(Get-Command *)",
+      "PowerShell(. $PROFILE)",
+      "PowerShell(proxy_on *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell($env:HTTP_PROXY = \"http://127.0.0.1:7897\"; $env:HTTPS_PROXY = \"http://127.0.0.1:7897\"; $env:ALL_PROXY = \"http://127.0.0.1:7897\"; Write-Host \"Proxy ON -> 127.0.0.1:7897\")",
+      "PowerShell(curl.exe -s -o $null -w \"%{http_code}\" --max-time 10 https://www.google.com)",
+      "PowerShell(curl.exe -s -o $null -w \"%{http_code}\" --max-time 10 --proxy http://127.0.0.1:7897 https://www.google.com)"
+    ]
+  }
+}

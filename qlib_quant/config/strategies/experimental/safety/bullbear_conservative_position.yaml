@@ -1,0 +1,76 @@
+# 实验策略 - 低回撤版 v4：保持纯技术选股 + 极保守仓位
+name: bullbear_conservative_position
+description: "低回撤实验：保持纯技术选股（无波动率因子），用更保守的仓位控制回撤"
+
+weights:
+  alpha: 0.0
+  risk: 0.05
+  enhance: 0.95
+
+factors:
+  risk:
+    - name: turnover_rate_f
+      ir: 0.42
+  enhance:
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      ir: 0.51
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: trend
+  strong_bull_threshold: 0.05
+  mild_bull_threshold: 0.02
+  mild_bear_threshold: -0.02
+  strong_bear_threshold: -0.05
+  # 更保守的仓位配置：牛市也只上85%
+  regime_allocations:
+    strong_bull: 0.85
+    mild_bull: 0.70
+    neutral: 0.55
+    mild_bear: 0.40
+    strong_bear: 0.25
+  opportunity_thresholds:
+    - [-0.12, 0.55, light]
+    - [-0.18, 0.70, moderate]
+  smoothing_factor: 0.70
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true
+
+validity:
+  lookback_days: 40
+  min_observations: 30
+  min_total_return: -0.03
+  min_annual_return: -0.05
+  min_sharpe: 0.10
+  max_drawdown: -0.08
+  action: reduce
+  reduce_to: 0.40

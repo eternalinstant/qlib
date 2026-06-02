@@ -1,0 +1,50 @@
+description: 基准week + trend趋势仓位（MA20/MA60），压回撤
+factors:
+  alpha:
+  - expression: book_to_market
+    ir: 0.14
+    name: book_to_price
+    source: parquet
+  - expression: ocf_to_ev
+    ir: 0.33
+    name: ocf_to_ev
+    source: parquet
+name: experimental/value_plan/value_book_ocf_stoploss_replace_15_week_trend
+position:
+  model: trend
+  params:
+    ma_fast: 20
+    ma_slow: 60
+    peak_lookback: 120
+    regime_allocations:
+      mild_bear: 0.65
+      mild_bull: 0.90
+      neutral: 0.80
+      strong_bear: 0.50
+      strong_bull: 1.00
+rebalance:
+  freq: week
+selection:
+  exclude_new_days: 120
+  exclude_st: true
+  min_market_cap: 80
+  mode: stoploss_replace
+  neutralize_industry: true
+  replacement_pool_size: 30
+  score_smoothing_days: 5
+  stoploss_drawdown: 0.2
+  stoploss_lookback_days: 20
+  topk: 15
+  universe: all
+trading:
+  block_limit_down_sell: true
+  block_limit_up_buy: true
+  buy_commission_rate: 0.0003
+  impact_bps: 2
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+weights:
+  alpha: 1.0
+  enhance: 0.0
+  risk: 0.0

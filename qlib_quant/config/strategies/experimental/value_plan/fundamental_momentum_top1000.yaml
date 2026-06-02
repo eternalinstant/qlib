@@ -1,0 +1,48 @@
+# 基本面动量大市值策略：选"业绩正在增长的大公司"
+# 前1000市值 → 基本面动量(营收增长+利润增长)排名 → 月频调仓
+name: fundamental_momentum_top1000
+description: "前1000市值基本面动量：营收增长+利润增长排名，月频调仓+趋势仓位"
+
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+
+factors:
+  alpha:
+    - name: revenue_inc
+      expression: revenue_inc
+      source: parquet
+      ir: 0.33
+    - name: n_income_inc
+      expression: n_income_inc
+      source: parquet
+      ir: 0.33
+    - name: roe_fina
+      expression: roe_fina
+      source: parquet
+      ir: 0.30
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  hard_filter_quantiles:
+    total_mv: 0.80
+
+rebalance:
+  freq: month
+
+position:
+  model: trend
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5

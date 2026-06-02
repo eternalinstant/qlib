@@ -1,0 +1,50 @@
+# 实验策略 - 质量过滤低估值：基础版
+# 第一层：ROA>0 + OCF>0 + 营收增长>0 硬过滤（剔除烂公司）
+# 第二层：book_to_price + ocf_to_ev 等权排名选股
+name: value_quality_filter_15
+description: "质量过滤低估值基础版：ROA>0+OCF>0+营收增长>0硬过滤，book_to_price+ocf_to_ev排名选股"
+
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  score_smoothing_days: 5
+  hard_filters:
+    roa_fina: 0       # ROA > 0（公司在赚钱）
+    ocf_to_ev: 0       # 经营现金流 > 0（不是纸面利润）
+    revenue_inc: 0     # 营收正增长（不是衰退公司）
+
+rebalance:
+  freq: month
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5

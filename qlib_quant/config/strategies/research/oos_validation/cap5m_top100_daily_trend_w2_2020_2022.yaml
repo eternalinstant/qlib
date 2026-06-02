@@ -1,0 +1,54 @@
+description: 500万/top100/日频/stoploss_replace+trend/dd=0.2 — OOS W2 2020-2022
+factors:
+  alpha:
+  - expression: book_to_market
+    ir: 0.14
+    name: book_to_price
+    source: parquet
+  - expression: ocf_to_ev
+    ir: 0.33
+    name: ocf_to_ev
+    source: parquet
+name: research/oos_validation/cap5m_top100_daily_trend_w2_2020_2022
+position:
+  model: trend
+  params:
+    ma_fast: 20
+    ma_slow: 60
+    peak_lookback: 120
+    regime_allocations:
+      mild_bear: 0.65
+      mild_bull: 0.90
+      neutral: 0.80
+      strong_bear: 0.50
+      strong_bull: 1.00
+rebalance:
+  freq: day
+selection:
+  exclude_new_days: 120
+  exclude_st: true
+  min_hold_days: 0
+  min_market_cap: 80
+  mode: stoploss_replace
+  neutralize_industry: true
+  replacement_pool_size: 30
+  score_smoothing_days: 5
+  stoploss_drawdown: 0.2
+  stoploss_lookback_days: 20
+  topk: 100
+  universe: all
+trading:
+  block_limit_down_sell: true
+  block_limit_up_buy: true
+  buy_commission_rate: 0.0003
+  impact_bps: 2
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+weights:
+  alpha: 1.0
+  enhance: 0.0
+  risk: 0.0
+backtest_period:
+  start_date: "2020-01-01"
+  end_date: "2022-12-31"

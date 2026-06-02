@@ -1,0 +1,66 @@
+# 实验策略 - 质量过滤 + 价值排序 + 技术增强
+# 第一层：ROA>0 + OCF>0 硬过滤（两个非冗余的质量过滤器）
+# 第二层：book_to_price + ocf_to_ev + ebit_to_mv 价值排名（alpha=0.65）
+# 第三层：换手率 + 短期反转 技术增强（enhance=0.35）
+# 依据：Neuberger Berman A股研究显示短期反转+换手率是最强alpha
+name: value_quality_tech_15
+description: "质量过滤+价值排序+技术增强：ROA>0+OCF>0过滤，价值65%+技术35%排名"
+
+weights:
+  alpha: 0.65
+  risk: 0.0
+  enhance: 0.35
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+    - name: ebit_to_mv
+      expression: ebit_to_mv
+      source: parquet
+      ir: 0.33
+  enhance:
+    - name: turnover_rate_f
+      expression: turnover_rate_f
+      source: parquet
+      negate: true    # 低换手率更好（A股特色：低换手率溢价）
+      ir: 0.42
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      negate: true    # 短期反转：偏离越小越好（低买）
+      ir: 0.51
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  score_smoothing_days: 5
+  hard_filters:
+    roa_fina: 0       # ROA > 0（非冗余：排除亏损公司）
+    ocf_to_ev: 0       # 经营现金流 > 0（非冗余：排除纸面利润）
+
+rebalance:
+  freq: month
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5

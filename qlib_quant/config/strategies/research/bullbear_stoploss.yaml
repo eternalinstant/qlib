@@ -1,0 +1,49 @@
+# 沪深300成分股 + bull/bear power + 30%止损
+# 限制大市值池，看alpha是否还在
+name: bullbear_stoploss
+description: "沪深300+bull/bear_power+30%止损"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  mode: stoploss_replace
+  topk: 15
+  universe: csi300
+  neutralize_industry: true
+  min_market_cap: 0
+  exclude_st: true
+  exclude_new_days: 120
+  score_smoothing_days: 5
+  stoploss_lookback_days: 20
+  stoploss_drawdown: 0.30
+  replacement_pool_size: 30
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

@@ -1,0 +1,41 @@
+description: 价值计划正式版：book_to_price + ocf_to_ev 初始按因子建仓，之后只在持仓股较近期高点回撤超过 10% 时换入新的高分股票
+factors:
+  alpha:
+  - expression: book_to_market
+    ir: 0.14
+    name: book_to_price
+    source: parquet
+  - expression: ocf_to_ev
+    ir: 0.33
+    name: ocf_to_ev
+    source: parquet
+name: value_book_ocf_stoploss_replace_15
+position:
+  model: fixed
+  stock_pct: 0.88
+rebalance:
+  freq: week
+selection:
+  exclude_new_days: 120
+  exclude_st: true
+  min_market_cap: 80
+  mode: stoploss_replace
+  neutralize_industry: true
+  replacement_pool_size: 30
+  score_smoothing_days: 5
+  stoploss_drawdown: 0.1
+  stoploss_lookback_days: 20
+  topk: 15
+  universe: all
+trading:
+  block_limit_down_sell: true
+  block_limit_up_buy: true
+  buy_commission_rate: 0.0003
+  impact_bps: 2
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+weights:
+  alpha: 1.0
+  enhance: 0.0
+  risk: 0.0

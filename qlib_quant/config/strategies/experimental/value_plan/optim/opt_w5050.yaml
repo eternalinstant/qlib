@@ -1,0 +1,54 @@
+description: alpha=0.50/enhance=0.50
+factors:
+  alpha:
+  - expression: book_to_market
+    ir: 0.14
+    name: book_to_price
+    source: parquet
+  - expression: ocf_to_ev
+    ir: 0.33
+    name: ocf_to_ev
+    source: parquet
+  - expression: ebit_to_mv
+    ir: 0.33
+    name: ebit_to_mv
+    source: parquet
+  enhance:
+  - expression: turnover_rate_f
+    ir: 0.42
+    name: turnover_rate_f
+    negate: true
+    source: parquet
+  - expression: $close / EMA($close, 5) - 1
+    ir: 0.51
+    name: ema5_dev
+    negate: true
+    source: qlib
+name: opt_w5050
+position:
+  model: trend
+rebalance:
+  freq: month
+selection:
+  exclude_new_days: 120
+  exclude_st: true
+  hard_filters:
+    ocf_to_ev: 0
+    roa_fina: 0
+  min_market_cap: 80
+  mode: factor_topk
+  neutralize_industry: true
+  score_smoothing_days: 5
+  sticky: 10
+  topk: 15
+  universe: all
+trading:
+  buy_commission_rate: 0.0003
+  impact_bps: 5
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+weights:
+  alpha: 0.5
+  enhance: 0.5
+  risk: 0.0

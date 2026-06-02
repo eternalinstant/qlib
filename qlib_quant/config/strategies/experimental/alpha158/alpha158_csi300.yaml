@@ -1,0 +1,92 @@
+# Alpha158 精选策略 — 基于 CSI300 IC/IR 扫描结果
+# 扫描来源: results/alpha158_scan.csv
+# 筛选标准: |IR|>=0.18, stability>=0.7, 低共线性
+# 精选 8 因子，去相关后分 3 层
+name: alpha158_csi300
+description: "Alpha158 精选 8 因子 — CSI300，低相关高 IR"
+
+weights:
+  alpha: 0.40
+  enhance: 0.35
+  risk: 0.25
+
+factors:
+  # ══════════════════════════════════════════════════════
+  # alpha — 量价形态因子
+  # ══════════════════════════════════════════════════════
+  alpha:
+    - name: LOW0
+      expression: "$low/$close"
+      source: qlib
+      ir: 0.3614
+    - name: VWAP0
+      expression: "$vwap/$close"
+      source: qlib
+      ir: 0.2729
+    - name: KLOW
+      expression: "(Less($open, $close)-$low)/$open"
+      source: qlib
+      ir: -0.3104
+      negate: true
+    - name: KLEN
+      expression: "($high-$low)/$open"
+      source: qlib
+      ir: -0.2257
+      negate: true
+
+  # ══════════════════════════════════════════════════════
+  # enhance — 趋势位置因子
+  # ══════════════════════════════════════════════════════
+  enhance:
+    - name: MIN10
+      expression: "Min($low, 10)/$close"
+      source: qlib
+      ir: 0.2001
+    - name: QTLD5
+      expression: "Quantile($close, 5, 0.2)/$close"
+      source: qlib
+      ir: 0.1767
+
+  # ══════════════════════════════════════════════════════
+  # risk — 量价相关因子
+  # ══════════════════════════════════════════════════════
+  risk:
+    - name: VMA60
+      expression: "Mean($volume, 60)/($volume+1e-12)"
+      source: qlib
+      ir: 0.2140
+    - name: CORD5
+      expression: "Corr($close/Ref($close,1), Log($volume/Ref($volume, 1)+1), 5)"
+      source: qlib
+      ir: -0.1847
+      negate: true
+
+selection:
+  topk: 15
+  universe: csi300
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 20
+
+stability:
+  churn_limit: 3
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

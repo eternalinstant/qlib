@@ -1,0 +1,41 @@
+name: day_pe_ttm_factor_pos_raw_801e305b62
+description: 'lag effect raw day: pe_ttm_factor 正向'
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+factors:
+  alpha:
+  - name: pe_ttm_factor
+    expression: $pe_ttm
+    source: qlib
+selection:
+  mode: factor_topk
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 0
+  score_smoothing_days: 1
+  entry_persist_days: 1
+  exit_persist_days: 1
+  min_hold_days: 0
+stability:
+  churn_limit: 0
+  margin_stable: false
+rebalance:
+  freq: day
+position:
+  model: fixed
+  stock_pct: 0.88
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

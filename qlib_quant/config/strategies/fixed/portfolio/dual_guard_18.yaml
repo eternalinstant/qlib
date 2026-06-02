@@ -1,0 +1,11 @@
+# 固定组合策略 - 双策略防守版
+name: dual_guard_18
+description: "组合母策略：40% bullbear + 10% low_drawdown + 50% cash，按真实组合口径重标定，目标是在保留主收益引擎的同时，把组合历史回撤压到18%以内"
+
+composition:
+  components:
+    - strategy: test_bullbear_constrained_all
+      weight: 0.40
+    - strategy: test_low_drawdown_constrained_all
+      weight: 0.10
+  cash_weight: 0.50

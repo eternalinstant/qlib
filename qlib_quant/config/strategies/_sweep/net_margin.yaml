@@ -1,0 +1,45 @@
+name: _sweep/net_margin
+description: top100 单因子扫描 net_margin
+factors:
+  alpha:
+  - name: net_margin
+    expression: net_margin
+    source: parquet
+    ir: 0.3
+position:
+  model: trend
+  ma_fast: 20
+  ma_slow: 60
+  peak_lookback: 120
+  regime_allocations:
+    mild_bear: 0.65
+    mild_bull: 0.9
+    neutral: 0.8
+    strong_bear: 0.5
+    strong_bull: 1.0
+rebalance:
+  freq: week
+selection:
+  exclude_new_days: 120
+  exclude_st: true
+  min_market_cap: 80
+  mode: stoploss_replace
+  neutralize_industry: true
+  replacement_pool_size: 30
+  score_smoothing_days: 5
+  stoploss_drawdown: 0.2
+  stoploss_lookback_days: 20
+  topk: 100
+  universe: all
+trading:
+  block_limit_down_sell: true
+  block_limit_up_buy: true
+  buy_commission_rate: 0.0003
+  impact_bps: 2
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+weights:
+  alpha: 1.0
+  enhance: 0.0
+  risk: 0.0

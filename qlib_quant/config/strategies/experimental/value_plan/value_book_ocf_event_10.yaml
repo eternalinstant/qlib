@@ -1,0 +1,55 @@
+# 实验策略 - 价值计划集中版
+name: value_book_ocf_event_10
+description: "价值计划集中版：book_to_price + ocf_to_ev，缩到 Top10，观察更集中持仓是否更适合低换手价值主线"
+
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+
+selection:
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 8
+  buffer: 20
+  score_smoothing_days: 7
+  entry_rank: 7
+  exit_rank: 22
+  entry_persist_days: 3
+  exit_persist_days: 5
+  min_hold_days: 15
+
+stability:
+  churn_limit: 1
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.90
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

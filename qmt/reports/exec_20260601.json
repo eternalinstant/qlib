@@ -1,0 +1,123 @@
+{
+  "date": "20260601",
+  "strategy": "smoke_test_le20w",
+  "dry_run": false,
+  "invested_pct": 0.008,
+  "target": [
+    {
+      "symbol": "600958.SH",
+      "weight": 0.25
+    },
+    {
+      "symbol": "600522.SH",
+      "weight": 0.25
+    },
+    {
+      "symbol": "002938.SZ",
+      "weight": 0.25
+    },
+    {
+      "symbol": "600183.SH",
+      "weight": 0.25
+    }
+  ],
+  "rounds": [
+    {
+      "attempt": 1,
+      "orders": [
+        {
+          "symbol": "002938.SZ",
+          "side": "buy",
+          "shares": 300,
+          "limit_price": 106.37,
+          "reason": "目标300/当前0，买300"
+        },
+        {
+          "symbol": "600183.SH",
+          "side": "buy",
+          "shares": 300,
+          "limit_price": 139.45,
+          "reason": "目标300/当前0，买300"
+        },
+        {
+          "symbol": "600522.SH",
+          "side": "buy",
+          "shares": 1000,
+          "limit_price": 40.25,
+          "reason": "目标1000/当前0，买1000"
+        },
+        {
+          "symbol": "600958.SH",
+          "side": "buy",
+          "shares": 4500,
+          "limit_price": 9.31,
+          "reason": "目标4500/当前0，买4500"
+        }
+      ],
+      "placed": [
+        {
+          "symbol": "002938.SZ",
+          "side": "buy",
+          "shares": 300,
+          "limit_price": 106.37,
+          "reason": "目标300/当前0，买300",
+          "order_id": 1090544538,
+          "accepted": true
+        },
+        {
+          "symbol": "600183.SH",
+          "side": "buy",
+          "shares": 300,
+          "limit_price": 139.45,
+          "reason": "目标300/当前0，买300",
+          "order_id": 1090544539,
+          "accepted": true
+        },
+        {
+          "symbol": "600522.SH",
+          "side": "buy",
+          "shares": 1000,
+          "limit_price": 40.25,
+          "reason": "目标1000/当前0，买1000",
+          "order_id": 1090544541,
+          "accepted": true
+        },
+        {
+          "symbol": "600958.SH",
+          "side": "buy",
+          "shares": 4500,
+          "limit_price": 9.31,
+          "reason": "目标4500/当前0，买4500",
+          "order_id": 1090544542,
+          "accepted": true
+        }
+      ]
+    },
+    {
+      "attempt": 2,
+      "orders": [],
+      "placed": []
+    }
+  ],
+  "blocked": [],
+  "warnings": [],
+  "final_positions": {
+    "002938.SZ": {
+      "volume": 300,
+      "can_use_volume": 0
+    },
+    "600522.SH": {
+      "volume": 1000,
+      "can_use_volume": 0
+    },
+    "600183.SH": {
+      "volume": 300,
+      "can_use_volume": 0
+    },
+    "600958.SH": {
+      "volume": 4500,
+      "can_use_volume": 0
+    }
+  },
+  "generated_at": "2026-06-01 13:25:41"
+}

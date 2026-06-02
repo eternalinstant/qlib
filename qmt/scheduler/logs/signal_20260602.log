@@ -1,0 +1,5 @@
+﻿[09:47:21] === Step 1: Tushare 数据更新 ===
+[09:59:41] [OK] 数据更新完成
+[09:59:41] === Step 2: qlib 打分 + 写 target JSON ===
+[10:00:14] [OK] target JSON 已写入 C:\Users\Administrator\Documents\stock\qmt\targets\target_20260602.json
+[10:00:14] === daily_signal 完成 ===

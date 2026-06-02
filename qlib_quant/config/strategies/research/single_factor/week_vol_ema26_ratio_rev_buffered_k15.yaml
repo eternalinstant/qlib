@@ -1,0 +1,52 @@
+# 研究策略 - 单因子 vol_ema26_ratio 真周频缓冲版
+name: week_vol_ema26_ratio_rev_buffered_k15
+description: "单因子 vol_ema26_ratio 反向，真周频 k15 buffered 正式口径"
+
+factor_window_scale: 5
+
+weights:
+  alpha: 0.0
+  risk: 1.0
+  enhance: 0.0
+
+factors:
+  risk:
+    - name: vol_ema26_ratio
+      expression: "$volume / (EMA($volume, 26) + 1)"
+      source: qlib
+      negate: true
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 20
+  score_smoothing_days: 1
+  entry_persist_days: 1
+  exit_persist_days: 1
+  min_hold_days: 0
+
+stability:
+  churn_limit: 2
+  margin_stable: true
+
+rebalance:
+  freq: week
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

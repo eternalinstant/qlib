@@ -1,0 +1,57 @@
+# 实验策略 - ma120_dev 反向日频轻缓冲版 + OCF 单因子过滤
+name: sf_ma120dev_rev_daily_buffered_k50_ocf_guard
+description: "单因子 ma120_dev 反向日频轻缓冲版 TopK50：仅增加 ocf_to_ev > 0 过滤，验证轻量质量门控是否有增益"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: ma120_dev
+      expression: "$close / Mean($close, 120) - 1"
+      source: qlib
+      negate: true
+      ir: 0.41
+
+selection:
+  mode: factor_topk
+  topk: 50
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 12
+  score_smoothing_days: 2
+  entry_rank: 45
+  exit_rank: 65
+  entry_persist_days: 2
+  exit_persist_days: 2
+  min_hold_days: 5
+  hard_filters:
+    ocf_to_ev: 0
+
+stability:
+  churn_limit: 5
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.00008
+  sell_commission_rate: 0.00008
+  min_buy_commission: 5.0
+  min_sell_commission: 5.0
+  sell_stamp_tax_rate: 0.0005
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

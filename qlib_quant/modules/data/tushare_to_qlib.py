@@ -1,0 +1,1160 @@
+﻿"""
+Tushare 数据转换为 Qlib 格式 (简化版)
+直接合并每日数据，财务数据前向填充
+"""
+
+import logging
+import warnings
+from pathlib import Path
+from typing import Optional
+import numpy as np
+import pandas as pd
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+RAW_MARKET_FIELDS = ["open", "high", "low", "close", "volume", "amount"]
+QLIB_MARKET_FIELDS = RAW_MARKET_FIELDS + ["vwap"]
+PRICE_FIELDS = {"open", "high", "low", "close", "vwap"}
+
+
+def compute_tushare_vwap(df: pd.DataFrame) -> pd.Series:
+    """从 Tushare daily 的 amount/volume 派生成交均价。"""
+    volume = pd.to_numeric(df.get("volume"), errors="coerce")
+    amount = pd.to_numeric(df.get("amount"), errors="coerce")
+
+    # Tushare daily: amount 单位为千元，volume/vol 单位为手。
+    vwap = amount * 10.0 / volume.replace(0, np.nan)
+    if "close" in df.columns:
+        close = pd.to_numeric(df["close"], errors="coerce")
+        vwap = vwap.where(np.isfinite(vwap) & (vwap > 0), close)
+    return vwap.astype("float32")
+
+
+def ensure_vwap(df: pd.DataFrame) -> pd.DataFrame:
+    """确保日线 raw_data 带有 raw vwap。"""
+    df = df.copy()
+    computed = compute_tushare_vwap(df)
+    if "vwap" not in df.columns:
+        df["vwap"] = computed
+    else:
+        current = pd.to_numeric(df["vwap"], errors="coerce")
+        df["vwap"] = current.where(np.isfinite(current) & (current > 0), computed)
+    return df
+
+
+def _ts_code_to_instrument(ts_code_series: pd.Series) -> pd.Series:
+    """ts_code (000001.SZ) → instrument (sz000001)"""
+    return ts_code_series.apply(
+        lambda x: x.split('.')[1].lower() + x.split('.')[0] if '.' in x else x.lower()
+    )
+
+
+def build_dense_bin_payload(cal_idx, values):
+    """按交易日索引构建连续 bin payload，缺口补 NaN。"""
+    if cal_idx is None or values is None:
+        return None
+
+    idx_series = pd.Series(cal_idx).dropna()
+    value_series = pd.Series(values)
+    if idx_series.empty:
+        return None
+    if len(idx_series) != len(value_series):
+        raise ValueError("cal_idx 与 values 长度不一致")
+
+    dense_series = pd.Series(
+        value_series.to_numpy(dtype=np.float32, copy=False),
+        index=idx_series.astype(int).to_numpy(),
+        dtype=np.float32,
+    )
+    dense_series = dense_series[~dense_series.index.duplicated(keep="last")].sort_index()
+    if dense_series.empty:
+        return None
+
+    start_idx = int(dense_series.index.min())
+    end_idx = int(dense_series.index.max())
+    dense_vals = np.full(end_idx - start_idx + 1, np.nan, dtype=np.float32)
+    dense_vals[dense_series.index.to_numpy(dtype=int) - start_idx] = dense_series.to_numpy(
+        dtype=np.float32,
+        copy=False,
+    )
+
+    payload = np.empty(dense_vals.size + 1, dtype="<f4")
+    payload[0] = np.float32(start_idx)
+    payload[1:] = dense_vals
+    return payload
+
+
+def write_dense_bin_file(bin_file: Path, cal_idx, values) -> bool:
+    """将带交易日索引的序列写成连续 bin，缺口补 NaN。"""
+    payload = build_dense_bin_payload(cal_idx, values)
+    if payload is None:
+        return False
+    payload.tofile(bin_file)
+    return True
+
+
+class TushareToQlibConverter:
+    """Tushare 数据转 Qlib 格式转换器"""
+
+    def __init__(self, tushare_dir: str = None, qlib_dir: str = None):
+        self.tushare_dir = Path(tushare_dir or "~/Documents/qlib_quant/data/tushare").expanduser()
+        self.qlib_dir = Path(qlib_dir or "~/Documents/qlib_quant/data/qlib_data/cn_data").expanduser()
+        self._adj_ratio_cache = None
+        self._calendar_cache = None
+
+    def _load_calendar(self):
+        if self._calendar_cache is not None:
+            return self._calendar_cache
+        cal_file = self.qlib_dir / "calendars" / "day.txt"
+        cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])
+        cal_dates = cal["date"].dt.normalize()
+        date_to_idx = {d: i for i, d in enumerate(cal_dates)}
+        idx_to_date = {i: d for d, i in date_to_idx.items()}
+        cal_last_idx = len(cal) - 1
+        self._calendar_cache = (date_to_idx, idx_to_date, cal_last_idx)
+        return self._calendar_cache
+
+    def _load_adj_ratio_map(self) -> dict:
+        """加载 adj_factor.parquet，返回 {instrument: {date: adj_ratio}}
+
+        adj_ratio = adj_factor[date] / adj_factor[latest_date]
+        前复权价格 = raw_price * adj_ratio
+        """
+        if self._adj_ratio_cache is not None:
+            return self._adj_ratio_cache
+
+        adj_path = self.tushare_dir / "adj_factor.parquet"
+        if not adj_path.exists():
+            return {}
+
+        adj_df = pd.read_parquet(adj_path, columns=["ts_code", "trade_date", "adj_factor"])
+        adj_df["date"] = pd.to_datetime(adj_df["trade_date"], format="%Y%m%d").dt.normalize()
+        adj_df["instrument"] = adj_df["ts_code"].apply(
+            lambda x: x.split(".")[1].lower() + x.split(".")[0] if "." in x else x.lower()
+        )
+
+        result = {}
+        for inst, grp in adj_df.groupby("instrument"):
+            grp = grp.sort_values("date")
+            latest_adj = grp["adj_factor"].iloc[-1]
+            if latest_adj <= 0:
+                continue
+            ratios = grp["adj_factor"] / latest_adj
+            result[inst] = dict(zip(grp["date"], ratios))
+
+        self._adj_ratio_cache = result
+        logger.info(f"加载 adj_factor: {len(result)} 只股票")
+        return result
+
+    def _deprecated_compute_forward_adjusted_prices(self) -> dict:
+        """[已废弃] 加载全部股票到内存，极易 OOM。
+
+        请改用 build_adjusted_bins_batched() 或 build_adjusted_bins_for_instruments()。
+        """
+        warnings.warn(
+            "compute_forward_adjusted_prices 已废弃，自动委托给 build_adjusted_bins_batched()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.build_adjusted_bins_batched()
+        return {}
+
+    def _deprecated_write_adjusted_bins(self, adjusted_data: dict = None) -> int:
+        """[已废弃] 请改用 build_adjusted_bins_batched() 或 build_adjusted_bins_for_instruments()。"""
+        warnings.warn(
+            "write_adjusted_bins 已废弃，自动委托给 build_adjusted_bins_batched()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.build_adjusted_bins_batched()
+
+    def _load_and_adjust_one(self, raw_path: Path, inst: str, adj_map: dict) -> Optional[pd.DataFrame]:
+        """加载一只股票的 raw_data 并计算前复权价格，返回 DataFrame 或 None。"""
+        try:
+            df = pd.read_parquet(raw_path, columns=["date"] + RAW_MARKET_FIELDS)
+        except Exception:
+            return None
+
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+        df = df.dropna(subset=["date"])
+        if df.empty:
+            return None
+
+        df = ensure_vwap(df)
+        for fld in QLIB_MARKET_FIELDS:
+            if fld in df.columns:
+                df[fld] = pd.to_numeric(df[fld], errors="coerce").astype("float64")
+        inst_adj = adj_map[inst]
+        df["adj_ratio"] = df["date"].map(inst_adj)
+        for fld in PRICE_FIELDS:
+            if fld in df.columns:
+                mask = df["adj_ratio"].notna() & np.isfinite(df["adj_ratio"])
+                df.loc[mask, fld] = df.loc[mask, fld] * df.loc[mask, "adj_ratio"]
+                df.loc[~mask, fld] = np.nan
+        df = df.drop(columns=["adj_ratio"], errors="ignore")
+        df = df.dropna(subset=[c for c in QLIB_MARKET_FIELDS if c in df.columns], how="all")
+        if df.empty:
+            return None
+        return df
+
+    def _write_bins_for_df(self, inst_dir: Path, df: pd.DataFrame, date_to_idx: dict) -> bool:
+        """将已调整的 DataFrame 按交易日历写入 bin 文件。返回是否成功写入。"""
+        df = df[df["date"].isin(date_to_idx)]
+        if df.empty:
+            return False
+
+        df["cal_idx"] = df["date"].map(date_to_idx)
+        df = df.dropna(subset=["cal_idx"])
+        df["cal_idx"] = df["cal_idx"].astype(int)
+
+        for fld in QLIB_MARKET_FIELDS:
+            if fld not in df.columns:
+                continue
+            fld_data = (
+                df[["cal_idx", fld]]
+                .dropna(subset=[fld])
+                .drop_duplicates(subset=["cal_idx"], keep="last")
+                .sort_values("cal_idx")
+            )
+            if fld_data.empty:
+                continue
+            write_dense_bin_file(
+                inst_dir / f"{fld}.day.bin",
+                fld_data["cal_idx"],
+                fld_data[fld],
+            )
+        return True
+
+    def _setup_adj_context(self):
+        """加载并校验前复权所需的公共上下文。返回 (adj_map, raw_dir, date_to_idx, features_dir) 或 None。"""
+        adj_map = self._load_adj_ratio_map()
+        if not adj_map:
+            logger.warning("adj_factor.parquet 不存在或为空，无法计算前复权价格")
+            return None
+
+        raw_dir = self.qlib_dir.parent / "raw_data"
+        if not raw_dir.exists():
+            logger.warning("raw_data 目录不存在")
+            return None
+
+        cal_file = self.qlib_dir / "calendars" / "day.txt"
+        if not cal_file.exists():
+            logger.warning("日历文件不存在，无法写入 bin")
+            return None
+
+        date_to_idx, _, _ = self._load_calendar()
+        features_dir = self.qlib_dir / "features"
+        return (adj_map, raw_dir, date_to_idx, features_dir)
+
+    def build_adjusted_bins_batched(self, batch_size: int = 1000) -> int:
+        """分批计算前复权价格并写入 bin 文件，控制内存峰值。
+
+        每批加载 batch_size 只股票的 raw_data，计算前复权，写入 bin，然后释放内存。
+        内存峰值约 batch_size * 1MB + adj_map(~1.5GB)，默认 batch_size=1000 约 2.5GB。
+        """
+        import gc
+
+        ctx = self._setup_adj_context()
+        if ctx is None:
+            return 0
+        adj_map, raw_dir, date_to_idx, features_dir = ctx
+
+        raw_files = sorted(raw_dir.glob("*.parquet"))
+        total_files = len(raw_files)
+        total_written = 0
+
+        for batch_start in range(0, total_files, batch_size):
+            batch_files = raw_files[batch_start:batch_start + batch_size]
+
+            # 加载并计算本批复权价格
+            batch_data = {}
+            for raw_path in batch_files:
+                inst = raw_path.stem
+                if inst not in adj_map:
+                    continue
+                inst_dir = features_dir / inst
+                if not inst_dir.exists():
+                    continue
+                df = self._load_and_adjust_one(raw_path, inst, adj_map)
+                if df is not None:
+                    batch_data[inst] = df
+
+            # 写入本批 bin 文件
+            for inst, df in batch_data.items():
+                if self._write_bins_for_df(features_dir / inst, df, date_to_idx):
+                    total_written += 1
+
+            del batch_data
+            gc.collect()
+
+            batch_num = batch_start // batch_size + 1
+            total_batches = (total_files + batch_size - 1) // batch_size
+            logger.info(
+                f"  前复权 bin 批次 {batch_num}/{total_batches}: "
+                f"累计写入 {total_written} 只股票"
+            )
+
+        logger.info(f"写入前复权 bin: {total_written} 只股票")
+        return total_written
+
+    def build_adjusted_bins_for_instruments(self, instruments: list) -> int:
+        """只为指定 instruments 构建前复权 bin（内存安全）。
+
+        只加载指定股票的 raw_data，逐只计算前复权并写入 bin。
+        内存峰值 = len(instruments) * ~1MB + adj_map，日常增量通常 <10 只。
+        """
+        ctx = self._setup_adj_context()
+        if ctx is None:
+            return 0
+        adj_map, raw_dir, date_to_idx, features_dir = ctx
+
+        written = 0
+        for inst in instruments:
+            inst_dir = features_dir / inst
+            if not inst_dir.exists():
+                continue
+            if inst not in adj_map:
+                continue
+
+            raw_path = raw_dir / f"{inst}.parquet"
+            if not raw_path.exists():
+                continue
+
+            df = self._load_and_adjust_one(raw_path, inst, adj_map)
+            if df is None:
+                continue
+
+            if self._write_bins_for_df(inst_dir, df, date_to_idx):
+                written += 1
+
+        logger.info(f"写入前复权 bin: {written}/{len(instruments)} 只股票")
+        return written
+
+    def load_tushare_data(self, name: str) -> Optional[pd.DataFrame]:
+        """加载 Tushare 数据"""
+        path = self.tushare_dir / f"{name}.parquet"
+        if path.exists():
+            df = pd.read_parquet(path)
+            logger.info(f"加载 {name}: {len(df):,} 条")
+            return df
+        logger.warning(f"文件不存在: {path}")
+        return None
+
+    def convert(self) -> pd.DataFrame:
+        """转换并合并所有数据（分批处理避免 OOM）"""
+        # 1. 加载每日基本面数据 (主表)
+        daily = self.load_tushare_data('daily_basic')
+        if daily is None:
+            return None
+
+        daily['instrument'] = _ts_code_to_instrument(daily['ts_code'])
+        daily['datetime'] = pd.to_datetime(daily['trade_date'], format='%Y%m%d')
+
+        cols = ['instrument', 'datetime', 'turnover_rate', 'turnover_rate_f',
+                'volume_ratio', 'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm',
+                'total_mv', 'circ_mv', 'free_mv', 'dv_ratio', 'dv_ttm']
+        daily = daily[[c for c in cols if c in daily.columns]].copy()
+        del cols
+
+        # 2. 预加载并标准化所有季度财务数据
+        quarterlies = []
+        fina = self.load_tushare_data('fina_indicator')
+        if fina is not None:
+            fina['instrument'] = _ts_code_to_instrument(fina['ts_code'])
+            fina['datetime'] = pd.to_datetime(fina['ann_date'], format='%Y%m%d', errors='coerce')
+            fina = fina.dropna(subset=['datetime'])
+            fina['datetime'] = fina['datetime'] + pd.Timedelta(days=1)
+            fina_cols = ['instrument', 'datetime', 'roe', 'roe_dt', 'roa',
+                         'current_ratio', 'quick_ratio', 'debt_to_assets',
+                         'ebit', 'ebitda', 'fcff']
+            fina = fina[[c for c in fina_cols if c in fina.columns]].copy()
+            fina = fina.rename(columns={
+                'roe': 'roe_fina', 'roe_dt': 'roe_dt_fina', 'roa': 'roa_fina',
+                'current_ratio': 'current_ratio_fina', 'quick_ratio': 'quick_ratio_fina',
+                'debt_to_assets': 'debt_to_assets_fina',
+                'ebit': 'ebit_fina', 'ebitda': 'ebitda_fina', 'fcff': 'fcff_fina'
+            })
+            quarterlies.append(fina)
+            del fina
+
+        income = self.load_tushare_data('income')
+        if income is not None:
+            income['instrument'] = _ts_code_to_instrument(income['ts_code'])
+            income['datetime'] = pd.to_datetime(income['ann_date'], format='%Y%m%d', errors='coerce')
+            income = income.dropna(subset=['datetime'])
+            income['datetime'] = income['datetime'] + pd.Timedelta(days=1)
+            inc_cols = ['instrument', 'datetime', 'total_revenue', 'revenue',
+                        'n_income', 'n_income_attr_p', 'operate_profit']
+            income = income[[c for c in inc_cols if c in income.columns]].copy()
+            income = income.rename(columns={
+                'total_revenue': 'total_revenue_inc', 'revenue': 'revenue_inc',
+                'n_income': 'n_income_inc', 'n_income_attr_p': 'n_income_attr_p_inc',
+                'operate_profit': 'operate_profit_inc'
+            })
+            quarterlies.append(income)
+            del income
+
+        cashflow = self.load_tushare_data('cashflow')
+        if cashflow is not None:
+            cashflow['instrument'] = _ts_code_to_instrument(cashflow['ts_code'])
+            cashflow['datetime'] = pd.to_datetime(cashflow['ann_date'], format='%Y%m%d', errors='coerce')
+            cashflow = cashflow.dropna(subset=['datetime'])
+            cashflow['datetime'] = cashflow['datetime'] + pd.Timedelta(days=1)
+            cf_cols = ['instrument', 'datetime', 'n_cashflow_act']
+            cashflow = cashflow[[c for c in cf_cols if c in cashflow.columns]].copy()
+            quarterlies.append(cashflow)
+            del cashflow
+
+        balance = self.load_tushare_data('balancesheet')
+        if balance is not None:
+            balance['instrument'] = _ts_code_to_instrument(balance['ts_code'])
+            balance['datetime'] = pd.to_datetime(balance['ann_date'], format='%Y%m%d', errors='coerce')
+            balance = balance.dropna(subset=['datetime'])
+            balance['datetime'] = balance['datetime'] + pd.Timedelta(days=1)
+            bs_cols = ['instrument', 'datetime', 'surplus_rese', 'undistr_porfit',
+                       'total_liab', 'money_cap']
+            balance = balance[[c for c in bs_cols if c in balance.columns]].copy()
+            quarterlies.append(balance)
+            del balance
+
+        # 2b. 资金流因子（moneyflow）
+        moneyflow = self.load_tushare_data('moneyflow')
+        if moneyflow is not None and not moneyflow.empty:
+            moneyflow['instrument'] = _ts_code_to_instrument(moneyflow['ts_code'])
+            moneyflow['datetime'] = pd.to_datetime(moneyflow['trade_date'], format='%Y%m%d')
+            # net_mf_amount_5d / net_mf_amount_20d
+            moneyflow['net_mf_amount'] = pd.to_numeric(moneyflow['net_mf_amount'], errors='coerce')
+            moneyflow = moneyflow.sort_values(['instrument', 'datetime'])
+            moneyflow['net_mf_amount_5d'] = moneyflow.groupby('instrument')['net_mf_amount'].transform(
+                lambda s: s.rolling(5, min_periods=1).sum()
+            )
+            moneyflow['net_mf_amount_20d'] = moneyflow.groupby('instrument')['net_mf_amount'].transform(
+                lambda s: s.rolling(20, min_periods=1).sum()
+            )
+            # smart_ratio_5d
+            for col in ['buy_lg_amount', 'buy_elg_amount', 'sell_lg_amount', 'sell_elg_amount']:
+                moneyflow[col] = pd.to_numeric(moneyflow[col], errors='coerce')
+            buy_big = moneyflow['buy_lg_amount'] + moneyflow['buy_elg_amount']
+            total_big = buy_big + moneyflow['sell_lg_amount'] + moneyflow['sell_elg_amount']
+            moneyflow['smart_ratio'] = buy_big / total_big.replace(0, np.nan)
+            moneyflow['smart_ratio_5d'] = moneyflow.groupby('instrument')['smart_ratio'].transform(
+                lambda s: s.rolling(5, min_periods=1).mean()
+            )
+            mf_merge = moneyflow[['instrument', 'datetime', 'net_mf_amount_5d',
+                                   'net_mf_amount_20d', 'smart_ratio_5d']].copy()
+            daily = daily.merge(mf_merge, on=['instrument', 'datetime'], how='left')
+            logger.info(f"合并资金流因子: +3 列, daily shape {daily.shape}")
+            del moneyflow, mf_merge
+
+        # 3. 分批处理：按股票分组，每批 500 只
+        all_instruments = daily['instrument'].unique()
+        batch_size = 500
+        batches = [all_instruments[i:i + batch_size] for i in range(0, len(all_instruments), batch_size)]
+        logger.info(f"分批处理: {len(all_instruments)} 只股票, {len(batches)} 批")
+
+        result_parts = []
+        for bi, batch_insts in enumerate(batches):
+            batch_daily = daily[daily['instrument'].isin(batch_insts)].copy()
+
+            for q in quarterlies:
+                batch_q = q[q['instrument'].isin(batch_insts)]
+                if batch_q.empty:
+                    continue
+                batch_daily = self._forward_fill(batch_daily, batch_q, '')
+
+            batch_daily = self._calculate_derived(batch_daily)
+            result_parts.append(batch_daily)
+
+            if (bi + 1) % 5 == 0:
+                logger.info(f"  已处理 {(bi + 1) * batch_size} 只...")
+
+            del batch_daily
+
+        del daily
+        del quarterlies
+        result = pd.concat(result_parts, ignore_index=True)
+        del result_parts
+
+        logger.info(f"最终数据: {len(result):,} 条, {len(result.columns)} 列")
+        return result
+
+    def _forward_fill(self, daily: pd.DataFrame, quarterly: pd.DataFrame, suffix: str) -> pd.DataFrame:
+        """将季度财务数据前向填充到每日数据
+
+        用 merge_asof 按最近的前一个公告日匹配季度数据到 daily，
+        然后按股票分组 ffill，避免笛卡尔积导致的内存爆炸。
+        """
+        fina_cols = [c for c in quarterly.columns if c not in ['instrument', 'datetime']]
+
+        # 合并季度公告到每个交易日（找 <= 交易日 的最近公告）
+        merged = pd.merge_asof(
+            daily.sort_values('datetime'),
+            quarterly.sort_values('datetime'),
+            by='instrument', on='datetime',
+            direction='backward',
+        )
+
+        # 按股票分组，前向填充财务数据
+        for col in fina_cols:
+            merged[col] = merged.groupby('instrument')[col].ffill()
+
+        return merged
+
+    def _calculate_derived(self, df: pd.DataFrame) -> pd.DataFrame:
+        """计算衍生指标"""
+        # 净利率 = 归母净利润 / 营业收入
+        if 'n_income_attr_p_inc' in df.columns and 'revenue_inc' in df.columns:
+            df['net_margin'] = df['n_income_attr_p_inc'] / df['revenue_inc'].replace(0, np.nan)
+            logger.info("+ net_margin")
+
+        # 账面市值比 = 1 / PB
+        if 'pb' in df.columns:
+            df['book_to_market'] = 1 / df['pb'].replace(0, np.nan)
+            logger.info("+ book_to_market")
+
+        # ROIC 代理
+        if 'roe_fina' in df.columns and 'debt_to_assets_fina' in df.columns:
+            df['roic_proxy'] = df['roe_fina'] * (1 - df['debt_to_assets_fina'] / 100)
+            logger.info("+ roic_proxy")
+
+        # EBIT / 总市值 (息税前利润市值比)
+        if 'ebit_fina' in df.columns and 'total_mv' in df.columns:
+            df['ebit_to_mv'] = df['ebit_fina'] / df['total_mv'].replace(0, np.nan)
+            logger.info("+ ebit_to_mv")
+
+        # EBITDA / 总市值
+        if 'ebitda_fina' in df.columns and 'total_mv' in df.columns:
+            df['ebitda_to_mv'] = df['ebitda_fina'] / df['total_mv'].replace(0, np.nan)
+            logger.info("+ ebitda_to_mv")
+
+        # 经营现金流 / 总市值
+        if 'n_cashflow_act' in df.columns and 'total_mv' in df.columns:
+            df['ocf_to_mv'] = df['n_cashflow_act'] / df['total_mv'].replace(0, np.nan)
+            logger.info("+ ocf_to_mv")
+
+        # 经营现金流 / 企业价值 (EV = 总市值 + 总负债 - 货币资金)
+        if all(c in df.columns for c in ['n_cashflow_act', 'total_mv', 'total_liab', 'money_cap']):
+            ev = df['total_mv'] + df['total_liab'].fillna(0) - df['money_cap'].fillna(0)
+            df['ocf_to_ev'] = df['n_cashflow_act'] / ev.replace(0, np.nan)
+            logger.info("+ ocf_to_ev")
+
+        # 留存收益 = 盈余公积 + 未分配利润
+        if 'surplus_rese' in df.columns and 'undistr_porfit' in df.columns:
+            df['retained_earnings'] = df['surplus_rese'].fillna(0) + df['undistr_porfit'].fillna(0)
+            logger.info("+ retained_earnings")
+
+        # FCFF / 总市值 (企业自由现金流市值比)
+        if 'fcff_fina' in df.columns and 'total_mv' in df.columns:
+            df['fcff_to_mv'] = df['fcff_fina'] / df['total_mv'].replace(0, np.nan)
+            logger.info("+ fcff_to_mv")
+
+        return df
+
+    def update_close_bins(self) -> int:
+        """增量更新 close.day.bin，优先使用 adj_factor 前复权
+
+        如果 adj_factor.parquet 存在，用 adj_ratio = adj_factor[date] / adj_factor[latest]
+        计算前复权 close 并追加。否则回退到 splice-point ratio。
+        """
+        raw_dir = self.qlib_dir.parent / "raw_data"
+        cal_file = self.qlib_dir / "calendars" / "day.txt"
+        features_dir = self.qlib_dir / "features"
+
+        if not cal_file.exists() or not features_dir.exists():
+            logger.warning("缺少必要文件，跳过 close bin 更新")
+            return 0
+
+        date_to_idx, idx_to_date, cal_last_idx = self._load_calendar()
+        idx_to_date = {i: d for d, i in date_to_idx.items()}
+
+        # 尝试使用 adj_factor
+        adj_map = self._load_adj_ratio_map()
+        use_adj = bool(adj_map)
+        if not use_adj:
+            logger.warning("adj_factor.parquet 不存在，回退到 splice-point ratio 更新 close")
+
+        # 读取 raw_data 中的 close
+        updated = 0
+        raw_files = sorted(raw_dir.glob("*.parquet")) if raw_dir.exists() else []
+
+        for raw_path in raw_files:
+            inst = raw_path.stem
+            bin_file = features_dir / inst / "close.day.bin"
+            if not bin_file.exists():
+                continue
+
+            raw_bin = np.fromfile(bin_file, dtype="<f4")
+            if len(raw_bin) < 2 or np.isnan(raw_bin[0]):
+                continue
+
+            bin_end_idx = int(raw_bin[0]) + len(raw_bin) - 2
+            if bin_end_idx >= cal_last_idx:
+                continue
+
+            try:
+                df = pd.read_parquet(raw_path, columns=["date", "close"])
+            except Exception:
+                continue
+
+            df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+            df = df.dropna(subset=["date"])
+            df = df[df["date"].isin(date_to_idx)]
+            if df.empty:
+                continue
+            df["cal_idx"] = df["date"].map(date_to_idx).astype(int)
+
+            raw_close_map = dict(zip(df["cal_idx"], df["close"]))
+            missing_idxs = list(range(bin_end_idx + 1, cal_last_idx + 1))
+
+            new_vals = []
+            if use_adj and inst in adj_map:
+                inst_adj = adj_map[inst]
+                for idx in missing_idxs:
+                    d = idx_to_date.get(idx)
+                    raw_c = raw_close_map.get(idx)
+                    ratio = inst_adj.get(d) if d else None
+                    if raw_c is not None and ratio is not None and np.isfinite(raw_c):
+                        new_vals.append(float(raw_c) * float(ratio))
+                    else:
+                        new_vals.append(np.nan)
+            else:
+                # 回退：splice-point ratio
+                bin_last_close = float(raw_bin[-1])
+                db_last_close = raw_close_map.get(bin_end_idx)
+                adj = bin_last_close / db_last_close if db_last_close and db_last_close > 0 else 1.0
+                for idx in missing_idxs:
+                    v = raw_close_map.get(idx)
+                    new_vals.append(float(v) * adj if v and v > 0 else np.nan)
+
+            if new_vals:
+                with open(bin_file, "ab") as fp:
+                    np.array(new_vals, dtype="<f4").tofile(fp)
+                updated += 1
+
+        logger.info(f"close.day.bin 已更新 {updated} 只股票 ({'adj_factor' if use_adj else 'splice-point'})")
+        return updated
+
+    @staticmethod
+    def _read_bin_file(bin_file: Path):
+        raw = np.fromfile(bin_file, dtype="<f4")
+        if len(raw) < 2 or np.isnan(raw[0]):
+            return None
+        start_idx = int(raw[0])
+        values = raw[1:].astype(np.float32, copy=False)
+        end_idx = start_idx + len(values) - 1
+        return start_idx, end_idx, values
+
+    @staticmethod
+    def _write_bin_file(bin_file: Path, start_idx: int, values) -> bool:
+        values = np.asarray(values, dtype="<f4")
+        if values.size == 0:
+            return False
+        payload = np.empty(values.size + 1, dtype="<f4")
+        payload[0] = np.float32(start_idx)
+        payload[1:] = values
+        with open(bin_file, "wb") as fp:
+            payload.tofile(fp)
+        return True
+
+    def repair_price_provider(self) -> dict:
+        """修复价格 provider 中的超范围 / 字段错位问题。
+
+        重建价格字段时优先使用 adj_factor 前复权，确保所有价格字段用同一 adj_ratio。
+        """
+        cal_file = self.qlib_dir / "calendars" / "day.txt"
+        features_dir = self.qlib_dir / "features"
+        raw_dir = self.qlib_dir.parent / "raw_data"
+
+        if not cal_file.exists() or not features_dir.exists():
+            logger.warning("缺少日历或 features 目录，跳过 provider 修复")
+            return {}
+
+        date_to_idx, idx_to_date, cal_last_idx = self._load_calendar()
+
+        adj_map = self._load_adj_ratio_map()
+
+        stats = {
+            "truncated_files": 0,
+            "close_rebuilt_files": 0,
+            "repaired_instruments": 0,
+            "unresolved_instruments": 0,
+        }
+
+        for inst_dir in features_dir.iterdir():
+            if not inst_dir.is_dir():
+                continue
+
+            close_path = inst_dir / "close.day.bin"
+            close_meta = self._read_bin_file(close_path) if close_path.exists() else None
+            if close_meta is None:
+                continue
+
+            close_start, close_end, close_values = close_meta
+            original_close_start = close_start
+            original_close_end = close_end
+            inst = inst_dir.name
+
+            existing_meta = {"close": close_meta}
+            inconsistent = close_start > cal_last_idx or close_end > cal_last_idx
+            for field in QLIB_MARKET_FIELDS:
+                if field == "close":
+                    continue
+                bin_path = inst_dir / f"{field}.day.bin"
+                meta = self._read_bin_file(bin_path) if bin_path.exists() else None
+                if meta is None:
+                    inconsistent = True
+                    continue
+                existing_meta[field] = meta
+                _, field_end, _ = meta
+                if field_end > cal_last_idx or field_end != close_end:
+                    inconsistent = True
+
+            raw_path = raw_dir / f"{inst}.parquet"
+            raw_df = None
+            raw_last_idx = None
+            raw_maps = {}
+            if raw_path.exists():
+                try:
+                    raw_df = pd.read_parquet(raw_path, columns=["date"] + RAW_MARKET_FIELDS)
+                    raw_df = ensure_vwap(raw_df)
+                    raw_df["date"] = pd.to_datetime(raw_df["date"], errors="coerce").dt.normalize()
+                    raw_df = raw_df.dropna(subset=["date"])
+                    raw_df = raw_df[raw_df["date"].isin(date_to_idx)]
+                    if not raw_df.empty:
+                        raw_df["cal_idx"] = raw_df["date"].map(date_to_idx).astype(int)
+                        raw_last_idx = int(raw_df["cal_idx"].max())
+                        for field in QLIB_MARKET_FIELDS:
+                            if field in raw_df.columns:
+                                fld = raw_df[["cal_idx", field]].dropna(subset=[field])
+                                raw_maps[field] = dict(zip(fld["cal_idx"], fld[field]))
+                except Exception:
+                    raw_df = None
+                    raw_maps = {}
+                    raw_last_idx = None
+
+            raw_close_map = raw_maps.get("close", {})
+            inst_adj = adj_map.get(inst, {})
+            expected_close_start = min(raw_close_map) if raw_close_map else close_start
+            expected_close_end = min(cal_last_idx, raw_last_idx) if raw_last_idx is not None else close_end
+            close_rebuild_required = bool(raw_close_map) and (
+                close_start != expected_close_start or close_end != expected_close_end
+            )
+
+            inconsistent = inconsistent or close_rebuild_required
+            if not inconsistent:
+                continue
+
+            if close_rebuild_required:
+                close_start = expected_close_start
+                close_end = expected_close_end
+                close_values_list = []
+                for idx in range(close_start, close_end + 1):
+                    raw_c = raw_close_map.get(idx, np.nan)
+                    if inst_adj:
+                        d = idx_to_date.get(idx)
+                        ratio = inst_adj.get(d) if d else None
+                        if np.isfinite(raw_c) and ratio is not None:
+                            close_values_list.append(float(raw_c) * float(ratio))
+                        else:
+                            close_values_list.append(np.nan)
+                    else:
+                        close_values_list.append(float(raw_c) if np.isfinite(raw_c) else np.nan)
+                close_values = np.asarray(close_values_list, dtype="<f4")
+                if self._write_bin_file(close_path, close_start, close_values):
+                    stats["close_rebuilt_files"] += 1
+            else:
+                target_close_end = min(close_end, cal_last_idx)
+                if raw_last_idx is not None:
+                    target_close_end = min(target_close_end, raw_last_idx)
+
+                if target_close_end < close_start:
+                    if not raw_close_map:
+                        stats["unresolved_instruments"] += 1
+                        continue
+
+                    close_start = min(raw_close_map)
+                    close_end = min(cal_last_idx, raw_last_idx)
+                    close_values_list = []
+                    for idx in range(close_start, close_end + 1):
+                        raw_c = raw_close_map.get(idx, np.nan)
+                        if inst_adj:
+                            d = idx_to_date.get(idx)
+                            ratio = inst_adj.get(d) if d else None
+                            if not np.isnan(raw_c) and ratio is not None:
+                                close_values_list.append(float(raw_c) * float(ratio))
+                            else:
+                                close_values_list.append(np.nan)
+                        else:
+                            close_values_list.append(float(raw_c) if not np.isnan(raw_c) else np.nan)
+                    close_values = np.asarray(close_values_list, dtype="<f4")
+                    if self._write_bin_file(close_path, close_start, close_values):
+                        stats["close_rebuilt_files"] += 1
+                elif target_close_end < original_close_end:
+                    keep = target_close_end - close_start + 1
+                    close_values = close_values[:keep]
+                    if self._write_bin_file(close_path, close_start, close_values):
+                        stats["truncated_files"] += 1
+                    close_end = target_close_end
+
+            if close_start != original_close_start or close_end != original_close_end:
+                existing_meta["close"] = (close_start, close_end, close_values)
+            elif "close" not in existing_meta:
+                existing_meta["close"] = (close_start, close_end, close_values)
+
+            if close_end < close_start:
+                stats["unresolved_instruments"] += 1
+                continue
+
+            close_index = np.arange(close_start, close_end + 1)
+            close_map = dict(zip(close_index.tolist(), close_values.tolist()))
+
+            repaired = False
+            for field in QLIB_MARKET_FIELDS:
+                if field == "close":
+                    continue
+
+                bin_path = inst_dir / f"{field}.day.bin"
+                meta = existing_meta.get(field)
+                existing_map = {}
+                start_candidates = [close_start]
+                if meta is not None:
+                    field_start, field_end, field_values = meta
+                    truncated_field_end = min(field_end, close_end, cal_last_idx)
+                    if truncated_field_end >= field_start:
+                        keep = truncated_field_end - field_start + 1
+                        existing_map.update(
+                            zip(
+                                range(field_start, truncated_field_end + 1),
+                                field_values[:keep].tolist(),
+                            )
+                        )
+                        start_candidates.append(field_start)
+
+                raw_field_map = raw_maps.get(field, {})
+                if raw_field_map:
+                    start_candidates.append(min(raw_field_map))
+
+                if not start_candidates:
+                    continue
+
+                target_start = min(start_candidates)
+                raw_backed_rebuild = bool(raw_field_map) or (field in PRICE_FIELDS and bool(raw_close_map))
+                rebuilt_values = []
+                for idx in range(target_start, close_end + 1):
+                    derived = None
+                    raw_val = raw_field_map.get(idx)
+                    if field in PRICE_FIELDS and inst_adj:
+                        # adj_factor 模式：所有价格字段用同一 adj_ratio
+                        d = idx_to_date.get(idx)
+                        ratio = inst_adj.get(d) if d else None
+                        if raw_val is not None and ratio is not None and np.isfinite(raw_val):
+                            derived = float(raw_val) * float(ratio)
+                    elif field in PRICE_FIELDS:
+                        # fallback：用 close bin / raw_close 推导
+                        close_val = close_map.get(idx)
+                        raw_close = raw_close_map.get(idx)
+                        if (
+                            raw_val is not None
+                            and raw_close is not None
+                            and close_val is not None
+                            and np.isfinite(raw_val)
+                            and np.isfinite(raw_close)
+                            and np.isfinite(close_val)
+                            and raw_close > 0
+                        ):
+                            derived = float(close_val) * float(raw_val) / float(raw_close)
+                    elif raw_val is not None and np.isfinite(raw_val):
+                        derived = float(raw_val)
+
+                    if derived is None:
+                        derived = np.nan if raw_backed_rebuild else existing_map.get(idx, np.nan)
+                    rebuilt_values.append(derived)
+
+                if self._write_bin_file(bin_path, target_start, rebuilt_values):
+                    repaired = True
+
+            if repaired or close_rebuild_required or close_end < original_close_end:
+                stats["repaired_instruments"] += 1
+            elif raw_path.exists():
+                stats["unresolved_instruments"] += 1
+
+        logger.info(
+            "Provider 修复完成: truncated_files=%s, close_rebuilt_files=%s, repaired_instruments=%s, unresolved_instruments=%s",
+            stats["truncated_files"],
+            stats["close_rebuilt_files"],
+            stats["repaired_instruments"],
+            stats["unresolved_instruments"],
+        )
+        return stats
+
+    def update_ohlcv_bins(self) -> dict:
+        """增量更新 open/high/low/volume/amount/vwap 的 bin 文件
+
+        优先使用 adj_factor 前复权：所有价格字段（open/high/low/vwap）使用同一个 adj_ratio。
+        如果 adj_factor 不可用，回退到 splice-point ratio。vwap 从 amount/volume 派生。
+        volume/amount 始终保持原始值，不做复权缩放。
+        """
+        fields = ["open", "high", "low", "volume", "amount", "vwap"]
+        price_fields = {"open", "high", "low", "vwap"}
+        raw_dir = self.qlib_dir.parent / "raw_data"
+        cal_file = self.qlib_dir / "calendars" / "day.txt"
+        features_dir = self.qlib_dir / "features"
+
+        if not raw_dir.exists() or not cal_file.exists() or not features_dir.exists():
+            logger.warning("缺少 raw_data / 日历 / features 目录，跳过 OHLCV bin 更新")
+            return {}
+
+        date_to_idx, idx_to_date, cal_last_idx = self._load_calendar()
+
+        adj_map = self._load_adj_ratio_map()
+        use_adj = bool(adj_map)
+        if not use_adj:
+            logger.warning("adj_factor.parquet 不存在，回退到 splice-point ratio 更新 OHLCV")
+
+        counts = {f: 0 for f in fields}
+        raw_files = sorted(raw_dir.glob("*.parquet"))
+
+        for raw_path in raw_files:
+            inst = raw_path.stem
+            inst_dir = features_dir / inst
+            if not inst_dir.exists():
+                continue
+
+            try:
+                df = pd.read_parquet(raw_path, columns=["date"] + RAW_MARKET_FIELDS)
+                df = ensure_vwap(df)
+            except Exception:
+                continue
+
+            df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+            df = df.dropna(subset=["date"])
+            df = df[df["date"].isin(date_to_idx)]
+            if df.empty:
+                continue
+            df["cal_idx"] = df["date"].map(date_to_idx)
+
+            # 构建 raw_close 查找表（用于 splice-point fallback）
+            raw_close_map = {}
+            if "close" in df.columns:
+                close_data = df[["cal_idx", "close"]].dropna(subset=["close"])
+                raw_close_map = dict(zip(close_data["cal_idx"], close_data["close"]))
+
+            # 构建 adj_ratio 查找表（用于 adj_factor 模式）
+            inst_adj = adj_map.get(inst, {}) if use_adj else {}
+
+            # 读一次 close.bin（splice-point fallback 需要）
+            close_bin_path = features_dir / inst / "close.day.bin"
+            close_bin_data = None
+            if close_bin_path.exists():
+                cb = np.fromfile(close_bin_path, dtype="<f4")
+                if len(cb) >= 2 and not np.isnan(cb[0]):
+                    close_bin_data = cb
+
+            for field in fields:
+                bin_file = inst_dir / f"{field}.day.bin"
+                if not bin_file.exists():
+                    continue
+
+                raw = np.fromfile(bin_file, dtype="<f4")
+                if len(raw) < 2 or np.isnan(raw[0]):
+                    continue
+
+                bin_end_idx = int(raw[0]) + len(raw) - 2
+                if bin_end_idx >= cal_last_idx:
+                    continue
+
+                field_data = df[["cal_idx", field]].dropna(subset=[field])
+                if field_data.empty:
+                    continue
+                val_map = dict(zip(field_data["cal_idx"], field_data[field]))
+
+                new_vals = []
+                if use_adj and inst_adj and field in price_fields:
+                    for idx in range(bin_end_idx + 1, cal_last_idx + 1):
+                        d = idx_to_date.get(idx)
+                        raw_val = val_map.get(idx)
+                        ratio = inst_adj.get(d) if d else None
+                        if raw_val is not None and ratio is not None and np.isfinite(raw_val):
+                            new_vals.append(float(raw_val) * float(ratio))
+                        else:
+                            new_vals.append(np.nan)
+                elif field in price_fields:
+                    bin_last_val = float(raw[-1])
+                    db_last_close = raw_close_map.get(bin_end_idx)
+                    if db_last_close and db_last_close > 0 and close_bin_data is not None:
+                        cb_offset = bin_end_idx - int(close_bin_data[0])
+                        if 0 <= cb_offset < len(close_bin_data) - 1:
+                            bin_last_close = float(close_bin_data[cb_offset + 1])
+                            adj = bin_last_close / db_last_close
+                        else:
+                            adj = 1.0
+                    else:
+                        adj = 1.0
+                    for idx in range(bin_end_idx + 1, cal_last_idx + 1):
+                        v = val_map.get(idx)
+                        if v is not None and np.isfinite(v):
+                            new_vals.append(float(v) * adj)
+                        else:
+                            new_vals.append(np.nan)
+                else:
+                    # volume/amount：保持原始值
+                    for idx in range(bin_end_idx + 1, cal_last_idx + 1):
+                        v = val_map.get(idx)
+                        new_vals.append(float(v) if v is not None and np.isfinite(v) else np.nan)
+
+                if new_vals:
+                    with open(bin_file, "ab") as fp:
+                        np.array(new_vals, dtype="<f4").tofile(fp)
+                    counts[field] += 1
+
+        logger.info(
+            f"OHLCV bin 更新完成 ({'adj_factor' if use_adj else 'splice-point'}): "
+            + ", ".join(f"{f}={counts[f]}" for f in fields)
+        )
+        return counts
+
+    def build_supplement_daily(self) -> bool:
+        """从 raw_data 生成 supplement_daily.parquet（OHLCV 补充日线数据）。
+
+        遍历 raw_data/*.parquet，合并为统一的 OHLCV 明细文件。
+        按交易日历过滤，只保留开市日的数据。
+        """
+        output_path = self.qlib_dir / "supplement_daily.parquet"
+        raw_dir = self.qlib_dir.parent / "raw_data"
+
+        if not raw_dir.exists():
+            logger.warning("raw_data 目录不存在，无法生成 supplement_daily.parquet")
+            return False
+
+        # 加载交易日历
+        cal_path = self.qlib_dir / "calendars" / "day.txt"
+        if not cal_path.exists():
+            logger.warning("交易日历不存在，无法生成 supplement_daily.parquet")
+            return False
+
+        cal_dates = set()
+        with open(cal_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    cal_dates.add(line)
+
+        # 遍历 raw_data 文件，逐文件追加到目标 parquet
+        raw_files = sorted(raw_dir.glob("*.parquet"))
+        files_to_process = [f for f in raw_files if f.name != ".download_state.json"]
+        if not files_to_process:
+            logger.warning("raw_data 目录无 parquet 文件")
+            return False
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        logger.info(f"开始构建 supplement_daily.parquet (共 {len(files_to_process)} 个文件)")
+
+        frames_for_batch = []
+        batch_size = 200
+        total_written = 0
+        writer = None
+
+        try:
+            for i, file_path in enumerate(files_to_process):
+                try:
+                    raw = pd.read_parquet(file_path)
+                except Exception:
+                    continue
+
+                # 过滤到交易日历中的日期
+                raw["date_str"] = pd.to_datetime(raw["date"]).dt.strftime("%Y-%m-%d")
+                raw = raw[raw["date_str"].isin(cal_dates)]
+                if raw.empty:
+                    continue
+
+                raw = raw.rename(columns={"date": "datetime", "symbol": "instrument"})
+                raw = raw[["instrument", "datetime", "open", "high", "low", "close", "volume"]]
+                frames_for_batch.append(raw)
+
+                if len(frames_for_batch) >= batch_size or i == len(files_to_process) - 1:
+                    batch = pd.concat(frames_for_batch, ignore_index=True)
+                    table = pa.Table.from_pandas(batch)
+                    if writer is None:
+                        writer = pq.ParquetWriter(output_path, table.schema)
+                    writer.write_table(table)
+                    total_written += len(frames_for_batch)
+                    frames_for_batch = []
+        finally:
+            if writer is not None:
+                writer.close()
+
+        logger.info(f"supplement_daily.parquet 生成完成，共 {total_written} 个文件")
+        return True
+
+    def save(self, df: pd.DataFrame, filename: str = "factor_data.parquet"):
+        """保存（增量模式，内存安全）
+
+        convert() 每次都从源数据全量生成当日结果，因此 df 对其覆盖的
+        instrument 是完整的。用 PyArrow 高效读取 existing 的 instrument
+        列做差集，只加载需要保留的退市/停牌股票行，避免两份全量同时加载。
+        """
+        import pyarrow.parquet as pq
+
+        path = self.qlib_dir / filename
+
+        if not path.exists():
+            df.to_parquet(path, index=False)
+            logger.info(f"保存: {path}")
+            return path
+
+        # 用 PyArrow 只读 instrument 列，找需要保留的 ancient instruments
+        existing_table = pq.read_table(path, columns=["instrument"])
+        existing_instruments = set(
+            existing_table.column("instrument").to_pylist()
+        )
+        del existing_table
+
+        new_instruments = set(df["instrument"].unique())
+        ancient_instruments = existing_instruments - new_instruments
+
+        if not ancient_instruments:
+            # 全量覆盖，无需合并
+            df.to_parquet(path, index=False)
+        else:
+            # 只加载 ancient 的行，与 df 合并
+            existing = pd.read_parquet(
+                path,
+                filters=[("instrument", "in", list(ancient_instruments))],
+            )
+            existing["datetime"] = pd.to_datetime(existing["datetime"])
+            df["datetime"] = pd.to_datetime(df["datetime"])
+
+            combined = pd.concat([existing, df], ignore_index=True)
+            del existing
+            combined = combined.sort_values(["instrument", "datetime"])
+            combined.to_parquet(path, index=False)
+            del combined
+
+        logger.info(
+            f"保存 factor_data: {path} "
+            f"({path.stat().st_size // 1024 // 1024}MB)"
+        )
+        return path
+
+
+def main():
+    converter = TushareToQlibConverter()
+    df = converter.convert()
+
+    if df is not None:
+        converter.save(df)
+
+        print("\n" + "="*60)
+        print("字段统计:")
+        print("="*60)
+        for col in sorted(df.columns):
+            n = df[col].notna().sum()
+            pct = n / len(df) * 100
+            print(f"  {col:30s}: {n:>10,} ({pct:5.1f}%)")
+
+
+if __name__ == "__main__":
+    main()

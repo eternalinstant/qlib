@@ -1,0 +1,66 @@
+# 实验策略 - 质量过滤 + 价值排序 + 技术增强（含负债率过滤）
+# 第一层：ROA>0 + OCF>0 + 负债率<60% 硬过滤
+# 第二层：价值排名(alpha=0.65) + 技术增强(enhance=0.35)
+name: value_quality_debt_tech_15
+description: "质量过滤(含负债率)+价值+技术：ROA>0+OCF>0+负债率<60%过滤，价值65%+技术35%"
+
+weights:
+  alpha: 0.65
+  risk: 0.0
+  enhance: 0.35
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+    - name: ebit_to_mv
+      expression: ebit_to_mv
+      source: parquet
+      ir: 0.33
+  enhance:
+    - name: turnover_rate_f
+      expression: turnover_rate_f
+      source: parquet
+      negate: true
+      ir: 0.42
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      negate: true
+      ir: 0.51
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  score_smoothing_days: 5
+  hard_filters:
+    roa_fina: 0              # ROA > 0
+    ocf_to_ev: 0              # 经营现金流 > 0
+  hard_filter_quantiles:
+    debt_to_assets_fina: 0.85  # 负债率前15%（即负债率低于85%分位，排除高杠杆公司）
+
+rebalance:
+  freq: month
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5

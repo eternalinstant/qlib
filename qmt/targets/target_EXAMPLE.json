@@ -1,0 +1,13 @@
+{
+  "date": "20260527",
+  "strategy": "alpha158_momentum_volume_k6",
+  "invested_pct": 0.8,
+  "positions": [
+    {"symbol": "600519.SH", "weight": 0.1667},
+    {"symbol": "000001.SZ", "weight": 0.1667},
+    {"symbol": "600036.SH", "weight": 0.1667},
+    {"symbol": "601318.SH", "weight": 0.1667},
+    {"symbol": "000333.SZ", "weight": 0.1667},
+    {"symbol": "600276.SH", "weight": 0.1665}
+  ]
+}

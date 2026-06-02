@@ -1,0 +1,40 @@
+# 策略配置
+# =====================================
+
+# 因子权重（2026-03-10 精简优化版：低波动主导 + 价值辅助 + 技术反转）
+weights:
+  alpha: 0.20      # Alpha层 (盈利质量+价值+现金流)
+  risk: 0.55       # 风控层 (量价异常过滤，IR最强)
+  enhance: 0.25    # 增强层 (bull/bear power + vol_ema反转)
+
+# 选股参数
+selection:
+  topk: 15                    # 持仓股票数量
+  universe: csi300            # 股票池: all / csi300（按调仓日回看历史成分）
+  min_market_cap: 50          # 最小市值(亿元), 0=不过滤
+  exclude_st: true            # 排除ST股票
+  exclude_new_days: 60        # 排除上市N天内股票
+
+# 调仓频率
+rebalance:
+  freq: "week"                # month / week / day
+
+# 交易成本
+trading:
+  buy_commission_rate: 0.0003   # 买入佣金 0.03%
+  sell_commission_rate: 0.0003  # 卖出佣金 0.03%
+  sell_stamp_tax_rate: 0.0010   # 卖出印花税 0.10%
+  min_buy_commission: 5.0       # 买入最低佣金 5 元/笔
+  min_sell_commission: 5.0      # 卖出最低佣金 5 元/笔
+
+# 持仓稳定性控制（可选）
+stability:
+  sticky: 5                  # 保留上期持仓数量，0=不保留
+  threshold: 0.3             # 得分阈值(0-1)，超过该排名的旧持仓才保留
+  churn_limit: 5             # 每次最多换仓数量，0=不限制
+  margin_stable: true        # 边缘股票(11-15名)稳定性
+
+# 回测区间
+backtest_period:
+  start_date: "2019-01-01"
+  end_date: "auto"  # auto = 使用当天日期

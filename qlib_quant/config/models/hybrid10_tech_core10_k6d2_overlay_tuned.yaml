@@ -1,0 +1,120 @@
+name: hybrid10_tech_core10_k6d2_overlay_tuned
+
+data:
+  source: hybrid
+  start_date: "2019-01-01"
+  end_date: "2026-04-15"
+  alpha158_universe: "csi300"
+  parquet_feature_columns:
+    - ebit_to_mv
+    - roe_fina
+    - operate_profit_inc
+    - rank_value_profit_core
+    - rank_growth_quality_core
+    - rank_flow_momentum_core
+    - qvf_core_interaction
+  alpha158_feature_columns:
+    - ROC20
+    - RANK20
+    - CORD20
+  alpha158:
+    kbar: {}
+    price:
+      windows: [0]
+      feature: [OPEN, HIGH, LOW, VWAP]
+    rolling:
+      windows: [10, 20, 60]
+      include:
+        - ROC
+        - MA
+        - STD
+        - BETA
+        - RSQR
+        - RESI
+        - MAX
+        - LOW
+        - RANK
+        - RSV
+        - IMAX
+        - IMIN
+        - IMXD
+        - CORR
+        - CORD
+        - CNTP
+        - CNTD
+        - SUMP
+        - VSTD
+        - WVMA
+        - VSUMD
+
+label:
+  horizon_days: 20
+
+training:
+  train_start: "2019-01-01"
+  train_end: "2022-12-31"
+  valid_start: "2023-01-01"
+  valid_end: "2023-12-31"
+
+scoring:
+  start_date: "2019-01-01"
+  end_date: "2026-04-15"
+
+model:
+  preferred_backend: lightgbm
+  params:
+    learning_rate: 0.05
+    n_estimators: 320
+    max_depth: 4
+    min_child_samples: 32
+    random_state: 42
+    verbosity: -1
+
+selection:
+  freq: biweek
+  topk: 6
+  universe: csi300
+  min_market_cap: 120
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 4
+  threshold: 0.0
+  churn_limit: 2
+  margin_stable: false
+  buffer: 0
+  score_smoothing_days: 1
+  entry_persist_days: 1
+  exit_persist_days: 1
+  min_hold_days: 0
+  entry_rank:
+  exit_rank:
+
+position:
+  model: fixed
+  params:
+    stock_pct: 0.80
+
+overlay:
+  enabled: true
+  target_vol: 0.15
+  vol_lookback: 20
+  trend_lookback: 40
+  trend_exposure: 0.65
+  dd_soft: 0.015
+  dd_hard: 0.035
+  soft_exposure: 0.70
+  hard_exposure: 0.35
+  exposure_min: 0.0
+  exposure_max: 1.0
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  min_buy_commission: 5.0
+  min_sell_commission: 5.0
+  slippage_bps: 5.0
+  impact_bps: 5.0
+
+output:
+  root: "results/model_signals/hybrid10_tech_core10_k6d2_overlay_tuned"

@@ -1,0 +1,62 @@
+# Top15 核心稳健版
+name: top15_core_v2
+description: "Top15稳健v2：close-only 中周期反转 + 低波低量波动 + 新股过滤，日频缓冲，趋势仓位"
+
+weights:
+  alpha: 0.10
+  risk: 0.25
+  enhance: 0.65
+
+factors:
+  alpha:
+    - name: total_mv_log
+      expression: "Log($total_mv + 1)"
+      source: qlib
+      ir: 0.08
+  risk:
+    - name: vol_std_10d
+      expression: "Std($volume, 10) / (Mean($volume, 10) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.11
+    - name: amt_std_6d
+      expression: "Std($amount, 6) / (Mean($amount, 6) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.09
+    - name: vol_ema26_ratio
+      expression: "$volume / (EMA($volume, 26) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.08
+  enhance:
+    - name: ema20_dev
+      expression: "$close / EMA($close, 20) - 1"
+      source: qlib
+      negate: true
+      ir: 0.27
+    - name: ema26_dev
+      expression: "$close / EMA($close, 26) - 1"
+      source: qlib
+      negate: true
+      ir: 0.27
+    - name: bbi_momentum
+      expression: "$close / ((Mean($close, 3) + Mean($close, 6) + Mean($close, 12) + Mean($close, 24)) / 4) - 1"
+      source: qlib
+      negate: true
+      ir: 0.26
+
+selection:
+  topk: 12
+  universe: csi300
+  neutralize_industry: false
+  min_market_cap: 80
+  exclude_new_days: 120
+  sticky: 4
+  buffer: 15
+
+rebalance:
+  freq: day
+
+position:
+  model: trend

@@ -1,0 +1,53 @@
+name: qarp_roe_valfilter
+description: QARP：ROE排名+估值中低位过滤
+weights:
+  alpha: 0.5
+  risk: 0.0
+  enhance: 0.5
+factors:
+  alpha:
+  - name: roe_fina
+    expression: roe_fina
+    source: parquet
+    ir: 0.3
+  - name: roa_fina
+    expression: roa_fina
+    source: parquet
+    ir: 0.3
+  - name: revenue_inc
+    expression: revenue_inc
+    source: parquet
+    ir: 0.25
+  enhance:
+  - name: turnover_rate_f
+    expression: turnover_rate_f
+    source: parquet
+    negate: true
+    ir: 0.42
+  - name: ema5_dev
+    expression: $close / EMA($close, 5) - 1
+    source: qlib
+    negate: true
+    ir: 0.51
+selection:
+  mode: factor_topk
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  score_smoothing_days: 10
+  hard_filter_quantiles:
+    book_to_market: 0.3
+rebalance:
+  freq: month
+position:
+  model: trend
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+  impact_bps: 5

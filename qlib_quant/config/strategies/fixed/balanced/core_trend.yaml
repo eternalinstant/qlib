@@ -1,0 +1,58 @@
+# 固定策略 - 平衡主线
+name: core_trend
+description: "固定层平衡基线：沿用 top15_core_trend 的正式口径，作为长期对照组"
+
+weights:
+  alpha: 0.05
+  risk: 0.15
+  enhance: 0.80
+
+factors:
+  alpha:
+    - name: total_mv_log
+      expression: "Log($total_mv + 1)"
+      source: qlib
+      ir: 0.08
+  risk:
+    - name: vol_std_10d
+      expression: "Std($volume, 10) / (Mean($volume, 10) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.11
+    - name: amt_std_6d
+      expression: "Std($amount, 6) / (Mean($amount, 6) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.09
+    - name: vol_ema26_ratio
+      expression: "$volume / (EMA($volume, 26) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.08
+  enhance:
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      ir: 0.51
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 10
+  universe: csi300
+  neutralize_industry: false
+  min_market_cap: 50
+  sticky: 3
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: trend

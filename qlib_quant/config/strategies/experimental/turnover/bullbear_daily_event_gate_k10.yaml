@@ -1,0 +1,55 @@
+# 实验策略 - bullbear 日频事件驱动版 TopK10
+name: bullbear_daily_event_gate_k10
+description: "bull/bear 主线日频事件驱动版 TopK10：平滑分数、严格入场、宽松出场、连续确认、最小持有期"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 20
+  score_smoothing_days: 5
+  entry_rank: 7
+  exit_rank: 25
+  entry_persist_days: 3
+  exit_persist_days: 3
+  min_hold_days: 10
+
+stability:
+  churn_limit: 2
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

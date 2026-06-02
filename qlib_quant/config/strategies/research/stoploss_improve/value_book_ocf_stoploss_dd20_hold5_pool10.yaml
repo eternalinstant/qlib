@@ -1,0 +1,49 @@
+# 研究策略 - 止损改进方案4
+name: value_book_ocf_stoploss_dd20_hold5_pool10
+description: "book_to_price + ocf_to_ev：止损阈值放宽到 20%，最短持有 5 日，同时把 replacement_pool_size 从 30 缩到 10"
+
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+
+selection:
+  mode: stoploss_replace
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  score_smoothing_days: 5
+  stoploss_lookback_days: 20
+  stoploss_drawdown: 0.20
+  replacement_pool_size: 10
+  min_hold_days: 5
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 0
+  impact_bps: 0
+  block_limit_up_buy: true
+  block_limit_down_sell: true

@@ -1,0 +1,55 @@
+# 低波动+趋势动量策略（日频版）
+# 前1000市值 → 低波动(40%) + 趋势动量(60%) → 日频调仓 + 趋势仓位
+name: lowvol_trend_top1000_daily
+description: "前1000市值低波动趋势日频：低波动40%+趋势动量60%，日频调仓+MA趋势仓位"
+
+weights:
+  alpha: 0.0
+  risk: 0.40
+  enhance: 0.60
+
+factors:
+  risk:
+    - name: ret_vol_20d
+      expression: "Std($close / Ref($close, 1) - 1, 20)"
+      source: qlib
+      negate: true
+      ir: 0.30
+    - name: turnover_rate_f
+      expression: turnover_rate_f
+      source: parquet
+      negate: true
+      ir: 0.42
+  enhance:
+    - name: close_vs_ma20
+      expression: "$close / Mean($close, 20) - 1"
+      source: qlib
+      ir: 0.45
+    - name: close_vs_ma60
+      expression: "$close / Mean($close, 60) - 1"
+      source: qlib
+      ir: 0.35
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  exclude_st: true
+  exclude_new_days: 120
+  buffer: 10
+  hard_filter_quantiles:
+    total_mv: 0.80
+
+rebalance:
+  freq: day
+
+position:
+  model: trend
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5

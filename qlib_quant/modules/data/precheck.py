@@ -1,0 +1,336 @@
+"""
+正式数据预检
+
+在生成选股、回测或正式验证前，检查核心数据是否齐备。
+"""
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import pandas as pd
+
+from config.config import CONFIG
+from core.universe import _iter_index_weight_paths, _iter_namechange_paths
+
+
+CORE_TUSHARE_FILES = [
+    "daily_basic.parquet",
+    "income.parquet",
+    "balancesheet.parquet",
+    "cashflow.parquet",
+    "fina_indicator.parquet",
+    "index_daily.parquet",
+    "stock_basic.csv",
+    "stock_industry.csv",
+]
+
+
+@dataclass
+class DataPrecheckResult:
+    ok: bool
+    errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    resolved_paths: Dict[str, str] = field(default_factory=dict)
+
+    def raise_if_failed(self):
+        if self.ok:
+            return
+        lines = ["数据预检失败："]
+        lines.extend(f"- {msg}" for msg in self.errors)
+        if self.warnings:
+            lines.append("警告：")
+            lines.extend(f"- {msg}" for msg in self.warnings)
+        raise FileNotFoundError("\n".join(lines))
+
+
+def _first_existing(paths: List[Path]) -> Optional[Path]:
+    for path in paths:
+        if path.exists():
+            return path
+    return None
+
+
+def _check_table_columns(path: Path, required_cols: List[str]) -> Optional[str]:
+    try:
+        if path.suffix == ".parquet":
+            import pyarrow.parquet as pq
+            schema = pq.read_schema(path)
+            columns = set(schema.names)
+        else:
+            df = pd.read_csv(path, nrows=0)
+            columns = set(df.columns)
+    except Exception as exc:
+        return f"{path} 无法读取: {exc}"
+
+    missing = [col for col in required_cols if col not in columns]
+    if missing:
+        return f"{path} 缺少字段: {missing}"
+    return None
+
+
+def _qlib_root() -> Path:
+    return Path(CONFIG.get("paths.data.qlib_data", CONFIG.get("qlib_data_path", ""))).expanduser()
+
+
+def _tushare_root() -> Path:
+    qlib_root = _qlib_root()
+    if qlib_root.name == "cn_data":
+        return qlib_root.parent.parent / "tushare"
+    return Path("data/tushare").resolve()
+
+
+def _check_exists(errors: List[str], resolved: Dict[str, str], key: str, path: Path):
+    if path.exists():
+        resolved[key] = str(path)
+    else:
+        errors.append(f"缺少文件: {path}")
+
+
+def _backtest_period():
+    start_date = pd.Timestamp(CONFIG.get("start_date", "2019-01-01"))
+    end_date = pd.Timestamp(CONFIG.get("end_date", "2026-02-26"))
+    return start_date, end_date
+
+
+def run_data_precheck(universe: str = "all", require_st_history: bool = False) -> DataPrecheckResult:
+    errors: List[str] = []
+    warnings: List[str] = []
+    resolved: Dict[str, str] = {}
+
+    qlib_root = _qlib_root()
+    tushare_root = _tushare_root()
+    start_date, end_date = _backtest_period()
+
+    # Qlib provider
+    _check_exists(errors, resolved, "qlib_cal", qlib_root / "calendars" / "day.txt")
+    _check_exists(errors, resolved, "qlib_instruments", qlib_root / "instruments" / "all.txt")
+    _check_exists(errors, resolved, "qlib_factor_data", qlib_root / "factor_data.parquet")
+    cal_path = qlib_root / "calendars" / "day.txt"
+    cal_dates = pd.DatetimeIndex([])
+    cal_last_idx = None
+    if cal_path.exists():
+        try:
+            cal = pd.read_csv(cal_path, header=None, names=["date"])
+            cal_dates = pd.to_datetime(cal["date"], errors="coerce").dropna()
+            if cal_dates.empty:
+                errors.append(f"{cal_path} 交易日历为空或无法解析")
+            elif cal_dates.max() < end_date - pd.Timedelta(days=7):
+                errors.append(
+                    f"Qlib 交易日历最新日期 {cal_dates.max().date()} 距离回测终点 {end_date.date()} 过远"
+                )
+            else:
+                cal_last_idx = len(cal_dates) - 1
+        except Exception as exc:
+            errors.append(f"{cal_path} 无法检查日期覆盖: {exc}")
+
+    # Core Tushare raw data
+    for filename in CORE_TUSHARE_FILES:
+        _check_exists(errors, resolved, filename, tushare_root / filename)
+
+    daily_basic_path = tushare_root / "daily_basic.parquet"
+    if daily_basic_path.exists():
+        try:
+            daily_basic = pd.read_parquet(daily_basic_path, columns=["trade_date"])
+            daily_dates = pd.to_datetime(daily_basic["trade_date"], errors="coerce").dropna()
+            if daily_dates.empty:
+                errors.append(f"{daily_basic_path} trade_date 全部无效")
+            elif daily_dates.max() < end_date - pd.Timedelta(days=7):
+                errors.append(
+                    f"daily_basic 最新日期 {daily_dates.max().date()} 距离回测终点 {end_date.date()} 过远"
+                )
+        except Exception as exc:
+            errors.append(f"{daily_basic_path} 日期检查失败: {exc}")
+
+    index_daily_path = tushare_root / "index_daily.parquet"
+    if index_daily_path.exists():
+        try:
+            index_daily = pd.read_parquet(index_daily_path, columns=["trade_date"])
+            index_dates = pd.to_datetime(index_daily["trade_date"], errors="coerce").dropna()
+            if index_dates.empty:
+                errors.append(f"{index_daily_path} trade_date 全部无效")
+            elif index_dates.max() < end_date - pd.Timedelta(days=7):
+                errors.append(
+                    f"index_daily 最新日期 {index_dates.max().date()} 距离回测终点 {end_date.date()} 过远"
+                )
+        except Exception as exc:
+            errors.append(f"{index_daily_path} 日期检查失败: {exc}")
+
+    # Historical index constituents
+    required_index_codes = {
+        "csi300": ["000300.SH"],
+        "csi800": ["000300.SH", "000905.SH"],
+    }.get(universe, [])
+    if required_index_codes:
+        index_weight = _first_existing(_iter_index_weight_paths())
+        if index_weight is None:
+            errors.append(f"缺少历史指数成分文件 index_weight.parquet/csv（{universe} 股票池必需）")
+        else:
+            resolved["index_weight"] = str(index_weight)
+            err = _check_table_columns(index_weight, ["index_code", "con_code", "trade_date"])
+            if err:
+                errors.append(err)
+            else:
+                if index_weight.suffix == ".parquet":
+                    df = pd.read_parquet(index_weight, columns=["index_code", "trade_date"])
+                else:
+                    df = pd.read_csv(index_weight, usecols=["index_code", "trade_date"])
+                available_index_codes = set(df["index_code"].astype(str))
+                for index_code in required_index_codes:
+                    if index_code not in available_index_codes:
+                        errors.append(f"{index_weight} 不包含 {index_code} 成分数据")
+                if not df.empty:
+                    trade_dates = pd.to_datetime(df["trade_date"], errors="coerce").dropna()
+                    if trade_dates.empty:
+                        errors.append(f"{index_weight} trade_date 全部无效")
+                    else:
+                        if trade_dates.min() > start_date:
+                            errors.append(
+                                f"index_weight 最早快照 {trade_dates.min().date()} 晚于回测起点 {start_date.date()}。"
+                                f"当前 {universe} 回测在早期日期将缺少成分快照，请先补齐历史 index_weight。"
+                            )
+                        # 指数成分通常按月更新，允许 62 天窗口
+                        if trade_dates.max() < end_date - pd.Timedelta(days=62):
+                            errors.append(
+                                f"index_weight 最新快照 {trade_dates.max().date()} 距离回测终点 {end_date.date()} 过远"
+                            )
+
+    # Historical ST
+    if require_st_history:
+        namechange = _first_existing(_iter_namechange_paths())
+        if namechange is None:
+            errors.append("缺少历史 ST 文件 namechange.parquet/csv（exclude_st=true 必需）")
+        else:
+            resolved["namechange"] = str(namechange)
+            err = _check_table_columns(namechange, ["ts_code", "name", "start_date"])
+            if err:
+                errors.append(err)
+            else:
+                try:
+                    if namechange.suffix == ".parquet":
+                        df = pd.read_parquet(namechange, columns=["start_date"])
+                    else:
+                        df = pd.read_csv(namechange, usecols=["start_date"])
+                    start_dates = pd.to_datetime(df["start_date"], errors="coerce").dropna()
+                    if start_dates.empty:
+                        errors.append(f"{namechange} start_date 全部无效")
+                    elif start_dates.min() > start_date:
+                        warnings.append(
+                            f"namechange 最早记录 {start_dates.min().date()} 晚于回测起点 {start_date.date()}"
+                        )
+                except Exception as exc:
+                    errors.append(f"{namechange} 日期检查失败: {exc}")
+
+    # ── Qlib provider 字段一致性检查 ──
+    # 仅检查 instruments/all.txt 中登记过的 instrument，避免被历史孤儿目录误伤
+    features_dir = qlib_root / "features"
+    if features_dir.exists():
+        import numpy as np
+
+        _OHLCV_FIELDS = ["close", "open", "high", "low", "volume", "amount"]
+        raw_root = qlib_root.parent / "raw_data"
+        cal_date_set = set(cal_dates)
+        cal_idx_map = {d: i for i, d in enumerate(cal_dates)}
+        tracked_instruments = set()
+        instruments_path = qlib_root / "instruments" / "all.txt"
+        if instruments_path.exists():
+            try:
+                instruments = pd.read_csv(
+                    instruments_path,
+                    sep="\t",
+                    header=None,
+                    names=["instrument", "start", "end"],
+                )
+                tracked_instruments = set(instruments["instrument"].astype(str).str.lower())
+            except Exception as exc:
+                errors.append(f"{instruments_path} 无法读取 instrument 列表: {exc}")
+
+        _all_inst = sorted(
+            [
+                d
+                for d in features_dir.iterdir()
+                if d.is_dir()
+                and d.name.lower() in tracked_instruments
+                and (d / "close.day.bin").exists()
+            ]
+        )
+        mismatch_count = 0
+        mismatch_details = []
+
+        for inst_dir in _all_inst:
+            inst = inst_dir.name
+
+            # 获取 close bin 的 end_idx（作为基准）
+            close_bin = inst_dir / "close.day.bin"
+            close_raw = np.fromfile(close_bin, dtype="<f4")
+            if len(close_raw) < 2 or np.isnan(close_raw[0]):
+                continue
+            close_start = int(close_raw[0])
+            close_end = close_start + len(close_raw) - 2
+
+            if cal_last_idx is not None and close_end > cal_last_idx:
+                mismatch_count += 1
+                if len(mismatch_details) < 5:
+                    mismatch_details.append(
+                        f"{inst}: close end_idx={close_end} 超出 calendar end_idx={cal_last_idx}"
+                    )
+                continue  # 已超范围，跳过后续检查避免双倍计数
+
+            raw_path = raw_root / f"{inst}.parquet"
+            if raw_path.exists():
+                try:
+                    raw_df = pd.read_parquet(raw_path, columns=["date"])
+                    raw_dates = pd.to_datetime(raw_df["date"], errors="coerce").dropna().dt.normalize()
+                    raw_dates = raw_dates[raw_dates.isin(cal_date_set)]
+                    if not raw_dates.empty:
+                        raw_idx = raw_dates.map(cal_idx_map).dropna().astype(int)
+                        raw_start = int(raw_idx.min())
+                        raw_end = int(raw_idx.max())
+                        if close_start != raw_start or close_end != raw_end:
+                            mismatch_count += 1
+                            if len(mismatch_details) < 5:
+                                mismatch_details.append(
+                                    f"{inst}: close 覆盖 {close_start}-{close_end} ≠ raw_data 覆盖 {raw_start}-{raw_end}"
+                                )
+                except Exception as exc:
+                    warnings.append(f"{raw_path} 日期覆盖检查失败: {exc}")
+
+            for fld in _OHLCV_FIELDS:
+                if fld == "close":
+                    continue
+                fld_bin = inst_dir / f"{fld}.day.bin"
+                if not fld_bin.exists():
+                    continue
+                fld_raw = np.fromfile(fld_bin, dtype="<f4")
+                if len(fld_raw) < 2 or np.isnan(fld_raw[0]):
+                    continue
+                fld_start = int(fld_raw[0])
+                fld_end = fld_start + len(fld_raw) - 2
+
+                if fld_end != close_end or (cal_last_idx is not None and fld_end > cal_last_idx):
+                    mismatch_count += 1
+                    if len(mismatch_details) < 5:
+                        mismatch_details.append(
+                            f"{inst}: {fld} end_idx={fld_end} ≠ close end_idx={close_end} (差 {close_end - fld_end} 天)"
+                        )
+
+        if mismatch_count > 0:
+            detail_str = "; ".join(mismatch_details)
+            if mismatch_count > 5:
+                detail_str += f" ... 共 {mismatch_count} 处不一致"
+            errors.append(
+                f"Qlib provider 字段不一致: close 与 OHLCVA bin 截止日期不匹配。"
+                f"请运行: python3 main.py update 。"
+                f"详情: {detail_str}"
+            )
+
+    return DataPrecheckResult(ok=not errors, errors=errors, warnings=warnings, resolved_paths=resolved)
+
+
+def ensure_strategy_data_ready(strategy) -> DataPrecheckResult:
+    result = run_data_precheck(
+        universe=getattr(strategy, "universe", "all"),
+        require_st_history=bool(getattr(strategy, "exclude_st", False)),
+    )
+    result.raise_if_failed()
+    return result

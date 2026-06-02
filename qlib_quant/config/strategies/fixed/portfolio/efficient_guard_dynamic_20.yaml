@@ -1,0 +1,22 @@
+# 动态组合策略 - 20% 基础现金高利用率版
+name: efficient_guard_dynamic_20
+description: "组合母策略：40% bullbear + 40% ultra_conservative + 20% cash，平时用更低现金运行，弱势期通过组合层 validity 抬高现金仓位"
+
+composition:
+  components:
+    - strategy: test_bullbear_constrained_all
+      weight: 0.40
+    - strategy: experimental/safety/bullbear_ultra_conservative
+      weight: 0.40
+  cash_weight: 0.20
+
+validity:
+  lookback_days: 30
+  min_observations: 20
+  min_total_return: -0.01
+  min_annual_return: -0.05
+  min_sharpe: 0.00
+  max_drawdown: -0.05
+  action: reduce
+  reduce_to: 0.84
+  apply_in_backtest: true

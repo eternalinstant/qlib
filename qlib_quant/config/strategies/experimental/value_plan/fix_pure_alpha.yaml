@@ -1,0 +1,40 @@
+name: fix_pure_alpha
+description: 纯价值因子无技术增强
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+factors:
+  alpha:
+  - name: book_to_price
+    expression: book_to_market
+    source: parquet
+    ir: 0.14
+  - name: ocf_to_ev
+    expression: ocf_to_ev
+    source: parquet
+    ir: 0.33
+  - name: ebit_to_mv
+    expression: ebit_to_mv
+    source: parquet
+    ir: 0.33
+selection:
+  mode: factor_topk
+  topk: 10
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 10
+  score_smoothing_days: 10
+rebalance:
+  freq: month
+position:
+  model: trend
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+  impact_bps: 5

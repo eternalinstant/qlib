@@ -1,0 +1,31 @@
+{
+  "date": "20260529",
+  "strategy": "alpha158_momentum_volume_k6_dd10_overlay",
+  "invested_pct": 0.8,
+  "positions": [
+    {
+      "symbol": "600958.SH",
+      "weight": 0.166667
+    },
+    {
+      "symbol": "300502.SZ",
+      "weight": 0.166667
+    },
+    {
+      "symbol": "300274.SZ",
+      "weight": 0.166667
+    },
+    {
+      "symbol": "000001.SZ",
+      "weight": 0.166667
+    },
+    {
+      "symbol": "688256.SH",
+      "weight": 0.166667
+    },
+    {
+      "symbol": "300308.SZ",
+      "weight": 0.166665
+    }
+  ]
+}

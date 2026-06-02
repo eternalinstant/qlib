@@ -1,0 +1,56 @@
+# 实验策略 - bullbear 日频快换仓版：保留日频信号，但把执行层调回更灵敏
+name: bullbear_daily_fast_k20
+description: "bull/bear 主线日频快换仓版 TopK20：缩小缓冲区、放宽入场、收紧出场、缩短确认期，并把单日最大换仓数恢复到 3"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: bear_power
+      expression: "$low - EMA($close, 13)"
+      source: qlib
+      ir: 0.69
+
+selection:
+  mode: factor_topk
+  topk: 20
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 5
+  buffer: 10
+  score_smoothing_days: 3
+  entry_rank: 16
+  exit_rank: 26
+  entry_persist_days: 2
+  exit_persist_days: 2
+  min_hold_days: 5
+
+stability:
+  churn_limit: 3
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

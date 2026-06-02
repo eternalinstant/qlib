@@ -1,0 +1,45 @@
+# 研究策略 - 同因子 factor_topk 对照组
+name: value_book_ocf_factor_topk_from_stoploss_15
+description: "book_to_price + ocf_to_ev：从 stoploss_replace_15 同参数还原出的纯 factor_topk 对照组，用于统一口径比较"
+
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+
+selection:
+  mode: factor_topk
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  score_smoothing_days: 5
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 0
+  impact_bps: 0
+  block_limit_up_buy: true
+  block_limit_down_sell: true

@@ -1,0 +1,29 @@
+# 路径配置
+# =====================================
+
+# 数据路径
+data:
+  qlib_data: "~/Documents/stock/qlib_quant/data/qlib_data/cn_data"
+  selections: "~/Documents/stock/qlib_quant/data/monthly_selections.csv"
+  updates: "~/Documents/stock/qlib_quant/data/updates"
+  cache: "~/Documents/stock/qlib_quant/data/cache"
+
+# 输出路径
+output:
+  results: "~/Documents/stock/qlib_quant/results"
+  logs: "~/Documents/stock/qlib_quant/logs"
+  reports: "~/Documents/stock/qlib_quant/results/reports"
+
+# 兼容键：源码多处用 CONFIG.get("paths.qlib_data" / "paths.selections" / "paths.cache", fallback)，
+# 这些取值走 _data["paths"][<key>]，必须在顶层提供，否则会一直命中旧的 fallback 默认路径。
+qlib_data: "~/Documents/stock/qlib_quant/data/qlib_data/cn_data"
+selections: "~/Documents/stock/qlib_quant/data/monthly_selections.csv"
+cache: "~/Documents/stock/qlib_quant/data/cache"
+
+# 日志配置
+logging:
+  level: "INFO"                # DEBUG / INFO / WARNING / ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  rotation:
+    maxBytes: 10485760         # 10MB
+    backupCount: 5

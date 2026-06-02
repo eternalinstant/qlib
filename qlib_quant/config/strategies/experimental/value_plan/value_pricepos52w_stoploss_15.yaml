@@ -1,0 +1,44 @@
+# 实验策略 - 52周位置单因子止损版
+name: value_pricepos52w_stoploss_15
+description: "基准实验：只用 price_pos_52w 作为主因子，在 stoploss_replace 模式下验证中周期位置单因子"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: price_pos_52w
+      expression: "($close - Min($close, 252)) / (Max($close, 252) - Min($close, 252) + 1e-8)"
+      source: qlib
+      ir: 0.24
+
+selection:
+  mode: stoploss_replace
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  score_smoothing_days: 5
+  stoploss_lookback_days: 20
+  stoploss_drawdown: 0.10
+  replacement_pool_size: 30
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

@@ -1,0 +1,43 @@
+# 策略C - 短期趋势+低波组合
+name: test_trend_lowvol
+description: "短期趋势+低波组合：ema5_dev + bull_power + ret_vol_60d(高波动正向)"
+
+weights:
+  alpha: 0.0
+  risk: 0.0
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      ir: 0.66
+    - name: bull_power
+      expression: "$high - EMA($close, 13)"
+      source: qlib
+      ir: 0.68
+    - name: ret_vol_60d
+      expression: "Std(($close - Ref($close, 1)) / Ref($close, 1), 60)"
+      source: qlib
+      ir: 0.51
+
+selection:
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  sticky: 5
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010

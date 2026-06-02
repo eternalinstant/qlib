@@ -1,0 +1,58 @@
+description: TOP因子组合：bull_power+bear_power+ocf_to_ev，factor_topk+buffer+sticky+trend
+factors:
+  alpha:
+  - expression: ocf_to_ev
+    ir: 0.33
+    name: ocf_to_ev
+    source: parquet
+  enhance:
+  - expression: "$high - EMA($close, 13)"
+    ir: 0.63
+    name: bull_power
+    source: qlib
+  - expression: "$low - EMA($close, 13)"
+    ir: 0.40
+    name: bear_power
+    source: qlib
+name: research/top_factors/power_ocf_topk_trend
+position:
+  model: trend
+  params:
+    ma_fast: 20
+    ma_slow: 60
+    peak_lookback: 120
+    regime_allocations:
+      mild_bear: 0.65
+      mild_bull: 0.90
+      neutral: 0.80
+      strong_bear: 0.50
+      strong_bull: 1.00
+rebalance:
+  freq: week
+selection:
+  buffer: 20
+  entry_persist_days: 1
+  entry_rank: 7
+  exclude_new_days: 120
+  exclude_st: true
+  exit_persist_days: 1
+  exit_rank: 25
+  min_hold_days: 0
+  min_market_cap: 50
+  mode: factor_topk
+  neutralize_industry: true
+  score_smoothing_days: 1
+  sticky: 5
+  topk: 15
+  universe: all
+trading:
+  block_limit_down_sell: true
+  block_limit_up_buy: true
+  buy_commission_rate: 0.0003
+  impact_bps: 2
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5
+weights:
+  alpha: 0.3
+  enhance: 0.7

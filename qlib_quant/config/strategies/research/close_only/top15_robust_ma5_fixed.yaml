@@ -1,0 +1,33 @@
+# Top15 close-only 稳健版（推荐）
+name: top15_robust_ma5_fixed
+description: "Top15稳健单因子：ma5_dev，日频缓冲，120天新股过滤，固定88%仓位"
+
+weights:
+  enhance: 1.0
+
+factors:
+  enhance:
+    - name: ma5_dev
+      expression: "$close / Mean($close, 5) - 1"
+      source: qlib
+      ir: 0.0
+
+selection:
+  topk: 15
+  universe: csi300
+  neutralize_industry: false
+  min_market_cap: 80
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 10
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  slippage_bps: 5
+  impact_bps: 5

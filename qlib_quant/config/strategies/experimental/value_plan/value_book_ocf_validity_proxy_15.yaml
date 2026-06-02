@@ -1,0 +1,66 @@
+# 实验策略 - 价值计划止损代理版
+name: value_book_ocf_validity_proxy_15
+description: "价值计划止损代理版：book_to_price + ocf_to_ev 低换手持有，并用 20 日 validity 代理计划里的 10% 动态止损收缩"
+
+weights:
+  alpha: 1.0
+  risk: 0.0
+  enhance: 0.0
+
+factors:
+  alpha:
+    - name: book_to_price
+      expression: book_to_market
+      source: parquet
+      ir: 0.14
+    - name: ocf_to_ev
+      expression: ocf_to_ev
+      source: parquet
+      ir: 0.33
+
+selection:
+  topk: 15
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 80
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 12
+  buffer: 25
+  score_smoothing_days: 7
+  entry_rank: 10
+  exit_rank: 32
+  entry_persist_days: 3
+  exit_persist_days: 5
+  min_hold_days: 15
+
+stability:
+  churn_limit: 1
+  margin_stable: true
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true
+
+validity:
+  lookback_days: 20
+  min_observations: 15
+  min_total_return: -0.03
+  min_annual_return: -0.15
+  min_sharpe: -0.10
+  max_drawdown: -0.10
+  action: reduce
+  reduce_to: 0.70
+  apply_in_backtest: true

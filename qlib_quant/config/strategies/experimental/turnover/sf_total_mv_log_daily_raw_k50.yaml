@@ -1,0 +1,48 @@
+# 实验策略 - 单因子 total_mv_log 日频裸切版 Top50
+name: sf_total_mv_log_daily_raw_k50
+description: "单因子 total_mv_log 日频裸切版 TopK50：保留 raw_k50 的日频无缓冲执行，只将因子替换为总市值对数"
+
+weights:
+  alpha: 1.0
+
+factors:
+  alpha:
+    - name: total_mv_log
+      expression: "Log($total_mv + 1)"
+      source: qlib
+      ir: 0.25
+
+selection:
+  mode: factor_topk
+  topk: 50
+  universe: all
+  neutralize_industry: true
+  min_market_cap: 50
+  exclude_st: true
+  exclude_new_days: 120
+  sticky: 0
+  buffer: 0
+  score_smoothing_days: 1
+  entry_persist_days: 1
+  exit_persist_days: 1
+  min_hold_days: 0
+
+stability:
+  churn_limit: 0
+  margin_stable: false
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.88
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.0010
+  slippage_bps: 5
+  impact_bps: 5
+  block_limit_up_buy: true
+  block_limit_down_sell: true

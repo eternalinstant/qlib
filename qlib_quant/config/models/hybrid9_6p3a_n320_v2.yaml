@@ -1,0 +1,119 @@
+data:
+  alpha158:
+    kbar: {}
+    price:
+      feature:
+      - OPEN
+      - HIGH
+      - LOW
+      - VWAP
+      windows:
+      - 0
+    rolling:
+      include:
+      - ROC
+      - MA
+      - STD
+      - BETA
+      - RSQR
+      - RESI
+      - MAX
+      - LOW
+      - RANK
+      - RSV
+      - IMAX
+      - IMIN
+      - IMXD
+      - CORR
+      - CORD
+      - CNTP
+      - CNTD
+      - SUMP
+      - VSTD
+      - WVMA
+      - VSUMD
+      windows:
+      - 10
+      - 20
+      - 60
+  alpha158_feature_columns:
+  - ROC20
+  - RSV20
+  - CORD20
+  alpha158_universe: csi300
+  end_date: '2026-04-15'
+  parquet_feature_columns:
+  - fcff_to_mv
+  - roe_fina
+  - n_cashflow_act
+  - qvf_core_interaction
+  - ebitda_to_mv
+  - ocf_to_ev
+  source: hybrid
+  start_date: '2019-01-01'
+label:
+  horizon_days: 20
+model:
+  params:
+    learning_rate: 0.05
+    max_depth: 4
+    min_child_samples: 32
+    n_estimators: 320
+    random_state: 42
+    verbosity: -1
+  preferred_backend: lightgbm
+name: hybrid9_6p3a_n320_v2
+output:
+  root: results/model_signals/hybrid9_6p3a_n320_v2
+overlay:
+  dd_hard: 0.025
+  dd_soft: 0.01
+  enabled: true
+  exposure_max: 1.0
+  exposure_min: 0.0
+  hard_exposure: 0.25
+  soft_exposure: 0.65
+  target_vol: 0.19
+  trend_exposure: 0.6
+  trend_lookback: 20
+  vol_lookback: 20
+position:
+  model: fixed
+  params:
+    stock_pct: 0.8
+scoring:
+  end_date: '2026-04-15'
+  start_date: '2019-01-01'
+selection:
+  buffer: 0
+  churn_limit: 2
+  entry_persist_days: 1
+  exclude_new_days: 120
+  exclude_st: true
+  exit_persist_days: 1
+  freq: biweek
+  margin_stable: false
+  min_hold_days: 0
+  min_market_cap: 120
+  mode: factor_topk
+  replacement_pool_size: 0
+  score_smoothing_days: 1
+  sticky: 6
+  stoploss_drawdown: 0.1
+  stoploss_lookback_days: 20
+  threshold: 0.0
+  topk: 8
+  universe: csi300
+trading:
+  buy_commission_rate: 0.0003
+  impact_bps: 5.0
+  min_buy_commission: 5.0
+  min_sell_commission: 5.0
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  slippage_bps: 5.0
+training:
+  train_end: '2022-12-31'
+  train_start: '2019-01-01'
+  valid_end: '2023-12-31'
+  valid_start: '2023-01-01'

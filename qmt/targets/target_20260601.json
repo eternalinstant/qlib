@@ -1,0 +1,23 @@
+{
+  "date": "20260601",
+  "strategy": "smoke_test_le20w",
+  "invested_pct": 0.008,
+  "positions": [
+    {
+      "symbol": "600958.SH",
+      "weight": 0.25
+    },
+    {
+      "symbol": "600522.SH",
+      "weight": 0.25
+    },
+    {
+      "symbol": "002938.SZ",
+      "weight": 0.25
+    },
+    {
+      "symbol": "600183.SH",
+      "weight": 0.25
+    }
+  ]
+}
