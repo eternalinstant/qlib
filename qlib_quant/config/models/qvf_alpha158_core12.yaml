@@ -131,7 +131,7 @@ trading:
   t1_sell_lock_days: 0
   volume_cap_pct: null
 output:
-  root: /Users/sxt/code/qlib/results/model_signals/qvf_alpha158_core12
+  root: results/model_signals/qvf_alpha158_core12
 walk_forward:
   enabled: false
   min_train_years: 3

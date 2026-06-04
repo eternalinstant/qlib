@@ -274,11 +274,12 @@ class TestConfig:
     """配置测试"""
 
     def test_config_qlib_data_path(self):
-        """测试 QLib 数据路径配置"""
-        path = CONFIG.get("qlib_data_path", "")
-        if path:
-            path = Path(path).expanduser()
-            assert path.exists(), f"配置的 QLib 数据路径不存在: {path}"
+        """测试 QLib 数据路径配置（统一走路径层，跨平台）"""
+        from modules.data.paths import get_qlib_root
+        path = get_qlib_root()
+        # 无数据的环境（如 CI）允许不存在；存在则必须是目录
+        if path.exists():
+            assert path.is_dir(), f"配置的 QLib 数据路径不是目录: {path}"
 
     def test_config_date_range(self):
         """测试日期范围配置"""

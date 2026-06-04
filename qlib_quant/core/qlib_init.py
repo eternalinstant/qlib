@@ -4,11 +4,9 @@ Qlib 初始化与安全数据加载
 """
 
 import os
-import platform
 import sys
-from pathlib import Path
 
-from config.config import CONFIG
+from utils.platform import is_windows
 
 
 _QLIB_PROVIDER_URI = None
@@ -16,7 +14,7 @@ _QLIB_PROVIDER_URI = None
 
 def _qlib_runtime_overrides():
     """返回当前平台需要传给 qlib.init 的运行时覆盖项。"""
-    if platform.system() != "Windows":
+    if not is_windows():
         return {}
 
     if os.environ.get("JOBLIB_START_METHOD") == "fork":
@@ -49,7 +47,10 @@ def init_qlib():
     import qlib
     from qlib.config import REG_CN
 
-    provider_uri = Path(CONFIG.get("paths.qlib_data", "~/Documents/qlib_quant/data/qlib_data/cn_data")).expanduser()
+    # 单一真源：provider 路径统一由 modules/data/paths 推导（项目根相对，跨平台）
+    from modules.data.paths import get_qlib_root
+
+    provider_uri = get_qlib_root()
     if not provider_uri.exists():
         print(f"[ERROR] Qlib 数据目录不存在: {provider_uri}")
         sys.exit(1)
@@ -65,7 +66,7 @@ def init_qlib():
     try:
         from qlib.config import C
 
-        if platform.system() == "Windows":
+        if is_windows():
             C["kernels"] = 1
             C["joblib_backend"] = "threading"
             C["maxtasksperchild"] = None

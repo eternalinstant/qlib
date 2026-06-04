@@ -1034,7 +1034,7 @@ class TushareToQlibConverter:
             return False
 
         cal_dates = set()
-        with open(cal_path) as f:
+        with open(cal_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:

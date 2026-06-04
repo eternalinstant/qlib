@@ -247,8 +247,8 @@ def main():
     )
     parser.add_argument(
         "--target-dir", "-o",
-        default=r"C:\Users\Administrator\Documents\stock\qmt\targets",
-        help="target JSON 输出目录（默认 qmt/targets）",
+        default=str(_PROJECT_ROOT.parent / "qmt" / "targets"),
+        help="target JSON 输出目录（默认 仓库同级 qmt/targets）",
     )
     parser.add_argument(
         "--dry-run", action="store_true",

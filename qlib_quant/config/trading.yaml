@@ -11,9 +11,9 @@ cost:
   close_cost: 0.0013           # 卖出成本 0.13%
   min_cost: 5                  # 最低佣金
 
-# 数据路径
+# 数据路径（相对项目根；与 paths.yaml 同源，跨平台通用）
 paths:
-  qlib_data_path: "~/Documents/stock/qlib_quant/data/qlib_data/cn_data"
-  selections_path: "~/Documents/stock/qlib_quant/data/monthly_selections.csv"
-  results_path: "~/Documents/stock/qlib_quant/results"
-  logs_path: "~/Documents/stock/qlib_quant/logs"
+  qlib_data_path: "data/qlib_data/cn_data"
+  selections_path: "data/monthly_selections.csv"
+  results_path: "results"
+  logs_path: "logs"

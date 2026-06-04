@@ -195,7 +195,7 @@ def main():
     output_dir = PROJECT_ROOT / "results" / "attribution"
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / "factor_attribution_results.json"
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False, default=str)
     print(f"\n输出: {out_path}")
 

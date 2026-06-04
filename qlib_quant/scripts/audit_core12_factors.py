@@ -310,7 +310,7 @@ def main():
 
     import json
     out_path = output_dir / "core12_factor_audit.json"
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2, ensure_ascii=False, default=str)
 
     # 打印汇总表

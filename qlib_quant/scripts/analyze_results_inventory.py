@@ -37,9 +37,9 @@ def parse_args() -> argparse.Namespace:
 
 def safe_relative(path: Path, root: Path) -> str:
     try:
-        return str(path.relative_to(root))
+        return path.relative_to(root).as_posix()
     except ValueError:
-        return str(path)
+        return path.as_posix()
 
 
 def infer_strategy_name(path: Path, return_col: str) -> str:

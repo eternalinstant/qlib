@@ -1,5 +1,5 @@
 """
-Platform and path helpers shared by local macOS runs and Linux servers.
+Platform and path helpers shared by Windows, macOS, and Linux hosts.
 
 Keep OS detection in this module so business code does not grow scattered
 ``sys.platform`` or host-specific path branches.
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import platform as _platform
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -29,6 +30,10 @@ def is_macos() -> bool:
 
 def is_linux() -> bool:
     return system_name() == "Linux"
+
+
+def is_windows() -> bool:
+    return system_name() == "Windows"
 
 
 def project_root(start: Optional[Path] = None) -> Path:
@@ -54,6 +59,17 @@ def resolve_path(value: Any, base: Optional[Path] = None) -> Path:
     if expanded.is_absolute():
         return expanded
     return (base or project_root()) / expanded
+
+
+def temp_dir(*parts: str) -> Path:
+    """Return a cross-platform temp directory, creating it if missing.
+
+    Centralizes scattered ``/tmp`` hardcoding so research scripts also work
+    on Windows (uses the OS temp dir on every platform).
+    """
+    path = Path(tempfile.gettempdir()).joinpath(*parts)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def safe_cpu_count(default: int = 2, max_workers: Optional[int] = None) -> int:

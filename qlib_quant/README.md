@@ -18,7 +18,7 @@
 - 股票池：沪深300历史成分
 - 调仓节奏：子策略双周调仓，组合层按日合成收益
 - 成本口径：买卖佣金 `0.03%`，卖出印花税 `0.10%`，滑点 `5bps`，冲击成本 `5bps`
-- 默认仿真脚本：[scripts/historical_allocation_sim.py](/Users/sxt/code/qlib/scripts/historical_allocation_sim.py)
+- 默认仿真脚本：[scripts/historical_allocation_sim.py](scripts/historical_allocation_sim.py)
 
 子策略定位：
 
@@ -37,9 +37,9 @@
 
 关键结果文件：
 
-- 汇总：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json)
-- 每日明细：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_daily.csv](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_daily.csv)
-- 逐年对比：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv)
+- 汇总：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json](results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json)
+- 每日明细：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_daily.csv](results/analysis/phase1_final_main_backup_60_40/dynamic_sim_daily.csv)
+- 逐年对比：[results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv](results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv)
 
 执行方式：
 
@@ -70,20 +70,20 @@ qlib/
 
 ## 重要文件
 
-- [main.py](/Users/sxt/code/qlib/main.py)：命令行主入口
-- [config/strategy.yaml](/Users/sxt/code/qlib/config/strategy.yaml)：全局默认策略参数
-- [config/models](/Users/sxt/code/qlib/config/models)：当前模型信号策略配置目录
-- [core/strategy.py](/Users/sxt/code/qlib/core/strategy.py)：策略 YAML 加载与生成选股入口
-- [core/selection.py](/Users/sxt/code/qlib/core/selection.py)：因子加载、信号计算、Top-K 选股
-- [core/universe.py](/Users/sxt/code/qlib/core/universe.py)：股票池过滤，包括历史沪深300成分过滤
-- [modules/backtest/qlib_engine.py](/Users/sxt/code/qlib/modules/backtest/qlib_engine.py)：Qlib 回测引擎
-- [modules/backtest/pybroker_engine.py](/Users/sxt/code/qlib/modules/backtest/pybroker_engine.py)：PyBroker 回测引擎
-- [modules/data/tushare_downloader.py](/Users/sxt/code/qlib/modules/data/tushare_downloader.py)：Tushare 数据下载
-- [docs/current_strategy_summary.md](/Users/sxt/code/qlib/docs/current_strategy_summary.md)：当前策略与因子速记
+- [main.py](main.py)：命令行主入口
+- [config/strategy.yaml](config/strategy.yaml)：全局默认策略参数
+- [config/models](config/models)：当前模型信号策略配置目录
+- [core/strategy.py](core/strategy.py)：策略 YAML 加载与生成选股入口
+- [core/selection.py](core/selection.py)：因子加载、信号计算、Top-K 选股
+- [core/universe.py](core/universe.py)：股票池过滤，包括历史沪深300成分过滤
+- [modules/backtest/qlib_engine.py](modules/backtest/qlib_engine.py)：Qlib 回测引擎
+- [modules/backtest/pybroker_engine.py](modules/backtest/pybroker_engine.py)：PyBroker 回测引擎
+- [modules/data/tushare_downloader.py](modules/data/tushare_downloader.py)：Tushare 数据下载
+- [docs/current_strategy_summary.md](docs/current_strategy_summary.md)：当前策略与因子速记
 
 ## 策略分层管理
 
-策略文件仍然统一放在 [config/strategies](/Users/sxt/code/qlib/config/strategies)，但现在支持递归分层：
+策略文件仍然统一放在 [config/strategies](config/strategies)，但现在支持递归分层：
 
 - 兼容旧结构：`config/strategies/<strategy>.yaml`
 - 推荐新结构：`config/strategies/<layer>/<group>/<strategy>.yaml`
@@ -125,16 +125,21 @@ qlib/
 
 - `python main.py backtest --list` 会按 `winners / fixed / experimental / research` 分组列出策略。
 - `python main.py backtest -s experimental/safety/bullbear_quality_guard_all` 可直接加载分层策略。
-- 新分层策略的选股结果会落到 [data/selections](/Users/sxt/code/qlib/data/selections) 的同层级路径下，例如 `data/selections/experimental/safety/bullbear_quality_guard_all.csv`。
+- 新分层策略的选股结果会落到 [data/selections](data/selections) 的同层级路径下，例如 `data/selections/experimental/safety/bullbear_quality_guard_all.csv`。
 - `default` 已移动到 `fixed/reference/default`，但仍可直接用 `python main.py backtest -s default` 通过 basename 加载。
 - 新增 `composition` 组合策略：会先跑成员策略，再按权重混合净值；残余权重默认视为现金。
 
 ## 快速开始
 
+> 跨平台（Windows / Linux / macOS）安装、每日运行与自检见 [docs/cross_platform.md](docs/cross_platform.md)。Windows 侧统一用 `python main.py ...`，无需 `.sh`。
+
 运行任何需要 Tushare 的数据更新脚本前，请先设置环境变量：
 
 ```bash
-export TUSHARE_TOKEN=your_token_here
+export TUSHARE_TOKEN=your_token_here        # Linux / macOS
+```
+```powershell
+$env:TUSHARE_TOKEN = "your_token_here"      # Windows PowerShell
 ```
 
 新机器首次启动，先执行：
@@ -190,10 +195,10 @@ python main.py update
 
 ### `config/models` 模型策略
 
-阶段一最终主备策略都在 [config/models](/Users/sxt/code/qlib/config/models) 下：
+阶段一最终主备策略都在 [config/models](config/models) 下：
 
-- [alpha158_momentum_volume_k6_dd10_overlay.yaml](/Users/sxt/code/qlib/config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml)
-- [push25_cq10_v3_vol_norm.yaml](/Users/sxt/code/qlib/config/models/push25_cq10_v3_vol_norm.yaml)
+- [alpha158_momentum_volume_k6_dd10_overlay.yaml](config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml)
+- [push25_cq10_v3_vol_norm.yaml](config/models/push25_cq10_v3_vol_norm.yaml)
 
 模型策略 YAML 的关键字段：
 
@@ -252,7 +257,7 @@ python3 scripts/generate_model_scores.py --config config/models/<model>.yaml
 python3 scripts/backtest_model_signal.py --config config/models/<model>.yaml --engine qlib
 ```
 
-只调整阶段一最终策略时，优先改 `config/models` 或 [scripts/historical_allocation_sim.py](/Users/sxt/code/qlib/scripts/historical_allocation_sim.py)，不要去改早期 `top15_*` 策略。
+只调整阶段一最终策略时，优先改 `config/models` 或 [scripts/historical_allocation_sim.py](scripts/historical_allocation_sim.py)，不要去改早期 `top15_*` 策略。
 
 ### `config/strategies` 旧策略
 
@@ -326,7 +331,7 @@ composition:
 当前支持两种选股模式：
 
 - `factor_topk`：默认模式。每个调仓日按综合因子分数排序，再叠加 `sticky / buffer / churn_limit / event gate` 等稳定性逻辑。这一模式主要用于原始因子研究、Top-K 选股和找因子。
-- `stoploss_replace`：先按综合因子分数选出初始持仓，之后每日只检查当前持仓是否较最近 `N` 个交易日最高收盘价回撤超过阈值；只有触发的股票才卖出，再从当前因子排序靠前的非持仓股票里补回。这个模式对应 [docs/strategy_plan.md](/Users/sxt/code/qlib/docs/strategy_plan.md) 里的“动态止损调仓”思路。
+- `stoploss_replace`：先按综合因子分数选出初始持仓，之后每日只检查当前持仓是否较最近 `N` 个交易日最高收盘价回撤超过阈值；只有触发的股票才卖出，再从当前因子排序靠前的非持仓股票里补回。这个模式对应 [docs/strategy_plan.md](docs/strategy_plan.md) 里的“动态止损调仓”思路。
 
 `stoploss_replace` 额外支持：
 
@@ -358,9 +363,9 @@ composition:
 
 ### 最小步骤
 
-1. 在 [config/strategies](/Users/sxt/code/qlib/config/strategies) 下选择一个层级目录新建 YAML  
+1. 在 [config/strategies](config/strategies) 下选择一个层级目录新建 YAML  
    例如：`fixed/balanced/<strategy_name>.yaml` 或 `experimental/safety/<strategy_name>.yaml`
-2. 只写和 [config/strategy.yaml](/Users/sxt/code/qlib/config/strategy.yaml) 不同的字段
+2. 只写和 [config/strategy.yaml](config/strategy.yaml) 不同的字段
 3. 运行 `python main.py select -s <layer>/<group>/<strategy_name>`
 4. 运行 `python main.py backtest -s <layer>/<group>/<strategy_name> -e qlib`
 5. 需要横向对比时，运行 `python main.py compare -s <layer>/<group>/<strategy_name>,experimental/regime/bullbear_regime_guard_all --no-benchmark`
@@ -401,11 +406,11 @@ position:
 
 ### 继承规则
 
-- 单策略 YAML 会先加载 [config/strategy.yaml](/Users/sxt/code/qlib/config/strategy.yaml) 再做覆盖，所以没写的字段默认继承全局值。
+- 单策略 YAML 会先加载 [config/strategy.yaml](config/strategy.yaml) 再做覆盖，所以没写的字段默认继承全局值。
 - `factors` 支持两种写法：
   - 直接写 `expression`，适合临时试验单个新因子
-  - 只写 `name`，引用 [core/factors.py](/Users/sxt/code/qlib/core/factors.py) 里的默认注册因子
-- 分层策略的选股文件会按同样层级落到 [data/selections](/Users/sxt/code/qlib/data/selections) 下。
+  - 只写 `name`，引用 [core/factors.py](core/factors.py) 里的默认注册因子
+- 分层策略的选股文件会按同样层级落到 [data/selections](data/selections) 下。
 - `validity` 是实盘监控规则，不会直接改写历史回测收益；它用于判断“最近一段时间策略是否失效，以及建议 review / reduce / pause”。
 - `selection.mode: factor_topk` 是默认研究模式；`selection.mode: stoploss_replace` 是执行模式，会在保持当前持仓的前提下，仅对触发止损条件的股票做因子池替换。
 
@@ -418,7 +423,7 @@ position:
 
 ### 什么时候只改配置
 
-这些场景只改 [config/models](/Users/sxt/code/qlib/config/models) 下的模型策略文件：
+这些场景只改 [config/models](config/models) 下的模型策略文件：
 
 - 改阶段一子策略因子列
 - 改 `train / valid / scoring` 时间窗口
@@ -426,7 +431,7 @@ position:
 - 改模型选股 `topk / freq / min_market_cap`
 - 改模型层 `position / overlay / trading`
 
-这些场景只改 [config/strategies](/Users/sxt/code/qlib/config/strategies) 下的旧策略文件：
+这些场景只改 [config/strategies](config/strategies) 下的旧策略文件：
 
 - 改因子权重
 - 改 `topk / buffer / sticky / rebalance.freq`
@@ -436,7 +441,7 @@ position:
 - 改 `validity` 有效性阈值
 - 改交易成本和是否启用 `block_limit_up_buy / block_limit_down_sell`
 
-这些场景只改 [scripts/historical_allocation_sim.py](/Users/sxt/code/qlib/scripts/historical_allocation_sim.py) 或运行参数：
+这些场景只改 [scripts/historical_allocation_sim.py](scripts/historical_allocation_sim.py) 或运行参数：
 
 - 改最终主备比例，例如 `60/40` 调成 `70/30`
 - 改主备动态切换阈值，例如 `stress_dd / severe_dd / recover_dd`
@@ -446,42 +451,42 @@ position:
 
 这些不是“改策略参数”，而是“改系统能力”：
 
-- 想新增一个可复用的默认因子：改 [core/factors.py](/Users/sxt/code/qlib/core/factors.py)
-- 想新增一个新股票池，比如中证500：改 [core/universe.py](/Users/sxt/code/qlib/core/universe.py)
-- 想新增一个新仓位模型：改 [core/position.py](/Users/sxt/code/qlib/core/position.py) 和 [core/strategy.py](/Users/sxt/code/qlib/core/strategy.py)
-- 想把 `validity` 规则自动接进实盘调仓执行：改 [core/validity.py](/Users/sxt/code/qlib/core/validity.py) 和实盘执行链路
-- 想改收益口径、撮合、成交约束规则：改 [modules/backtest/qlib_engine.py](/Users/sxt/code/qlib/modules/backtest/qlib_engine.py)
+- 想新增一个可复用的默认因子：改 [core/factors.py](core/factors.py)
+- 想新增一个新股票池，比如中证500：改 [core/universe.py](core/universe.py)
+- 想新增一个新仓位模型：改 [core/position.py](core/position.py) 和 [core/strategy.py](core/strategy.py)
+- 想把 `validity` 规则自动接进实盘调仓执行：改 [core/validity.py](core/validity.py) 和实盘执行链路
+- 想改收益口径、撮合、成交约束规则：改 [modules/backtest/qlib_engine.py](modules/backtest/qlib_engine.py)
 
 ### 不要手改的文件
 
 下面这些通常是产物或框架文件，不应作为“调策略”的入口：
 
-- [data/selections](/Users/sxt/code/qlib/data/selections) 下的 CSV
-- [results](/Users/sxt/code/qlib/results) 下的回测结果
-- [results/model_signals](/Users/sxt/code/qlib/results/model_signals) 下的模型分数、选股和 overlay 结果
-- [main.py](/Users/sxt/code/qlib/main.py)
-- [core/selection.py](/Users/sxt/code/qlib/core/selection.py)
+- [data/selections](data/selections) 下的 CSV
+- [results](results) 下的回测结果
+- [results/model_signals](results/model_signals) 下的模型分数、选股和 overlay 结果
+- [main.py](main.py)
+- [core/selection.py](core/selection.py)
 
 ## 数据要求
 
 ### 必要数据
 
-- [data/qlib_data/cn_data](/Users/sxt/code/qlib/data/qlib_data/cn_data)：Qlib provider 数据
-- [data/tushare/daily_basic.parquet](/Users/sxt/code/qlib/data/tushare/daily_basic.parquet)
-- [data/tushare/balancesheet.parquet](/Users/sxt/code/qlib/data/tushare/balancesheet.parquet)
-- [data/tushare/cashflow.parquet](/Users/sxt/code/qlib/data/tushare/cashflow.parquet)
-- [data/tushare/income.parquet](/Users/sxt/code/qlib/data/tushare/income.parquet)
-- [data/tushare/fina_indicator.parquet](/Users/sxt/code/qlib/data/tushare/fina_indicator.parquet)
-- [data/tushare/index_daily.parquet](/Users/sxt/code/qlib/data/tushare/index_daily.parquet)
-- [data/tushare/stock_basic.csv](/Users/sxt/code/qlib/data/tushare/stock_basic.csv)
-- [data/tushare/stock_industry.csv](/Users/sxt/code/qlib/data/tushare/stock_industry.csv)
+- [data/qlib_data/cn_data](data/qlib_data/cn_data)：Qlib provider 数据
+- [data/tushare/daily_basic.parquet](data/tushare/daily_basic.parquet)
+- [data/tushare/balancesheet.parquet](data/tushare/balancesheet.parquet)
+- [data/tushare/cashflow.parquet](data/tushare/cashflow.parquet)
+- [data/tushare/income.parquet](data/tushare/income.parquet)
+- [data/tushare/fina_indicator.parquet](data/tushare/fina_indicator.parquet)
+- [data/tushare/index_daily.parquet](data/tushare/index_daily.parquet)
+- [data/tushare/stock_basic.csv](data/tushare/stock_basic.csv)
+- [data/tushare/stock_industry.csv](data/tushare/stock_industry.csv)
 
 ### 如果使用 `selection.universe: csi300`
 
 还需要：
 
-- [data/tushare/index_weight.parquet](/Users/sxt/code/qlib/data/tushare/index_weight.parquet)
-- [data/tushare/namechange.parquet](/Users/sxt/code/qlib/data/tushare/namechange.parquet)（当 `exclude_st: true` 时必需）
+- [data/tushare/index_weight.parquet](data/tushare/index_weight.parquet)
+- [data/tushare/namechange.parquet](data/tushare/namechange.parquet)（当 `exclude_st: true` 时必需）
 
 该文件来自 Tushare `index_weight` 接口，至少需要这几个字段：
 
@@ -524,7 +529,7 @@ python3 scripts/audit_price_fields.py --sample-size 20 --days 10
 当前正式口径改为：
 
 - `Qlib $open/$high/$low` 只用于审计，不作为正式成交约束输入
-- 涨跌停可成交约束使用 [data/qlib_data/raw_data](/Users/sxt/code/qlib/data/qlib_data/raw_data) 下的原始日线文件
+- 涨跌停可成交约束使用 [data/qlib_data/raw_data](data/qlib_data/raw_data) 下的原始日线文件
 - `modules/data/updater.py` 会在日更时自动回补最近一段交易日的 `raw_data`
 - 如果启用了 `block_limit_up_buy / block_limit_down_sell`，但本地缺少对应 `raw_data` 文件，回测会直接报错，不会静默降级
 
@@ -635,25 +640,25 @@ A: 减少并发数或分批处理。脚本已内置分批逻辑（因子处理�
 
 ## 结果文件
 
-- [data/selections](/Users/sxt/code/qlib/data/selections)：策略选股快照
-- [results](/Users/sxt/code/qlib/results)：回测 CSV、图表、研究记录
+- [data/selections](data/selections)：策略选股快照
+- [results](results)：回测 CSV、图表、研究记录
 
 阶段一最终口径优先看这几份：
 
-- [results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json)
-- [results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv](/Users/sxt/code/qlib/results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv)
+- [results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json](results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json)
+- [results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv](results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv)
 
 早期 `top15_*` 阶段研究快照：
 
-- [results/top15_historical_csi300_research_20260322.md](/Users/sxt/code/qlib/results/top15_historical_csi300_research_20260322.md)
-- [results/tradability_constraint_compare_20260322_185830.md](/Users/sxt/code/qlib/results/tradability_constraint_compare_20260322_185830.md)
-- [results/price_field_audit_20260322_183351.md](/Users/sxt/code/qlib/results/price_field_audit_20260322_183351.md)
+- [results/top15_historical_csi300_research_20260322.md](results/top15_historical_csi300_research_20260322.md)
+- [results/tradability_constraint_compare_20260322_185830.md](results/tradability_constraint_compare_20260322_185830.md)
+- [results/price_field_audit_20260322_183351.md](results/price_field_audit_20260322_183351.md)
 
 历史阶段性研究快照：
 
-- [results/robust_close_only_research_20260322.md](/Users/sxt/code/qlib/results/robust_close_only_research_20260322.md)
-- [results/top15_core_v2_research_20260322.md](/Users/sxt/code/qlib/results/top15_core_v2_research_20260322.md)
-- [results/factor_optimization_report_20260310.md](/Users/sxt/code/qlib/results/factor_optimization_report_20260310.md)
+- [results/robust_close_only_research_20260322.md](results/robust_close_only_research_20260322.md)
+- [results/top15_core_v2_research_20260322.md](results/top15_core_v2_research_20260322.md)
+- [results/factor_optimization_report_20260310.md](results/factor_optimization_report_20260310.md)
 
 ## 开发说明
 

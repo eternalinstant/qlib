@@ -25,7 +25,7 @@ PYTHON_FILES = [
 ]
 
 
-def test_no_hardcoded_macos_home():
+def _check_no_hardcoded_macos_home():
     """所有源文件中不存在硬编码的 /Users/sxt 路径（setup_new_env.sh 是搜索模式，除外）"""
     print("\n" + "=" * 70)
     print("测试: 无硬编码的 /Users/sxt 路径")
@@ -38,7 +38,7 @@ def test_no_hardcoded_macos_home():
             print(f"  {SKIP} {rel_path} 不存在")
             continue
 
-        content = full_path.read_text()
+        content = full_path.read_text(encoding="utf-8")
         # setup_new_env.sh 中的 old_path 是用于搜索替换的，是合理的
         if "setup_new_env" in rel_path:
             # 只允许在 old_path 变量中使用
@@ -63,7 +63,60 @@ def test_no_hardcoded_macos_home():
     return all_pass
 
 
-def test_project_root_resolve():
+def test_no_hardcoded_macos_home():
+    assert _check_no_hardcoded_macos_home()
+
+
+def _check_no_hardcoded_host_paths():
+    """核心代码与路径配置中不得出现写死的主机绝对路径（mac/linux/windows）或 /tmp。"""
+    import re
+
+    print("\n" + "=" * 70)
+    print("测试: 无写死的主机绝对路径 / 临时目录")
+    print("=" * 70)
+
+    forbidden = [
+        ("/Users/", "macOS home"),
+        ("/home/", "Linux home"),
+        ("/tmp/", "Unix 临时目录"),
+        ("\\Users\\", "Windows home"),
+    ]
+    drive_re = re.compile(r"[A-Za-z]:\\")
+
+    targets = []
+    for sub in ("core", "modules", "utils"):
+        targets += sorted((PROJECT_ROOT / sub).rglob("*.py"))
+    targets += sorted((PROJECT_ROOT / "config").rglob("*.yaml"))
+
+    all_pass = True
+    for path in targets:
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        rel = path.relative_to(PROJECT_ROOT).as_posix()
+        for i, line in enumerate(content.splitlines(), 1):
+            for needle, label in forbidden:
+                if needle in line:
+                    print(f"  {FAIL} {rel}:{i} {label} ({needle}): {line.strip()}")
+                    all_pass = False
+            if drive_re.search(line):
+                print(f"  {FAIL} {rel}:{i} Windows 盘符路径: {line.strip()}")
+                all_pass = False
+
+    if all_pass:
+        print(f"  {PASS} core/modules/utils + config/*.yaml 无写死主机路径")
+    assert all_pass, "存在写死的主机/临时路径，详见上方输出"
+    return all_pass
+
+
+def test_no_hardcoded_host_paths():
+    assert _check_no_hardcoded_host_paths()
+
+
+def _check_project_root_resolve():
     """诊断/分析工具脚本能正确解析项目根目录"""
     print("\n" + "=" * 70)
     print("测试: 工具脚本正确解析项目根目录")
@@ -75,7 +128,7 @@ def test_project_root_resolve():
         if not full_path.exists():
             print(f"  {SKIP} {script} 不存在")
             continue
-        content = full_path.read_text()
+        content = full_path.read_text(encoding="utf-8")
         tree = ast.parse(content)
         has_dynamic_root = False
         has_pathlib = False
@@ -98,7 +151,11 @@ def test_project_root_resolve():
     return all_pass
 
 
-def test_sys_path_dynamic():
+def test_project_root_resolve():
+    assert _check_project_root_resolve()
+
+
+def _check_sys_path_dynamic():
     """测试文件的 sys.path 使用动态路径"""
     print("\n" + "=" * 70)
     print("测试: sys.path.insert 使用动态路径")
@@ -116,7 +173,7 @@ def test_sys_path_dynamic():
         if not full_path.exists():
             print(f"  {SKIP} {tf} 不存在")
             continue
-        content = full_path.read_text()
+        content = full_path.read_text(encoding="utf-8")
         if "/Users/sxt" in content:
             print(f"  {FAIL} {tf} 仍含硬编码路径")
             all_pass = False
@@ -129,7 +186,11 @@ def test_sys_path_dynamic():
     return all_pass
 
 
-def test_daily_run_sh_dynamic():
+def test_sys_path_dynamic():
+    assert _check_sys_path_dynamic()
+
+
+def _check_daily_run_sh_dynamic():
     """daily_run.sh 使用动态 PROJECT_DIR"""
     print("\n" + "=" * 70)
     print("测试: daily_run.sh PROJECT_DIR 使用动态路径")
@@ -140,7 +201,7 @@ def test_daily_run_sh_dynamic():
         print(f"  {SKIP} scripts/daily_run.sh 不存在")
         return True
 
-    content = script.read_text()
+    content = script.read_text(encoding="utf-8")
     if "/Users/sxt" in content:
         print(f"  {FAIL} 仍含硬编码 /Users/sxt")
         return False
@@ -154,24 +215,33 @@ def test_daily_run_sh_dynamic():
     return False
 
 
-def test_platform_helper_centralizes_os_detection():
+def test_daily_run_sh_dynamic():
+    assert _check_daily_run_sh_dynamic()
+
+
+def _check_platform_helper_centralizes_os_detection():
     """平台差异统一通过 utils.platform 识别。"""
     print("\n" + "=" * 70)
     print("测试: 平台差异统一入口")
     print("=" * 70)
 
-    from utils.platform import is_linux, is_macos, project_root, runtime_profile
+    from utils.platform import is_linux, is_macos, is_windows, project_root, runtime_profile
 
     root = project_root()
     profile = runtime_profile()
     assert root == PROJECT_ROOT
     assert profile["project_root"] == str(PROJECT_ROOT)
-    assert is_macos() or is_linux() or profile["system"]
+    # 三平台判定必须恰有一个为真（Windows / macOS / Linux 一等公民）
+    assert sum([is_macos(), is_linux(), is_windows()]) == 1, f"平台判定应恰有一个为真: {profile}"
     print(f"  {PASS} utils.platform.runtime_profile = {profile}")
     return True
 
 
-def test_import_functions():
+def test_platform_helper_centralizes_os_detection():
+    assert _check_platform_helper_centralizes_os_detection()
+
+
+def _check_import_functions():
     """验证 core 模块可以正常导入（sys.path 已修正）"""
     print("\n" + "=" * 70)
     print("测试: 核心模块导入")
@@ -203,19 +273,24 @@ def test_import_functions():
     return all_pass
 
 
+def test_import_functions():
+    assert _check_import_functions()
+
+
 def main():
     print("=" * 70)
-    print("  Qlib 迁移兼容性测试 (macOS -> Linux)")
+    print("  Qlib 跨平台兼容性测试 (Windows / macOS / Linux)")
     print("  项目目录:", PROJECT_ROOT)
     print("=" * 70)
 
     results = {}
-    results["无硬编码 macOS 路径"] = test_no_hardcoded_macos_home()
-    results["工具脚本动态路径解析"] = test_project_root_resolve()
-    results["测试文件 sys.path 动态"] = test_sys_path_dynamic()
-    results["daily_run.sh 动态路径"] = test_daily_run_sh_dynamic()
-    results["平台差异统一入口"] = test_platform_helper_centralizes_os_detection()
-    results["核心模块导入"] = test_import_functions()
+    results["无硬编码 macOS 路径"] = _check_no_hardcoded_macos_home()
+    results["无硬编码主机/临时路径"] = _check_no_hardcoded_host_paths()
+    results["工具脚本动态路径解析"] = _check_project_root_resolve()
+    results["测试文件 sys.path 动态"] = _check_sys_path_dynamic()
+    results["daily_run.sh 动态路径"] = _check_daily_run_sh_dynamic()
+    results["平台差异统一入口"] = _check_platform_helper_centralizes_os_detection()
+    results["核心模块导入"] = _check_import_functions()
 
     print("\n" + "=" * 70)
     print("  结果汇总")

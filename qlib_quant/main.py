@@ -32,6 +32,14 @@ import argparse
 import sys
 from pathlib import Path
 
+# Windows 控制台/重定向默认用本地编码，会把中文输出弄成乱码；统一强制 UTF-8（Linux/macOS 无副作用）
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 def _load_strategy(name):
     """加载策略对象，未指定时优先加载 default 策略"""

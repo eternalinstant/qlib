@@ -307,7 +307,7 @@ class PaperPortfolio:
         }
 
     def _save_positions(self):
-        POSITION_FILE.write_text(json.dumps(self.positions, indent=2, ensure_ascii=False))
+        POSITION_FILE.write_text(json.dumps(self.positions, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def _load_nav_log(self) -> pd.DataFrame:
         if NAV_LOG.exists():

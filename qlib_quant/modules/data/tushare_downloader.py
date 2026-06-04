@@ -521,7 +521,7 @@ class TushareDownloader:
         if not failed:
             return
         fail_path = self.data_dir / f"{name}_failed.txt"
-        with open(fail_path, "w") as f:
+        with open(fail_path, "w", encoding="utf-8") as f:
             for stock in failed:
                 f.write(f"{stock}\n")
         logger.warning(f"失败列表已保存: {fail_path} ({len(failed)} 只)")
@@ -530,7 +530,7 @@ class TushareDownloader:
         """加载上次下载失败的股票列表"""
         fail_path = self.data_dir / f"{name}_failed.txt"
         if fail_path.exists():
-            with open(fail_path) as f:
+            with open(fail_path, encoding="utf-8") as f:
                 failed = [line.strip() for line in f if line.strip()]
             logger.info(f"加载失败重试列表: {name} ({len(failed)} 只)")
             return failed

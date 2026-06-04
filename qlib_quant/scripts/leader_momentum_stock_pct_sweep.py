@@ -198,7 +198,7 @@ def _run_one(spec: dict[str, Any], stock_pct: float) -> dict[str, Any]:
         "sharpe_ratio": result.sharpe_ratio,
         "max_drawdown": result.max_drawdown,
         "total_return": result.total_return,
-        "selection_file": str(strategy.selections_path().relative_to(PROJECT_ROOT)),
+        "selection_file": strategy.selections_path().relative_to(PROJECT_ROOT).as_posix(),
         "results_file": result.metadata.get("results_file", ""),
     }
 

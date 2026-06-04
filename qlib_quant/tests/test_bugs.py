@@ -1,6 +1,6 @@
 """
 策略审计验证脚本 — 逐项确认已发现的bug
-运行: cd /Users/sxt/code/qlib && python tests/test_bugs.py
+运行: python tests/test_bugs.py   （从仓库根目录）
 """
 import sys
 from pathlib import Path

@@ -133,7 +133,7 @@ def evaluate_path(path: Path, args: argparse.Namespace) -> pd.DataFrame:
         )
         rows.append(
             {
-                "source": str(path.relative_to(PROJECT_ROOT)),
+                "source": path.relative_to(PROJECT_ROOT).as_posix(),
                 "tag": f"cfg_{idx:04d}",
                 "hit": hit,
                 "score": score,
@@ -188,7 +188,7 @@ def main() -> None:
 
     frames = []
     for path in paths:
-        print(f"[INFO] scan {path.relative_to(PROJECT_ROOT)}")
+        print(f"[INFO] scan {path.relative_to(PROJECT_ROOT).as_posix()}")
         frames.append(evaluate_path(path, args))
 
     result = pd.concat(frames, ignore_index=True)

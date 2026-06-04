@@ -135,7 +135,7 @@ trading:
   slippage_bps: 5.0
   impact_bps: 5.0
 output:
-  root: /Users/sxt/code/qlib/results/model_signals/qvf_alpha158_hybrid24_prune_v2
+  root: results/model_signals/qvf_alpha158_hybrid24_prune_v2
 walk_forward:
   enabled: false
   min_train_years: 3

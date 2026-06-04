@@ -342,9 +342,9 @@ def scan(args) -> pd.DataFrame:
                 "active_days": int(np.sum(exposure > 0)),
                 "passed": passed,
                 "score": score,
-                "results_file": str(results_file.relative_to(PROJECT_ROOT))
+                "results_file": results_file.relative_to(PROJECT_ROOT).as_posix()
                 if results_file.is_relative_to(PROJECT_ROOT)
-                else str(results_file),
+                else results_file.as_posix(),
             }
             rows.append(row)
             if score > best_score:

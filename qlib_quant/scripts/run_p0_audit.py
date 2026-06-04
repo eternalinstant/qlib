@@ -169,7 +169,7 @@ def main():
 
         summary_path = AUDIT_DIR / "summary.json"
         summary_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(summary_path, "w") as f:
+        with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         print(f"\n[OK] 结果已保存: {AUDIT_DIR}")
 

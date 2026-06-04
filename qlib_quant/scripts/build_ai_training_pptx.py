@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -22,7 +23,7 @@ from pptx.util import Inches, Pt
 ROOT = Path(__file__).resolve().parents[1]
 HTML_PATH = ROOT / "ai_programming_training_zh.html"
 PPTX_PATH = ROOT / "ai_programming_training_zh.pptx"
-ASSET_DIR = Path("/tmp/ai_training_svg_assets")
+ASSET_DIR = Path(tempfile.gettempdir()) / "ai_training_svg_assets"
 
 FONT_SANS = "PingFang SC"
 FONT_MONO = "Menlo"

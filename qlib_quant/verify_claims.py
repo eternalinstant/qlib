@@ -74,14 +74,19 @@ print("=" * 80)
 # 查看 selection.py 和 factors.py 中对 parquet 数据的处理
 print("  检查代码中是否有 ann_date 相关逻辑...")
 
-# 搜索代码
-import subprocess
-result = subprocess.run(
-    ['grep', '-rn', 'ann_date', str(PROJECT_ROOT / 'core'), str(PROJECT_ROOT / 'modules'), str(PROJECT_ROOT / 'scripts')],
-    capture_output=True, text=True
-)
-if result.stdout:
-    print(f"  找到 ann_date 引用:\n{result.stdout[:500]}")
+# 搜索代码（Python 原生遍历，跨平台，避免依赖 grep）
+matches = []
+for sub in ("core", "modules", "scripts"):
+    for py in (PROJECT_ROOT / sub).rglob("*.py"):
+        try:
+            lines = py.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(lines, 1):
+            if "ann_date" in line:
+                matches.append(f"{py.relative_to(PROJECT_ROOT).as_posix()}:{i}:{line.strip()}")
+if matches:
+    print("  找到 ann_date 引用:\n" + "\n".join(matches)[:500])
 else:
     print("  代码中没有找到 ann_date 相关逻辑")
 

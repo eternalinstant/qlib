@@ -4,8 +4,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from modules.modeling.predictive_signal import load_predictive_config, train_from_config, _alpha158_feature_map
+from utils.platform import temp_dir
 
-with open("config/models/push25_cq10_k8d2_very_tight.yaml") as f:
+SCAN_DIR = temp_dir("scan_factor")
+
+with open("config/models/push25_cq10_k8d2_very_tight.yaml", encoding="utf-8") as f:
     cq10_cfg = yaml.safe_load(f)
 
 # Parquet 候选因子
@@ -54,11 +57,11 @@ for feat in parquet_candidates:
     cfg["data"] = dict(base_cfg["data"])
     cfg["data"]["source"] = "parquet"
     cfg["data"]["feature_columns"] = [feat]
-    cfg["output"] = {"root": f"/tmp/scan_factor/pq_{feat}"}
+    cfg["output"] = {"root": str(SCAN_DIR / f"pq_{feat}")}
 
-    tmp = f"/tmp/scan_factor/pq_{feat}.yaml"
+    tmp = str(SCAN_DIR / f"pq_{feat}.yaml")
     os.makedirs(os.path.dirname(tmp), exist_ok=True)
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f)
 
     try:
@@ -83,11 +86,11 @@ for feat in alpha158_candidates:
     cfg["data"]["alpha158_universe"] = "csi300"
     cfg["data"]["feature_columns"] = [feat]
     cfg["data"]["alpha158"] = cq10_cfg["data"]["alpha158"]
-    cfg["output"] = {"root": f"/tmp/scan_factor/a158_{feat}"}
+    cfg["output"] = {"root": str(SCAN_DIR / f"a158_{feat}")}
 
-    tmp = f"/tmp/scan_factor/a158_{feat}.yaml"
+    tmp = str(SCAN_DIR / f"a158_{feat}.yaml")
     os.makedirs(os.path.dirname(tmp), exist_ok=True)
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f)
 
     try:
@@ -115,6 +118,7 @@ for feat, ic in sorted(results["alpha158"].items(), key=lambda x: x[1], reverse=
     print(f"  {feat:<12} IC={ic:>+.4f}{tag}")
 
 # Save
-with open("/tmp/scan_factor/results.json", "w") as f:
+results_path = SCAN_DIR / "results.json"
+with open(results_path, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2)
-print(f"\n结果已保存: /tmp/scan_factor/results.json")
+print(f"\n结果已保存: {results_path}")
