@@ -3,6 +3,9 @@ import sys, yaml, os, json
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from modules.modeling.predictive_signal import load_predictive_config, train_from_config, _alpha360_feature_map
+from utils.platform import temp_dir
+
+SCAN_DIR = temp_dir("scan_factor")
 
 fmap = _alpha360_feature_map()
 alpha360_candidates = [k for k in sorted(fmap.keys()) if not k.endswith("0")]
@@ -34,9 +37,9 @@ for feat in alpha360_candidates:
     cfg["data"]["alpha360_universe"] = "csi300"
     cfg["data"]["feature_columns"] = [feat]
 
-    tmp = f"/tmp/scan_factor/a360_{feat}.yaml"
+    tmp = str(SCAN_DIR / f"a360_{feat}.yaml")
     os.makedirs(os.path.dirname(tmp), exist_ok=True)
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f)
 
     try:
@@ -55,6 +58,7 @@ for feat, ic in sorted(results.items(), key=lambda x: x[1], reverse=True):
     tag = " ***" if abs(ic) > 0.03 else ""
     print(f"  {feat:<12} IC={ic:>+.4f}{tag}")
 
-with open("/tmp/scan_factor/alpha360_results.json", "w") as f:
+results_path = SCAN_DIR / "alpha360_results.json"
+with open(results_path, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2)
-print(f"\n已保存: /tmp/scan_factor/alpha360_results.json")
+print(f"\n已保存: {results_path}")

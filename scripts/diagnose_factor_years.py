@@ -6,7 +6,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 import pandas as pd
 
-with open('/tmp/scan_factor/alpha360_yearly_ic.json') as f:
+from utils.platform import temp_dir
+
+SCAN_DIR = temp_dir("scan_factor")
+
+with open(SCAN_DIR / 'alpha360_yearly_ic.json', encoding="utf-8") as f:
     data = json.load(f)
 
 years = ['2019','2020','2021','2022','2023','2024','2025','2026']

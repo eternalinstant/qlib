@@ -1,18 +1,27 @@
 # 路径配置
 # =====================================
+# 所有相对路径都相对“项目根”解析（见 utils/platform.resolve_path 与 modules/data/paths.py），
+# 不依赖当前工作目录，也不写死某台机器的 home，Windows / Linux / macOS 通用。
+# 如需把数据放到仓库之外：设环境变量 QLIB_PROJECT_ROOT 指向仓库根，或在此填绝对路径。
 
-# 数据路径
+# 数据路径（相对项目根）
 data:
-  qlib_data: "~/code/qlib/data/qlib_data/cn_data"
-  selections: "~/code/qlib/data/monthly_selections.csv"
-  updates: "~/code/qlib/data/updates"
-  cache: "~/code/qlib/data/cache"
+  qlib_data: "data/qlib_data/cn_data"
+  selections: "data/monthly_selections.csv"
+  updates: "data/updates"
+  cache: "data/cache"
 
-# 输出路径
+# 输出路径（相对项目根）
 output:
-  results: "~/code/qlib/results"
-  logs: "~/code/qlib/logs"
-  reports: "~/code/qlib/results/reports"
+  results: "results"
+  logs: "logs"
+  reports: "results/reports"
+
+# 兼容键：历史上有代码读 CONFIG.get("paths.qlib_data" / "paths.selections" / "paths.cache")，
+# 取值走 _data["paths"][<key>]。统一用相对项目根路径，消费方经 get_qlib_root() 等解析。
+qlib_data: "data/qlib_data/cn_data"
+selections: "data/monthly_selections.csv"
+cache: "data/cache"
 
 # 日志配置
 logging:

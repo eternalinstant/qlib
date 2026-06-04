@@ -25,9 +25,20 @@ Usage:
 import warnings
 warnings.filterwarnings("ignore", message=".*OpenSSL.*")
 
+import socket
+socket.setdefaulttimeout(30)  # 全局 socket 超时 30s，防止 Tushare API 挂起
+
 import argparse
 import sys
 from pathlib import Path
+
+# Windows 控制台/重定向默认用本地编码，会把中文输出弄成乱码；统一强制 UTF-8（Linux/macOS 无副作用）
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _load_strategy(name):

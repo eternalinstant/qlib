@@ -139,7 +139,7 @@ def build_manifest(config_path: Path) -> dict | None:
 
     # 输出
     out_path = root / "experiment_manifest.json"
-    with open(out_path, "w") as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     return manifest

@@ -1715,7 +1715,7 @@ def main():
 示例:
   python3 scripts/validate_data.py
   python3 scripts/validate_data.py --data-root /path/to/data/qlib_data
-  python3 scripts/validate_data.py --output /tmp/my_report.json
+  python3 scripts/validate_data.py --output report.json
         """,
     )
     parser.add_argument("--data-root", default=None,

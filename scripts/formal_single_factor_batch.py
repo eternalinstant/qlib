@@ -208,7 +208,7 @@ def collect_factor_specs() -> List[FactorSpec]:
                     expression=expression,
                     source=source,
                     window_scale=effective_scale,
-                    origin=str(path.relative_to(STRATEGIES_DIR)),
+                    origin=path.relative_to(STRATEGIES_DIR).as_posix(),
                 )
 
     rows = []
@@ -434,7 +434,7 @@ def _repo_relative_text(value: str | Path) -> str:
     if not path.is_absolute():
         return text
     try:
-        return str(path.relative_to(PROJECT_ROOT))
+        return path.relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
         return text
 

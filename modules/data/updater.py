@@ -1,4 +1,4 @@
-"""
+﻿"""
 数据更新模块
 每日收盘后自动更新 Tushare 数据 → 重新计算选股
 """
@@ -86,12 +86,12 @@ class DataUpdater:
     _rate_limiter = _RateLimiter(max_calls=490, period=60.0)
 
     def __init__(self, qlib_data_path: str = None):
-        configured_qlib_path = CONFIG.get(
-            "paths.data.qlib_data",
-            CONFIG.get("qlib_data_path", "~/code/qlib/data/qlib_data/cn_data"),
-        )
-        self.qlib_data_path = qlib_data_path or configured_qlib_path or "~/code/qlib/data/qlib_data/cn_data"
-        self.qlib_data_path = Path(self.qlib_data_path).expanduser()
+        # 显式传入时按传入值（测试常注入 tmp_path）；否则走统一路径层（项目根相对，跨平台）
+        if qlib_data_path:
+            self.qlib_data_path = Path(qlib_data_path).expanduser()
+        else:
+            from modules.data.paths import get_qlib_root
+            self.qlib_data_path = get_qlib_root()
         self.qlib_data_path.mkdir(parents=True, exist_ok=True)
 
         # Tushare 数据目录 (与 qlib_data 同级)
@@ -269,7 +269,7 @@ class DataUpdater:
 
             instruments.append((inst, raw_start.strftime("%Y-%m-%d"), raw_end.strftime("%Y-%m-%d")))
 
-        with open(instruments_dir / "all.txt", "w") as fp:
+        with open(instruments_dir / "all.txt", "w", encoding="utf-8") as fp:
             for inst, inst_start, inst_end in sorted(instruments):
                 fp.write(f"{inst}\t{inst_start}\t{inst_end}\n")
 
@@ -280,7 +280,7 @@ class DataUpdater:
         """原子写入 JSON 状态文件，避免中断留下半截文件。"""
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(".tmp")
-        with open(tmp_path, "w") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
@@ -323,7 +323,7 @@ class DataUpdater:
         """加载 raw_data 下载状态；缺失或损坏时从 raw_data 自动重建。"""
         if state_path.exists():
             try:
-                with open(state_path, "r") as f:
+                with open(state_path, "r", encoding="utf-8") as f:
                     state = json.load(f)
                 if isinstance(state, dict):
                     return {str(k): str(v) for k, v in state.items() if v is not None}
@@ -356,27 +356,34 @@ class DataUpdater:
         -------
         datetime 或 None（如果 API 不可用）
         """
+        import concurrent.futures as _cf
+
         pro = get_tushare_pro()
         if pro is None:
             return None
 
-        try:
-            # 获取最近一周的交易日历
+        def _fetch():
             end_date = datetime.now().strftime("%Y%m%d")
             start_date = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d")
-
-            df = self._call_tushare_api(
+            return self._call_tushare_api(
                 pro.trade_cal,
                 "trade_cal",
                 start_date=start_date,
                 end_date=end_date,
-                is_open="1",  # 只要开市日
+                is_open="1",
             )
+
+        try:
+            with _cf.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_fetch)
+                df = future.result(timeout=20)
 
             if df is not None and len(df) > 0:
                 latest = df["cal_date"].max()
                 return datetime.strptime(latest, "%Y%m%d")
 
+        except _cf.TimeoutError:
+            logger.warning("获取远程交易日历超时（20s），使用本地日期")
         except Exception as e:
             logger.error(f"获取远程交易日历失败: {e}")
 

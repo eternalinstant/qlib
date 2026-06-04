@@ -70,7 +70,9 @@ def _check_table_columns(path: Path, required_cols: List[str]) -> Optional[str]:
 
 
 def _qlib_root() -> Path:
-    return Path(CONFIG.get("paths.data.qlib_data", CONFIG.get("qlib_data_path", ""))).expanduser()
+    # 统一走路径层（项目根相对，跨平台）
+    from modules.data.paths import get_qlib_root
+    return get_qlib_root()
 
 
 def _tushare_root() -> Path:

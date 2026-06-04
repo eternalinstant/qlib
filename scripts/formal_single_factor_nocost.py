@@ -62,7 +62,7 @@ def _repo_relative(value: str | Path | None) -> str:
     if not path.is_absolute():
         return text
     try:
-        return str(path.relative_to(PROJECT_ROOT))
+        return path.relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
         return text
 

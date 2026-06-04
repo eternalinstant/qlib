@@ -349,7 +349,7 @@ class TestPredictiveConfig:
         cfg = load_predictive_config(cfg_path)
 
         assert Path(cfg["output"]["root"]).as_posix().endswith(
-            "/Users/sxt/code/qlib/results/model_signals/demo_model"
+            "results/model_signals/demo_model"
         )
 
     def test_selection_defaults_include_stoploss_fields(self, tmp_path):

@@ -135,7 +135,7 @@ def _repo_relative(path: str | Path | None) -> str:
     if not p.is_absolute():
         return text
     try:
-        return str(p.relative_to(PROJECT_ROOT))
+        return p.relative_to(PROJECT_ROOT).as_posix()
     except ValueError:
         return text
 

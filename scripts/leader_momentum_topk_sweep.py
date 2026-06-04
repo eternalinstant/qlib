@@ -202,7 +202,7 @@ def _run_one(spec: dict[str, Any], topk: int) -> dict[str, Any]:
         "n_rebalance_dates": n_dates,
         "selection_rows": n_rows,
         "avg_holdings": avg_holdings,
-        "selection_file": str(strategy.selections_path().relative_to(PROJECT_ROOT)),
+        "selection_file": strategy.selections_path().relative_to(PROJECT_ROOT).as_posix(),
         "results_file": result.metadata.get("results_file", ""),
     }
 

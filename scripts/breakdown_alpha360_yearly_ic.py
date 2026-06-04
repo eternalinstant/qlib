@@ -7,6 +7,9 @@ import pandas as pd
 import numpy as np
 
 from modules.modeling.predictive_signal import _alpha360_feature_map, _resolve_alpha158_instruments, init_qlib, load_features_safe
+from utils.platform import temp_dir
+
+SCAN_DIR = temp_dir("scan_factor")
 
 init_qlib()
 fmap = _alpha360_feature_map()
@@ -148,6 +151,7 @@ for cat in ['LOW', 'CLOSE', 'HIGH', 'VWAP', 'VOLUME']:
     print(row)
 
 # Save
-with open('/tmp/scan_factor/alpha360_yearly_ic.json', 'w') as f:
+results_path = SCAN_DIR / "alpha360_yearly_ic.json"
+with open(results_path, 'w', encoding="utf-8") as f:
     json.dump(results, f, indent=2)
-print(f"\nSaved: /tmp/scan_factor/alpha360_yearly_ic.json")
+print(f"\nSaved: {results_path}")

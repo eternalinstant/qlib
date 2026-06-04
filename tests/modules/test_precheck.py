@@ -359,4 +359,4 @@ def test_run_data_precheck_missing_calendar_does_not_crash(monkeypatch, tmp_path
     result = precheck.run_data_precheck(universe="all", require_st_history=False)
 
     assert result.ok is False
-    assert any("calendars/day.txt" in err for err in result.errors)
+    assert any("calendars" in err and "day.txt" in err for err in result.errors)

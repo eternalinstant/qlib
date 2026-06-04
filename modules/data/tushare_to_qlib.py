@@ -1,4 +1,4 @@
-"""
+﻿"""
 Tushare 数据转换为 Qlib 格式 (简化版)
 直接合并每日数据，财务数据前向填充
 """
@@ -98,8 +98,8 @@ class TushareToQlibConverter:
     """Tushare 数据转 Qlib 格式转换器"""
 
     def __init__(self, tushare_dir: str = None, qlib_dir: str = None):
-        self.tushare_dir = Path(tushare_dir or "~/code/qlib/data/tushare").expanduser()
-        self.qlib_dir = Path(qlib_dir or "~/code/qlib/data/qlib_data/cn_data").expanduser()
+        self.tushare_dir = Path(tushare_dir or "~/Documents/qlib_quant/data/tushare").expanduser()
+        self.qlib_dir = Path(qlib_dir or "~/Documents/qlib_quant/data/qlib_data/cn_data").expanduser()
         self._adj_ratio_cache = None
         self._calendar_cache = None
 
@@ -1034,7 +1034,7 @@ class TushareToQlibConverter:
             return False
 
         cal_dates = set()
-        with open(cal_path) as f:
+        with open(cal_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:

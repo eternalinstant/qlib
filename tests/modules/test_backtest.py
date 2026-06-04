@@ -216,7 +216,7 @@ class TestQlibBacktestHelpers:
         with patch("modules.backtest.qlib_engine.CONFIG", fake_config):
             root = _raw_data_root()
 
-        assert str(root).endswith("data/qlib_data/raw_data")
+        assert root.as_posix().endswith("data/qlib_data/raw_data")
         assert _raw_data_path_for_instrument("SZ000001").name == "sz000001.parquet"
         assert pd.isna(_round_limit_price(np.nan))
 
@@ -344,15 +344,16 @@ class TestQlibBacktestHelpers:
         with patch("modules.backtest.qlib_engine._get_limit_prices", return_value=(11.0, np.nan)):
             assert _can_sell_at_open("SH600000", "2024-01-01", 10.0, 10.0) is False
 
-    def test_tradability_constraint_requires_explicit_support(self):
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=Path("/tmp/nonexistent_raw_data")):
+    def test_tradability_constraint_requires_explicit_support(self, tmp_path):
+        missing_root = tmp_path / "nonexistent_raw_data"
+        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=missing_root):
             with pytest.raises(FileNotFoundError):
                 _ensure_tradability_constraints_supported(True, False)
 
             with pytest.raises(FileNotFoundError):
                 _ensure_tradability_constraints_supported(False, True)
 
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=Path("/tmp")):
+        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
             _ensure_tradability_constraints_supported(True, False)
             _ensure_tradability_constraints_supported(False, True)
             _ensure_tradability_constraints_supported(False, False)
@@ -893,7 +894,7 @@ class TestQlibBacktestHelpers:
     def test_qlib_main_prints_summary_and_saved_path(self, capsys):
         strategy = Mock()
         result = Mock()
-        result.metadata = {"results_file": "/tmp/backtest.csv"}
+        result.metadata = {"results_file": "results/backtest.csv"}
 
         with patch("modules.backtest.qlib_engine.QlibBacktestEngine") as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
