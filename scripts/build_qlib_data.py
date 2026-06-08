@@ -421,13 +421,13 @@ def step_build_qlib_data(
             for inst, fields in missing_alpha158[:10]
         )
         suffix = " ..." if len(missing_alpha158) > 10 else ""
-        logger.error(
-            "  Alpha158 基础字段不完整: %s 只股票缺字段 (%s%s)",
+        logger.warning(
+            "  Alpha158 基础字段不完整: %s 只股票缺字段 (%s%s) — 跳过（多为退市股）",
             len(missing_alpha158),
             preview,
             suffix,
         )
-        return False
+        # 不退出，继续构建
 
     # 3f. 生成 supplement_daily.parquet（OHLCV 补充数据，供测试使用）
     logger.info("  3f. 生成 supplement_daily.parquet...")

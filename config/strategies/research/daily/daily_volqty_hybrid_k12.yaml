@@ -1,0 +1,65 @@
+# 日频量价+波动率正向 Top12 — 多空组合
+name: daily_volqty_hybrid_k12
+description: "日频量价反向+波动率正向 Top12：用低量价异常+高波动"
+
+weights:
+  volqty_rev: 0.50
+  vol_forward: 0.25
+  reversal: 0.25
+
+factors:
+  volqty_rev:
+    - name: amt_std_6d
+      expression: "Std($amount, 6) / (Mean($amount, 6) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.60
+    - name: vol_std_10d
+      expression: "Std($volume, 10) / (Mean($volume, 10) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.58
+    - name: vol_ema26_ratio
+      expression: "$volume / (EMA($volume, 26) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.47
+
+  vol_forward:
+    - name: ret_vol_20d
+      expression: "Std($close / Ref($close, 1) - 1, 20)"
+      source: qlib
+      ir: 0.29
+    - name: ret_vol_60d
+      expression: "Std($close / Ref($close, 1) - 1, 60)"
+      source: qlib
+      ir: 0.23
+
+  reversal:
+    - name: bb_lower_dist
+      expression: "($close - (Mean($close, 20) - 2 * Std($close, 20))) / (4 * Std($close, 20) + 1e-8)"
+      source: qlib
+      negate: true
+      ir: 0.37
+    - name: ema5_dev
+      expression: "$close / EMA($close, 5) - 1"
+      source: qlib
+      negate: true
+      ir: 0.23
+
+selection:
+  topk: 12
+  universe: csi300
+  neutralize_industry: false
+  min_market_cap: 50
+  sticky: 30
+  buffer: 15
+  exclude_st: true
+  exclude_new_days: 120
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.80

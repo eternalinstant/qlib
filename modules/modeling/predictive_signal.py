@@ -1935,6 +1935,7 @@ def backtest_from_config(cfg: dict, engine: str = "qlib"):
         trading_cost=dict(cfg.get("trading", {})),
     )
     result = backtest_engine.run(strategy=strategy)
+    backtest_csv = result.metadata.get("results_file")
     overlay_applied = False
     overlay_frame = None
     if bool(cfg.get("overlay", {}).get("enabled", False)):
@@ -1953,6 +1954,8 @@ def backtest_from_config(cfg: dict, engine: str = "qlib"):
         "strategy_name": result.metadata.get("strategy_name"),
         "overlay_applied": overlay_applied,
         "engine": engine,
+        "total_fee_amount": float(result.metadata.get("total_fee_amount", 0) or 0),
+        "backtest_csv": str(backtest_csv) if backtest_csv else None,
     }
     save_json(summary, backtest_summary_path(cfg))
     return result, summary

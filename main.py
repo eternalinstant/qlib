@@ -87,6 +87,8 @@ def cmd_backtest(args):
         return
 
     strategy = _load_strategy(getattr(args, "strategy", None))
+    if getattr(args, "universe", None) and strategy is not None:
+        strategy.universe = args.universe
     strategy_label = strategy.name if strategy else "default"
     if strategy is not None:
         strategy.validate_data_requirements()
@@ -156,6 +158,8 @@ def cmd_select(args):
         _load_config(config_file)
 
     strategy = _load_strategy(getattr(args, "strategy", None))
+    if getattr(args, "universe", None) and strategy is not None:
+        strategy.universe = args.universe
     strategy_label = strategy.name if strategy else "default"
     if strategy is not None:
         strategy.validate_data_requirements()
@@ -493,6 +497,9 @@ def main():
                                help="策略名称 (默认: 使用全局配置)")
     select_parser.add_argument("--config", "-c", default="strategy.yaml",
                                help="策略配置文件 (默认: strategy.yaml)")
+    select_parser.add_argument("--universe", "-u",
+                               choices=["all", "csi300", "csi500", "csi800"],
+                               default=None, help="覆盖股票池（默认使用配置文件值）")
 
     # 回测命令
     backtest_parser = subparsers.add_parser("backtest", help="运行回测")
@@ -504,6 +511,9 @@ def main():
                                 help="策略配置文件 (默认: strategy.yaml)")
     backtest_parser.add_argument("--list", dest="list_strategies", action="store_true",
                                 help="列出所有可用策略")
+    backtest_parser.add_argument("--universe", "-u",
+                                choices=["all", "csi300", "csi500", "csi800"],
+                                default=None, help="覆盖股票池（默认使用配置文件值）")
 
     # 绘图命令
     plot_parser = subparsers.add_parser("plot", help="绘制图表")

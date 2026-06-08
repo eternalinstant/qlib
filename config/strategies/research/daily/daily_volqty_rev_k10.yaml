@@ -1,0 +1,72 @@
+# 日频量价反转策略 — Top因子组合
+# 基于 81 因子 IC/IR 扫描结果 (2026-06-04)，选取量价类最强因子
+name: daily_volqty_rev_k10
+description: "日频量价反转 Top10：vol_std + amt_std + vol_ema + bb_lower_dist，高sticky低换手"
+
+weights:
+  volqty: 0.55      # 量价异常（IR最高）
+  reversal: 0.35    # 反转信号
+  risk: 0.10        # 波动率辅助
+
+factors:
+  volqty:
+    - name: amt_std_6d
+      expression: "Std($amount, 6) / (Mean($amount, 6) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.60
+    - name: vol_std_10d
+      expression: "Std($volume, 10) / (Mean($volume, 10) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.58
+    - name: vol_ema26_ratio
+      expression: "$volume / (EMA($volume, 26) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.47
+    - name: volume_ratio
+      expression: "$volume / (Mean($volume, 20) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.44
+
+  reversal:
+    - name: ma120_dev
+      expression: "$close / Mean($close, 120) - 1"
+      source: qlib
+      negate: true
+      ir: 0.24
+    - name: bb_lower_dist
+      expression: "($close - (Mean($close, 20) - 2 * Std($close, 20))) / (4 * Std($close, 20) + 1e-8)"
+      source: qlib
+      negate: true
+      ir: 0.37
+
+  risk:
+    - name: total_mv_log
+      expression: "Log($total_mv + 1)"
+      source: qlib
+      ir: 0.03
+    - name: vol_std_20d_v
+      expression: "Std($volume, 20) / (Mean($volume, 20) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.52
+
+selection:
+  topk: 10
+  universe: csi300
+  neutralize_industry: false
+  min_market_cap: 50
+  sticky: 40          # 日频高sticky，控制换手
+  buffer: 15          # 宽缓冲区
+  exclude_st: true
+  exclude_new_days: 120
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.85

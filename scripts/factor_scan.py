@@ -18,7 +18,7 @@ from core.qlib_init import init_qlib, load_features_safe
 from core.universe import filter_instruments
 
 START_DATE = "2019-01-01"
-END_DATE = "2026-03-08"
+END_DATE = "2026-06-03"
 
 
 def get_all_factors():
