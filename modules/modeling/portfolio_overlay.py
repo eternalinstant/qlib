@@ -27,6 +27,33 @@ class OverlayConfig:
     exposure_max: float = 1.0
 
 
+def build_overlay_config(overlay_cfg: dict | None) -> OverlayConfig:
+    """从策略 YAML 的 overlay 配置块构造 OverlayConfig。
+
+    与 predictive_signal 内联构造完全同构。此入口曾在重构中被移除，但
+    scripts/export_target.py 的 compute_live_exposure 仍引用，导致所有
+    带 overlay 块的非生产策略 export 失败（ImportError）——2026-06-12
+    恢复为薄工厂。
+    """
+    overlay_cfg = overlay_cfg or {}
+    return OverlayConfig(
+        target_vol=overlay_cfg.get("target_vol"),
+        vol_lookback=int(overlay_cfg.get("vol_lookback", 20)),
+        dd_soft=overlay_cfg.get("dd_soft"),
+        dd_hard=overlay_cfg.get("dd_hard"),
+        soft_exposure=float(overlay_cfg.get("soft_exposure", 0.95)),
+        hard_exposure=float(overlay_cfg.get("hard_exposure", 0.80)),
+        trend_lookback=int(overlay_cfg.get("trend_lookback", 0)),
+        trend_exposure=float(overlay_cfg.get("trend_exposure", 0.90)),
+        market_trend_lookback=int(overlay_cfg.get("market_trend_lookback", 0)),
+        market_trend_min_return=float(overlay_cfg.get("market_trend_min_return", 0.0)),
+        market_trend_exposure_floor=float(overlay_cfg.get("market_trend_exposure_floor", 0.0)),
+        market_trend_max_strategy_drawdown=overlay_cfg.get("market_trend_max_strategy_drawdown"),
+        exposure_min=float(overlay_cfg.get("exposure_min", 0.0)),
+        exposure_max=float(overlay_cfg.get("exposure_max", 1.0)),
+    )
+
+
 def _align_bond_returns(base_returns: pd.Series, bond_returns: Union[pd.Series, float, int]) -> pd.Series:
     if np.isscalar(bond_returns):
         return pd.Series(float(bond_returns), index=base_returns.index, dtype=float)

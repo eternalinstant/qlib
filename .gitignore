@@ -68,3 +68,12 @@ data/monthly_selections.csv
 
 # Results (generated)
 results/
+
+# Dual-source data trees (junction targets; switch via switch_data_source.ps1)
+data_src_tushare/
+data_src_qmt/
+# Local env & transient
+.venv/
+.tmp/
+reports/
+pytest-cache-files-*/

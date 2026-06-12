@@ -399,7 +399,12 @@ class DataUpdater:
             days_since_update = (datetime.now().date() - local_date.date()).days
             return days_since_update > 3  # 超过3天没更新
 
-        if remote_date.date() > local_date.date() and not self._is_market_data_ready(remote_date):
+        # 「今日数据未就绪」闸门只在本地仅落后这一个待发布日时适用（≤3 天
+        # 覆盖周一早上 local=上周五的情形）。本地落后更多说明欠的是已发布的
+        # 历史数据，必须立即补——否则形成死锁：工作日早上永远跳过、数据永远
+        # 陈旧（2026-05-29 起 factor_data 冻结两周、日志天天 OK 即此因）。
+        behind_days = (remote_date.date() - local_date.date()).days
+        if 0 < behind_days <= 3 and not self._is_market_data_ready(remote_date):
             logger.info(
                 "远程交易日 %s 是今天且当前早于 %s:00，暂不触发市场数据更新",
                 remote_date.strftime("%Y-%m-%d"),
