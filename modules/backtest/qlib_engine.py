@@ -420,6 +420,9 @@ def _compute_rebalance_day(
     volume_cap_pct=None,
     per_position_notional: float = 0.0,
     partial_fill_min_scale: float = 0.20,
+    enforce_lot_size: bool = False,
+    lot_size: int = 100,
+    min_lots: int = 1,
 ):
     """按 close-to-close 口径计算调仓日决策。
 
@@ -441,6 +444,8 @@ def _compute_rebalance_day(
     blocked_buy_count = 0
     t1_locked_count = 0
     volume_capped_count = 0
+    lot_blocked_count = 0
+    min_buy_shares = float(lot_size) * float(min_lots) if enforce_lot_size else 0.0
 
     for symbol in sorted(prev_selected - selected):
         if t1_locked and symbol in t1_locked:
@@ -501,12 +506,25 @@ def _compute_rebalance_day(
                             was_volume_capped = True
                             volume_capped_count += 1
 
+        was_lot_blocked = False
+        # 最低买入手数约束：检查单标的资金能否买够 min_lots 手（默认 1 手 = 100 股）
+        if buyable and enforce_lot_size and per_position_notional > 0:
+            row = _quote_row(raw_day_quotes, symbol)
+            if row is not None:
+                open_price = float(row.get("open") or 0)
+                if open_price > 0:
+                    affordable_shares = per_position_notional / open_price
+                    if affordable_shares < min_buy_shares:
+                        buyable = False
+                        was_lot_blocked = True
+                        lot_blocked_count += 1
+
         if buyable:
             held_symbols.add(symbol)
             actual_buy_symbols.add(symbol)
             buy_count += 1
             available_buy_slots -= 1
-        elif not was_volume_capped:
+        elif not was_volume_capped and not was_lot_blocked:
             blocked_buy_count += 1
 
     held_sum, available_selected, missing_symbols = _sum_symbol_returns(
@@ -528,6 +546,7 @@ def _compute_rebalance_day(
         "blocked_buy_count": blocked_buy_count,
         "t1_locked_count": t1_locked_count,
         "volume_capped_count": volume_capped_count,
+        "lot_blocked_count": lot_blocked_count,
         "cash_slot_count": max(topk - len(available_selected), 0),
         "missing_count": len(missing_symbols),
     }
@@ -844,10 +863,14 @@ class QlibBacktestEngine(BacktestEngine):
         # 默认债券日收益率（当没有国债ETF数据时使用）
         default_bond_daily_ret = controller.get_bond_daily_return() if controller else 0.0
 
-        initial_capital = float(CONFIG.get("initial_capital", 500000))
-        current_value = initial_capital
-
         trading_cost = getattr(strategy, "trading_cost", {}) if strategy else {}
+        _capital_override = trading_cost.get("initial_capital")
+        if _capital_override is not None:
+            initial_capital = float(_capital_override)
+        else:
+            initial_capital = float(CONFIG.get("initial_capital", 500000))
+        current_value = initial_capital
+        logger.info(f"[CAPITAL] 初始资金: {initial_capital:,.0f} 元")
         buy_commission_rate = trading_cost.get(
             "buy_commission_rate", trading_cost.get("open_cost", 0.0003)
         )
@@ -867,8 +890,17 @@ class QlibBacktestEngine(BacktestEngine):
         _volume_cap_raw = trading_cost.get("volume_cap_pct", None)
         volume_cap_pct: float | None = float(_volume_cap_raw) if _volume_cap_raw else None
         partial_fill_min_scale = float(trading_cost.get("partial_fill_min_scale", 0.20) or 0.20)
+        enforce_lot_size = bool(trading_cost.get("enforce_lot_size", False))
+        lot_size = int(trading_cost.get("lot_size", 100) or 100)
+        min_lots = int(trading_cost.get("min_lots", 1) or 1)
         _ensure_tradability_constraints_supported(block_limit_up_buy, block_limit_down_sell)
-        need_raw = block_limit_up_buy or block_limit_down_sell or next_open_execution or bool(volume_cap_pct)
+        need_raw = (
+            block_limit_up_buy
+            or block_limit_down_sell
+            or next_open_execution
+            or bool(volume_cap_pct)
+            or enforce_lot_size
+        )
         ranked_selection_orders = {}
         raw_quotes = pd.DataFrame()
         if need_raw:
@@ -885,6 +917,7 @@ class QlibBacktestEngine(BacktestEngine):
                 ("block_limit_down_sell", block_limit_down_sell),
                 ("t1_sell_lock", t1_sell_lock_days > 0),
                 ("volume_cap", volume_cap_pct is not None),
+                (f"lot_size={lot_size}x{min_lots}", enforce_lot_size),
             ] if v]
             logger.info(f"[P0] 实盘约束已启用: {', '.join(_active)}")
         raw_quotes_by_date = _split_by_datetime(raw_quotes)
@@ -955,6 +988,7 @@ class QlibBacktestEngine(BacktestEngine):
                 missing_count = 0
                 t1_locked_count = 0
                 volume_capped_count = 0
+                lot_blocked_count = 0
 
                 bond_daily_ret = bond_etf_map.get(hd, default_bond_daily_ret)
 
@@ -983,7 +1017,7 @@ class QlibBacktestEngine(BacktestEngine):
                     )
                     per_pos_notional = (
                         current_value * target_stock_pct / topk
-                        if volume_cap_pct and topk > 0 else 0.0
+                        if (volume_cap_pct or enforce_lot_size) and topk > 0 else 0.0
                     )
                     rebal_result = _compute_rebalance_day(
                         day_returns,
@@ -1000,6 +1034,9 @@ class QlibBacktestEngine(BacktestEngine):
                         volume_cap_pct=volume_cap_pct,
                         per_position_notional=per_pos_notional,
                         partial_fill_min_scale=partial_fill_min_scale,
+                        enforce_lot_size=enforce_lot_size,
+                        lot_size=lot_size,
+                        min_lots=min_lots,
                     )
                     next_held_symbols = rebal_result["held_symbols"]
                     next_cash_slot_count = rebal_result["cash_slot_count"]
@@ -1009,6 +1046,7 @@ class QlibBacktestEngine(BacktestEngine):
                     blocked_buy_count = rebal_result["blocked_buy_count"]
                     t1_locked_count = rebal_result.get("t1_locked_count", 0)
                     volume_capped_count = rebal_result.get("volume_capped_count", 0)
+                    lot_blocked_count = rebal_result.get("lot_blocked_count", 0)
 
                 # ===== 计算组合收益 =====
                 if enable_vol_norm:
@@ -1127,6 +1165,7 @@ class QlibBacktestEngine(BacktestEngine):
                         "blocked_buy_count": blocked_buy_count if is_rebal else 0,
                         "t1_locked_count": t1_locked_count if is_rebal else 0,
                         "volume_capped_count": volume_capped_count if is_rebal else 0,
+                        "lot_blocked_count": lot_blocked_count if is_rebal else 0,
                         "cash_slot_count": current_cash_slot_count,
                         "missing_count": missing_count,
                     }
@@ -1173,13 +1212,14 @@ class QlibBacktestEngine(BacktestEngine):
         df_result.index = pd.to_datetime(df_result.index)
 
         # P0 约束诊断日志
-        if next_open_execution or t1_sell_lock_days > 0 or volume_cap_pct:
+        if next_open_execution or t1_sell_lock_days > 0 or volume_cap_pct or enforce_lot_size:
             total_t1 = int(df_result.get("t1_locked_count", pd.Series(0)).sum())
             total_vc = int(df_result.get("volume_capped_count", pd.Series(0)).sum())
+            total_lot = int(df_result.get("lot_blocked_count", pd.Series(0)).sum())
             total_blk = int(df_result.get("blocked_buy_count", pd.Series(0)).sum())
             logger.info(
                 f"[P0诊断] 涨停阻买={total_blk}次 | T+1锁定={total_t1}次 | "
-                f"成交量约束={total_vc}次"
+                f"成交量约束={total_vc}次 | 资金不足1手={total_lot}次"
             )
 
         daily_returns = df_result["return"]

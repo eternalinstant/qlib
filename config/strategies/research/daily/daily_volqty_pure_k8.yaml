@@ -1,0 +1,62 @@
+# 日频量价纯反转 Top8 — 极简版
+name: daily_volqty_pure_k8
+description: "日频量价纯反转 Top8：仅4个最强量价因子，高sticky"
+
+weights:
+  volqty: 0.70
+  reversal: 0.20
+  risk: 0.10
+
+factors:
+  volqty:
+    - name: amt_std_6d
+      expression: "Std($amount, 6) / (Mean($amount, 6) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.60
+    - name: vol_std_10d
+      expression: "Std($volume, 10) / (Mean($volume, 10) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.58
+    - name: vol_ema26_ratio
+      expression: "$volume / (EMA($volume, 26) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.47
+    - name: vol_roc_12d
+      expression: "$volume / (Ref($volume, 12) + 1) - 1"
+      source: qlib
+      negate: true
+      ir: 0.43
+
+  reversal:
+    - name: ma60_dev
+      expression: "$close / Mean($close, 60) - 1"
+      source: qlib
+      negate: true
+      ir: 0.26
+
+  risk:
+    - name: amt_std_20d
+      expression: "Std($amount, 20) / (Mean($amount, 20) + 1)"
+      source: qlib
+      negate: true
+      ir: 0.54
+
+selection:
+  topk: 8
+  universe: csi300
+  neutralize_industry: false
+  min_market_cap: 50
+  sticky: 50
+  buffer: 20
+  exclude_st: true
+  exclude_new_days: 120
+
+rebalance:
+  freq: day
+
+position:
+  model: fixed
+  stock_pct: 0.80
