@@ -29,9 +29,11 @@ class TestTushareToQlibConverter:
             tushare_dir="/custom/tushare",
             qlib_dir="/custom/qlib"
         )
-        
-        assert str(converter.tushare_dir) == "/custom/tushare"
-        assert str(converter.qlib_dir) == "/custom/qlib"
+
+        # 用 Path 比较而非字符串：str(WindowsPath) 是反斜杠，硬比 "/custom/..."
+        # 在 Windows 上必然失败（Mac 上侥幸通过）。Path 相等跨平台一致。
+        assert converter.tushare_dir == Path("/custom/tushare")
+        assert converter.qlib_dir == Path("/custom/qlib")
 
     def test_build_adjusted_bins_for_instruments_preserves_calendar_gaps(self, tmp_path):
         """前复权 bin 写入必须按交易日历补 NaN，不能压缩停牌日。"""

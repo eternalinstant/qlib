@@ -28,15 +28,18 @@ class TushareDownloader:
     RETRY_COUNT = 3  # 单次请求重试次数
 
     def __init__(self, token: str = None, data_dir: str = None):
+        # 先验票再干活：token 缺失时立即抛错，不要先 mkdir 产生副作用。
+        # （否则 Windows 上环境变量清空时 "~" 展开失败、mkdir 先炸，
+        #  根本走不到这条校验——POSIX 有 pwd 兜底所以 Mac 上侥幸不暴露。）
         self.token = token or os.environ.get("TUSHARE_TOKEN")
+        if not self.token:
+            raise ValueError("缺少 Tushare token，请传入 token 或设置环境变量 TUSHARE_TOKEN")
+
         self.data_dir = Path(data_dir or "~/Documents/qlib_quant/data/tushare").expanduser()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._counter = 0
         self._total = 0
-
-        if not self.token:
-            raise ValueError("缺少 Tushare token，请传入 token 或设置环境变量 TUSHARE_TOKEN")
 
         try:
             import tushare as ts

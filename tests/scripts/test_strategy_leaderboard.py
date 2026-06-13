@@ -182,9 +182,15 @@ def test_fallback_from_aggregated(tmp_path):
     csv_path = tmp_path / "backtest_fallback_strat_historical_csi300_20260101_000000.csv"
     daily_df.to_csv(csv_path, index=False)
 
-    # aggregated table with OOS data for that strategy
+    # aggregated table with OOS data for that strategy.
+    # series_kind/status/mtime 是真实 all_return_series_metrics.csv 必有的列：
+    # build_leaderboard 先按 series_kind=="backtest" & status=="ok" 过滤，
+    # 再按 mtime（float epoch，与文件 mtime 同型）排序去重保留最新一行，
+    # 下游还 float(mtime)。旧 fixture 漏造这三列，补全以贴合真实数据形态与类型。
     agg_df = pd.DataFrame([{
         "strategy_name": "fallback_strat",
+        "series_kind": "backtest", "status": "ok",
+        "mtime": pd.Timestamp("2026-06-08").timestamp(),
         "full_cagr": 0.15, "full_max_dd": -0.12, "full_sharpe": 1.2, "full_calmar": 1.25,
         "oos_cagr": 0.22, "oos_max_dd": -0.08, "oos_sharpe": 1.8, "oos_calmar": 2.75,
     }])
@@ -206,5 +212,7 @@ def test_fallback_from_aggregated(tmp_path):
 def test_render_markdown_has_header():
     df = _make_df()
     md = render_markdown_table(df)
-    assert "| Strategy |" in md
+    # render_markdown_table 有意输出中文表头（与整张榜单中文一致）；
+    # 旧断言期望英文 "| Strategy |" 是过时的，对齐实际产品行为。
+    assert "| 策略名称 |" in md
     assert "| a |" in md or "a" in md
