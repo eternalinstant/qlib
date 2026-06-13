@@ -45,7 +45,7 @@ _UNIVERSE_TAGS = [
 ]
 
 # OOS cutoff: rows before this date are "in-sample"
-OOS_START = "2024-01-01"
+OOS_START = "2026-01-01"
 
 # ── slug parsing ──────────────────────────────────────────────────────────────
 
@@ -387,13 +387,23 @@ def build_leaderboard(
         else:
             oos_decay = float("nan")
 
-        # extras from daily CSV
+        # extras from daily CSV (re-computed with current OOS_START, overrides agg_df OOS)
         extras = csv_extras.get(slug, {})
         turnover     = extras.get("turnover")
         cost_ratio   = extras.get("cost_ratio")
         win_rate     = extras.get("win_rate")
         profit_factor = extras.get("profit_factor")
         dd_recovery  = extras.get("dd_recovery_days")
+        if extras.get("oos_cagr") is not None:
+            oos_cagr   = extras["oos_cagr"]
+            oos_dd     = extras.get("oos_max_dd", oos_dd)
+            oos_sharpe = extras["oos_sharpe"]
+            oos_calmar = extras.get("oos_calmar", oos_calmar)
+            if (not np.isnan(float(full_sharpe)) and not np.isnan(float(oos_sharpe))
+                    and float(full_sharpe) != 0):
+                oos_decay = float(oos_sharpe) / float(full_sharpe)
+            else:
+                oos_decay = float("nan")
 
         # YAML metadata
         yaml_meta = _load_yaml_meta(slug, config_dirs)

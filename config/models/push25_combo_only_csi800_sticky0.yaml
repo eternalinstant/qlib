@@ -1,51 +1,13 @@
-name: push25_cq10_v3_vol_norm
+name: push25_combo_only_csi800_sticky0
 
 data:
-  source: hybrid
+  source: parquet
   start_date: "2019-01-01"
-  end_date: "2026-05-22"
-  alpha158_universe: "csi300"
-  parquet_feature_columns:
-    - ocf_to_ev
-    - fcff_to_mv
-    - roe_fina
-    - current_ratio_fina
-    - n_cashflow_act
+  end_date: "2026-04-15"
+  feature_columns:
     - rank_value_profit_core
     - rank_balance_core
-    - qvf_core_interaction
-  alpha158_feature_columns:
-    - ROC20
-    - CORD20
-  alpha158:
-    kbar: {}
-    price:
-      windows: [0]
-      feature: [OPEN, HIGH, LOW, VWAP]
-    rolling:
-      windows: [10, 20, 60]
-      include:
-        - ROC
-        - MA
-        - STD
-        - BETA
-        - RSQR
-        - RESI
-        - MAX
-        - LOW
-        - RANK
-        - RSV
-        - IMAX
-        - IMIN
-        - IMXD
-        - CORR
-        - CORD
-        - CNTP
-        - CNTD
-        - SUMP
-        - VSTD
-        - WVMA
-        - VSUMD
+    - rank_growth_quality_core
 
 label:
   horizon_days: 20
@@ -58,7 +20,7 @@ training:
 
 scoring:
   start_date: "2019-01-01"
-  end_date: "2026-05-22"
+  end_date: "2026-04-15"
 
 model:
   preferred_backend: lightgbm
@@ -72,14 +34,14 @@ model:
 
 selection:
   freq: biweek
-  topk: 8
-  universe: csi300
+  topk: 15
+  universe: csi800
   min_market_cap: 120
   exclude_st: true
   exclude_new_days: 120
-  sticky: 6
+  sticky: 0
   threshold: 0.0
-  churn_limit: 2
+  churn_limit: 3
   margin_stable: false
   buffer: 0
   score_smoothing_days: 1
@@ -88,16 +50,13 @@ selection:
   exit_persist_days: 1
   min_hold_days: 0
   stoploss_lookback_days: 20
-  stoploss_drawdown: 0.10
+  stoploss_drawdown: 0.15
   replacement_pool_size: 0
 
 position:
-  model: vol_norm
+  model: fixed
   params:
     stock_pct: 0.80
-    vol_method: inverse_sqrt
-    vol_lookback: 20
-    cap_max_weight: 0.20
 
 overlay:
   enabled: true
@@ -109,6 +68,11 @@ overlay:
   dd_hard: 0.025
   soft_exposure: 0.65
   hard_exposure: 0.25
+  market_index_code: "000300.SH"
+  market_trend_lookback: 20
+  market_trend_min_return: 0.020
+  market_trend_exposure_floor: 0.45
+  market_trend_max_strategy_drawdown: 0.080
   exposure_min: 0.0
   exposure_max: 1.0
 
@@ -120,12 +84,6 @@ trading:
   min_sell_commission: 5.0
   slippage_bps: 5.0
   impact_bps: 5.0
-  # P0 实盘约束
-  next_open_execution: false
-  block_limit_up_buy: false
-  block_limit_down_sell: false
-  t1_sell_lock_days: 0
-  volume_cap_pct: null
 
 output:
-  root: "results/model_signals/push25_cq10_v3_vol_norm"
+  root: "results/model_signals/push25_combo_only_csi800_sticky0"

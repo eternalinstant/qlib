@@ -145,7 +145,7 @@ def rebuild_factor_data() -> bool:
     try:
         from modules.data.tushare_to_qlib import TushareToQlibConverter
 
-        converter = TushareToQlibConverter()
+        converter = TushareToQlibConverter(tushare_dir=str(TUSHARE_DIR), qlib_dir=str(QLIB_DIR))
         df = converter.convert()
         if df is not None:
             converter.save(df)

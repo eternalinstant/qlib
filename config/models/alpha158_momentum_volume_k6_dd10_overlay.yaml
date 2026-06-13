@@ -3,7 +3,7 @@ name: alpha158_momentum_volume_k6_dd10_overlay
 data:
   source: alpha158
   start_date: "2019-01-01"
-  end_date: "2026-04-15"
+  end_date: "2026-05-22"
   feature_columns:
     - ROC20
     - RSV20
@@ -51,7 +51,7 @@ training:
 
 scoring:
   start_date: "2019-01-01"
-  end_date: "2026-04-15"
+  end_date: "2026-05-22"
 
 model:
   preferred_backend: lightgbm

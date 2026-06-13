@@ -6,25 +6,39 @@ Qlib 初始化与安全数据加载
 import os
 import sys
 
-from utils.platform import is_windows
+from utils.platform import is_macos, is_windows
 
 
 _QLIB_PROVIDER_URI = None
 
 
 def _qlib_runtime_overrides():
-    """返回当前平台需要传给 qlib.init 的运行时覆盖项。"""
-    if not is_windows():
-        return {}
+    """返回当前平台需要传给 qlib.init 的运行时覆盖项。
 
-    if os.environ.get("JOBLIB_START_METHOD") == "fork":
-        os.environ["JOBLIB_START_METHOD"] = "spawn"
+    macOS/Windows 的 multiprocessing 默认使用 spawn（而非 fork），
+    joblib 的 loky 后端在 spawn 模式下子进程会触发 "bootstrapping phase" RuntimeError。
+    解决方法：强制使用 threading 后端 + 单进程内核。
+    Linux 默认使用 fork，joblib multiprocessing 正常，无需覆盖。
+    """
+    if is_macos():
+        # macOS spawn 模式下 joblib multiprocessing 会崩溃，退化为 threading + 单核
+        return {
+            "kernels": 1,
+            "joblib_backend": "threading",
+            "maxtasksperchild": None,
+        }
 
-    return {
-        "kernels": 1,
-        "joblib_backend": "threading",
-        "maxtasksperchild": None,
-    }
+    if is_windows():
+        if os.environ.get("JOBLIB_START_METHOD") == "fork":
+            os.environ["JOBLIB_START_METHOD"] = "spawn"
+        return {
+            "kernels": 1,
+            "joblib_backend": "threading",
+            "maxtasksperchild": None,
+        }
+
+    # Linux: fork 默认正常，不覆盖，保留 qlib 的多核 multiprocessing
+    return {}
 
 
 def _apply_runtime_overrides(overrides):
@@ -62,16 +76,6 @@ def init_qlib():
         return
 
     qlib.init(provider_uri=provider_uri_str, region=REG_CN, **runtime_overrides)
-
-    try:
-        from qlib.config import C
-
-        if is_windows():
-            C["kernels"] = 1
-            C["joblib_backend"] = "threading"
-            C["maxtasksperchild"] = None
-    except Exception:
-        pass
 
     _QLIB_PROVIDER_URI = provider_uri_str
     print("[OK] Qlib 初始化成功")
