@@ -129,7 +129,7 @@ def test_qlib_data_provider_is_data_provider():
 
 def test_qlib_data_provider_get_ohlcv_returns_dataframe():
     dp = QlibDataProvider()
-    with patch("modules.backtest.common.load_raw_trade_quotes") as mock_load:
+    with patch("data.quotes.load_raw_trade_quotes") as mock_load:
         mock_load.return_value = pd.DataFrame(
             {"open": [10.0], "close": [10.0], "prev_close": [9.9]},
             index=pd.MultiIndex.from_tuples(

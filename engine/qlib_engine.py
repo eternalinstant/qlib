@@ -17,8 +17,8 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from config.config import CONFIG
 from core.selection import SELECTION_CSV
-from core.qlib_init import init_qlib, load_features_safe
-from core.universe import filter_instruments, is_st_on_date
+from data.qlib_init import init_qlib, load_features_safe
+from data.universe import filter_instruments, is_st_on_date
 from engine.base import BacktestResult, BacktestEngine
 from modules.backtest.common import (  # 过渡：common.py 仍宿主 load_raw_trade_quotes（Phase 3 拆至 data/quotes）
     CHINEXT_REFORM_DATE,
