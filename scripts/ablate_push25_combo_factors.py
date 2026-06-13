@@ -23,7 +23,7 @@ from strategy.producers.predictive_signal import (  # noqa: E402
 )
 
 
-BASE_CONFIG = PROJECT_ROOT / "config" / "models" / "push25_cq10_k8d2_very_tight.yaml"
+BASE_CONFIG = PROJECT_ROOT / "strategy" / "configs" / "models" / "push25_cq10_k8d2_very_tight.yaml"
 RUN_ROOT = PROJECT_ROOT / "results" / "model_signals" / "ablation_runs" / "push25_combo_factors_v1"
 OOS_START = pd.Timestamp("2024-01-01")
 

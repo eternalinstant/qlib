@@ -14,9 +14,10 @@ from common.config import (
 )
 
 
-def test_config_dir_points_to_repo_config():
-    """移到 common/ 后 CONFIG_DIR 仍应指向 <repo>/config（含 YAML）"""
-    assert CONFIG_DIR.name == "config"
+def test_config_dir_points_to_common_configs():
+    """层内聚后 CONFIG_DIR 指向 <repo>/common/configs（共享 YAML：paths/trading/strategy）"""
+    assert CONFIG_DIR.name == "configs"
+    assert CONFIG_DIR.parent.name == "common"
     assert (PROJECT_ROOT / "pytest.ini").exists()
 
 

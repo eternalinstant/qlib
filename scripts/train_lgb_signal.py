@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
-        default="config/models/lgb_10d.yaml",
+        default="strategy/configs/models/lgb_10d.yaml",
         help="模型配置 YAML",
     )
     return parser.parse_args()

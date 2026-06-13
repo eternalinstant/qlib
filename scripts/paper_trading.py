@@ -41,7 +41,7 @@ TUSHARE_DIR = DATA_DIR / "tushare"
 QLIB_DIR = DATA_DIR / "qlib_data" / "cn_data"
 FACTOR_DATA_PATH = QLIB_DIR / "factor_data.parquet"
 
-CONFIG_PATH = PROJECT_ROOT / "config" / "models" / "qvf_alpha158_core12.yaml"
+CONFIG_PATH = PROJECT_ROOT / "strategy" / "configs" / "models" / "qvf_alpha158_core12.yaml"
 MODEL_BUNDLE_PATH = PROJECT_ROOT / "results" / "model_signals" / "qvf_alpha158_core12" / "model_bundle.pkl"
 
 PAPER_DIR = PROJECT_ROOT / "results" / "paper_trading"

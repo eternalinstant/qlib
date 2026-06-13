@@ -6,10 +6,10 @@
 
 用法:
     python3 scripts/yearly_split_backtest.py \
-      --configs config/models/qvf_alpha158_core12.yaml,config/models/qvf_alpha158_hybrid24_prune_v2.yaml
+      --configs strategy/configs/models/qvf_alpha158_core12.yaml,strategy/configs/models/qvf_alpha158_hybrid24_prune_v2.yaml
 
     python3 scripts/yearly_split_backtest.py \
-      --configs config/models/qvf_alpha158_core12.yaml,config/models/qvf_alpha158_hybrid24_prune_v2.yaml \
+      --configs strategy/configs/models/qvf_alpha158_core12.yaml,strategy/configs/models/qvf_alpha158_hybrid24_prune_v2.yaml \
       --output results/yearly_split/comparison.csv
 """
 

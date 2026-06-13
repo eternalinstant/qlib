@@ -12,7 +12,7 @@ core_12 因子详细审计：IC / Rank IC / 分层收益 / 多空 / 覆盖率 / 
 
 用法:
     python3 scripts/audit_core12_factors.py
-    python3 scripts/audit_core12_factors.py --config config/models/qvf_alpha158_core12.yaml
+    python3 scripts/audit_core12_factors.py --config strategy/configs/models/qvf_alpha158_core12.yaml
 """
 
 from __future__ import annotations
@@ -209,7 +209,7 @@ def analyze_factor(
 
 def main():
     parser = argparse.ArgumentParser(description="core_12 因子详细审计")
-    parser.add_argument("--config", default="config/models/qvf_alpha158_core12.yaml")
+    parser.add_argument("--config", default="strategy/configs/models/qvf_alpha158_core12.yaml")
     args = parser.parse_args()
 
     config_path = PROJECT_ROOT / args.config

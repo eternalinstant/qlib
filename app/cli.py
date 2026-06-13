@@ -76,7 +76,7 @@ def cmd_backtest(args):
         from strategy.builder import Strategy
         strategies = Strategy.list_available()
         if not strategies:
-            print("[WARN] 没有可用策略 (config/strategies/ 目录为空)")
+            print("[WARN] 没有可用策略 (strategy/configs/strategies/ 目录为空)")
         else:
             print(f"\n  可用策略 ({len(strategies)}):")
             for layer, names in Strategy.list_grouped().items():

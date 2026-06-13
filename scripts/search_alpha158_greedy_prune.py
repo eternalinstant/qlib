@@ -63,7 +63,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--base-config",
-        default="config/models/qvf_core_plus_fixed80_k6_overlay_fullspan_turnover_soft_pruned.yaml",
+        default="strategy/configs/models/qvf_core_plus_fixed80_k6_overlay_fullspan_turnover_soft_pruned.yaml",
     )
     parser.add_argument(
         "--search-name",

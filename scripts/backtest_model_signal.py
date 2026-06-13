@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
-        default="config/models/lgb_10d.yaml",
+        default="strategy/configs/models/lgb_10d.yaml",
         help="模型配置 YAML",
     )
     parser.add_argument(
@@ -37,7 +37,7 @@ def parse_args():
         "--initial-capital",
         type=float,
         default=None,
-        help="覆盖初始资金（元），不传则用 config/trading.yaml 的默认值",
+        help="覆盖初始资金（元），不传则用 common/configs/trading.yaml 的默认值",
     )
     parser.add_argument(
         "--enforce-lot-size",

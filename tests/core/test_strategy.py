@@ -790,7 +790,7 @@ class TestFixedPositionController:
 # ── 实际策略文件加载测试 ──────────────────────────────────
 
 class TestRealStrategyFiles:
-    """测试 config/strategies/ 下的实际策略文件"""
+    """测试 strategy/configs/strategies/ 下的实际策略文件"""
 
     def test_default_strategy_exists(self):
         names = Strategy.list_available()

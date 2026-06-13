@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 
 
 PROJECT_ROOT = Path(__file__).parent.parent
-CONFIG_DIR = PROJECT_ROOT / "config"
+CONFIG_DIR = PROJECT_ROOT / "common" / "configs"
 
 
 def load_yaml(filename: str) -> Dict[str, Any]:

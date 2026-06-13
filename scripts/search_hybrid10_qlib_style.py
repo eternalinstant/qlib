@@ -141,7 +141,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--base-config",
-        default="config/models/qvf_alpha158_hybrid21_best_k6.yaml",
+        default="strategy/configs/models/qvf_alpha158_hybrid21_best_k6.yaml",
         help="10 因子搜索基线配置",
     )
     parser.add_argument(

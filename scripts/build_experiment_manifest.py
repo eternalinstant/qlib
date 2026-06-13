@@ -3,7 +3,7 @@
 构建实验 manifest：汇总训练、评分、回测元数据到统一 JSON。
 
 用法:
-    python3 scripts/build_experiment_manifest.py --config config/models/qvf_alpha158_core12.yaml
+    python3 scripts/build_experiment_manifest.py --config strategy/configs/models/qvf_alpha158_core12.yaml
     python3 scripts/build_experiment_manifest.py --all
 """
 
@@ -148,11 +148,11 @@ def build_manifest(config_path: Path) -> dict | None:
 def main():
     parser = argparse.ArgumentParser(description="构建实验 manifest")
     parser.add_argument("--config", type=str, help="YAML 配置路径")
-    parser.add_argument("--all", action="store_true", help="扫描 config/models/ 下所有 YAML")
+    parser.add_argument("--all", action="store_true", help="扫描 strategy/configs/models/ 下所有 YAML")
     args = parser.parse_args()
 
     if args.all:
-        configs = sorted((PROJECT_ROOT / "config" / "models").glob("*.yaml"))
+        configs = sorted((PROJECT_ROOT / "strategy" / "configs" / "models").glob("*.yaml"))
     elif args.config:
         configs = [Path(args.config)]
     else:

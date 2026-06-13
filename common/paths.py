@@ -2,7 +2,7 @@
 统一路径解析层。
 
 所有数据路径从此模块的 lazy 函数推导，不在 import 时冻结。
-配置键与 config/paths.yaml 保持一致。
+配置键与 common/configs/paths.yaml 保持一致。
 
 公共库：合并自
 - modules/data/paths.py（get_* 系列）

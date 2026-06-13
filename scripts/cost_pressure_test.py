@@ -7,10 +7,10 @@
 
 用法:
     python3 scripts/cost_pressure_test.py \
-      --config config/models/qvf_alpha158_core12.yaml
+      --config strategy/configs/models/qvf_alpha158_core12.yaml
 
     python3 scripts/cost_pressure_test.py \
-      --config config/models/qvf_alpha158_core12.yaml \
+      --config strategy/configs/models/qvf_alpha158_core12.yaml \
       --cost-levels 0,5,10,15,20,30
 """
 

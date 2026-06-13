@@ -7,7 +7,7 @@ from common.platform import temp_dir
 
 SCAN_DIR = temp_dir("scan_factor")
 
-with open("config/models/push25_cq10_k8d2_very_tight.yaml", encoding="utf-8") as f:
+with open("strategy/configs/models/push25_cq10_k8d2_very_tight.yaml", encoding="utf-8") as f:
     cq10_cfg = yaml.safe_load(f)
 
 fmap = _alpha158_feature_map(cq10_cfg["data"]["alpha158"])

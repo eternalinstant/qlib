@@ -201,7 +201,7 @@ def evaluate_overlay_window(path: Path, start_date: str, end_date: str) -> dict:
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--base-config", default="config/models/hybrid10_cashflow_quality10_qlib_k8_d2.yaml")
+    p.add_argument("--base-config", default="strategy/configs/models/hybrid10_cashflow_quality10_qlib_k8_d2.yaml")
     p.add_argument("--search-name", default="push25_v1")
     p.add_argument("--bundles", default="")
     p.add_argument("--models", default="")

@@ -56,7 +56,7 @@ def _daily_rank_ic(df: pd.DataFrame, feature: str) -> float:
 
 
 def calc_feature_ic_and_corr() -> tuple[pd.DataFrame, pd.DataFrame]:
-    cfg = load_predictive_config(PROJECT_ROOT / "config" / "models" / "push25_cq7_alpha5_fusion_k8d2_very_tight.yaml")
+    cfg = load_predictive_config(PROJECT_ROOT / "strategy" / "configs" / "models" / "push25_cq7_alpha5_fusion_k8d2_very_tight.yaml")
     features = list(cfg["data"]["parquet_feature_columns"]) + list(cfg["data"]["alpha158_feature_columns"])
 
     feature_frame, _, _ = load_feature_frame(

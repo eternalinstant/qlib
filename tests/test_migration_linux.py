@@ -86,7 +86,7 @@ def _check_no_hardcoded_host_paths():
     targets = []
     for sub in ("core", "modules", "utils"):
         targets += sorted((PROJECT_ROOT / sub).rglob("*.py"))
-    targets += sorted((PROJECT_ROOT / "config").rglob("*.yaml"))
+    targets += sorted((PROJECT_ROOT / "strategy" / "configs").rglob("*.yaml")) + sorted((PROJECT_ROOT / "common" / "configs").rglob("*.yaml"))
 
     all_pass = True
     for path in targets:

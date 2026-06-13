@@ -173,7 +173,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--base-config",
-        default="config/models/qvf_core_plus_fixed80_k6_overlay_fullspan_compressed.yaml",
+        default="strategy/configs/models/qvf_core_plus_fixed80_k6_overlay_fullspan_compressed.yaml",
     )
     parser.add_argument(
         "--scores-path",

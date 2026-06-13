@@ -2,8 +2,8 @@
 策略定义模块 — 从 YAML 加载策略配置，驱动因子注册、选股、仓位控制
 
 支持两种放置方式：
-1. 兼容旧结构：config/strategies/*.yaml
-2. 分层结构：config/strategies/<layer>/<group>/<strategy>.yaml
+1. 兼容旧结构：strategy/configs/strategies/*.yaml
+2. 分层结构：strategy/configs/strategies/<layer>/<group>/<strategy>.yaml
 
 Strategy 类是整个多策略架构的核心入口。
 """
@@ -21,7 +21,7 @@ from strategy.factors import FactorInfo, FactorRegistry, default_registry
 from strategy.validity import ValidityConfig, build_validity_config
 
 PROJECT_ROOT = Path(__file__).parent.parent
-STRATEGIES_DIR = PROJECT_ROOT / "config" / "strategies"
+STRATEGIES_DIR = PROJECT_ROOT / "strategy" / "configs" / "strategies"
 SELECTIONS_DIR = PROJECT_ROOT / "data" / "selections"
 
 VALID_POSITION_MODELS = {"trend", "fixed", "full", "gate"}
@@ -343,7 +343,7 @@ class Strategy:
 
     @classmethod
     def load(cls, name: str) -> "Strategy":
-        """从 config/strategies 递归加载策略。"""
+        """从 strategy/configs/strategies 递归加载策略。"""
         resolved_name, yaml_path = _resolve_strategy_path(name)
 
         with open(yaml_path, "r", encoding="utf-8") as f:
@@ -696,7 +696,7 @@ class Strategy:
                 self.config_path
                 if self.config_path is not None
                 else _resolve_strategy_path(self.name)[1],
-                PROJECT_ROOT / "config" / "strategy.yaml",
+                PROJECT_ROOT / "common" / "configs" / "strategy.yaml",
             ]
             for child, _ in self.load_component_strategies():
                 paths.extend(child.selection_dependency_paths())
@@ -713,7 +713,7 @@ class Strategy:
             self.config_path
             if self.config_path is not None
             else _resolve_strategy_path(self.name)[1],
-            PROJECT_ROOT / "config" / "strategy.yaml",
+            PROJECT_ROOT / "common" / "configs" / "strategy.yaml",
             PROJECT_ROOT / "core" / "factors.py",
             PROJECT_ROOT / "core" / "selection.py",
             PROJECT_ROOT / "core" / "lgbm_scorer.py",

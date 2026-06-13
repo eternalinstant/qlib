@@ -2,7 +2,7 @@
 
 用法:
     .venv/Scripts/python scripts/export_target.py \\
-        --config config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml
+        --config strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml
 
 每个交易日 T 上午运行（Tushare 已含 T-1 收盘）：
   1. 用最新 factor_data 日期作为 scoring.end_date 覆盖 YAML 固定日期
@@ -242,7 +242,7 @@ def main():
     parser = argparse.ArgumentParser(description="qlib 选股 → live_trade target JSON 桥接")
     parser.add_argument(
         "--config", "-c",
-        default="config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml",
+        default="strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml",
         help="策略 YAML 路径（相对 qlib_quant 根目录）",
     )
     parser.add_argument(
