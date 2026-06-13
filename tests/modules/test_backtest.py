@@ -111,8 +111,8 @@ class TestBacktestEngine:
         engine = MockBacktestEngine()
         
         # 模拟 load_selections
-        with patch('modules.backtest.base.load_selections') as mock_load:
-            with patch('modules.backtest.base.MarketPositionController') as mock_controller:
+        with patch('core.selection.load_selections') as mock_load:
+            with patch('core.position.MarketPositionController') as mock_controller:
                 mock_load.return_value = (
                     {pd.Timestamp("2024-01-01"): {"SZ000001"}},
                     {pd.Timestamp("2024-01-01")}
@@ -144,7 +144,7 @@ class TestBacktestEngine:
         mock_strategy.build_position_controller.return_value = Mock()
         mock_strategy.topk = 30
         
-        with patch('modules.backtest.base.load_selections') as mock_load:
+        with patch('core.selection.load_selections') as mock_load:
             result = engine._prepare(strategy=mock_strategy)
         
         # 验证策略的方法被调用
@@ -159,8 +159,8 @@ class TestBacktestEngine:
         """测试仓位控制器加载市场数据"""
         engine = MockBacktestEngine()
         
-        with patch('modules.backtest.base.load_selections') as mock_load:
-            with patch('modules.backtest.base.MarketPositionController') as mock_ctrl_class:
+        with patch('core.selection.load_selections') as mock_load:
+            with patch('core.position.MarketPositionController') as mock_ctrl_class:
                 mock_load.return_value = (
                     {pd.Timestamp("2024-01-01"): {"SZ000001"}},
                     {pd.Timestamp("2024-01-01")}
@@ -179,8 +179,8 @@ class TestBacktestEngine:
         """测试无 load_market_data 方法的控制器"""
         engine = MockBacktestEngine()
         
-        with patch('modules.backtest.base.load_selections') as mock_load:
-            with patch('modules.backtest.base.MarketPositionController') as mock_ctrl_class:
+        with patch('core.selection.load_selections') as mock_load:
+            with patch('core.position.MarketPositionController') as mock_ctrl_class:
                 mock_load.return_value = (
                     {pd.Timestamp("2024-01-01"): {"SZ000001"}},
                     {pd.Timestamp("2024-01-01")}
@@ -248,7 +248,7 @@ class TestQlibBacktestHelpers:
             }
         ).to_parquet(raw_file, index=False)
 
-        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
+        with patch("common.paths.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
 
         assert list(quotes.index.get_level_values("instrument").unique()) == ["SZ000001"]
@@ -266,7 +266,7 @@ class TestQlibBacktestHelpers:
             }
         ).to_parquet(raw_file, index=False)
 
-        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
+        with patch("common.paths.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
 
         assert quotes.loc[(pd.Timestamp("2024-01-02"), "SZ000001"), "prev_close"] == pytest.approx(9.95)
@@ -292,7 +292,7 @@ class TestQlibBacktestHelpers:
         )
         provider_px = pd.DataFrame({"close": [100.0, 101.0]}, index=provider_index)
 
-        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path), \
+        with patch("common.paths.raw_data_root", return_value=tmp_path), \
              patch("modules.backtest.qlib_engine.load_features_safe", return_value=provider_px), \
              patch(
                  "modules.backtest.qlib_engine._load_trade_calendar_slice",
@@ -305,7 +305,7 @@ class TestQlibBacktestHelpers:
         assert df_px.loc[(pd.Timestamp("2024-01-03"), "SZ000001"), "daily_ret"] == pytest.approx(0.01)
 
     def test_load_raw_trade_quotes_warns_and_skips_missing_files(self, tmp_path, capsys):
-        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
+        with patch("common.paths.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
 
         captured = capsys.readouterr()
@@ -339,9 +339,10 @@ class TestQlibBacktestHelpers:
         assert _can_buy_at_open("SH600000", "2024-01-01", 10.0, np.nan) is False
         assert _can_sell_at_open("SH600000", "2024-01-01", 0.0, 10.0) is False
         assert _can_sell_at_open("SH600000", "2024-01-01", 10.0, 0.0) is False
-        with patch("modules.backtest.common.get_limit_prices", return_value=(np.nan, 9.0)):
+        # 涨跌停已下沉至 common/price_limit；can_buy/sell 内部从该命名空间解析 get_limit_prices
+        with patch("common.price_limit.get_limit_prices", return_value=(np.nan, 9.0)):
             assert _can_buy_at_open("SH600000", "2024-01-01", 10.0, 10.0) is False
-        with patch("modules.backtest.common.get_limit_prices", return_value=(11.0, np.nan)):
+        with patch("common.price_limit.get_limit_prices", return_value=(11.0, np.nan)):
             assert _can_sell_at_open("SH600000", "2024-01-01", 10.0, 10.0) is False
 
     def test_tradability_constraint_requires_explicit_support(self, tmp_path):
@@ -383,14 +384,14 @@ class TestQlibBacktestHelpers:
             }
         ).to_parquet(raw_file, index=False)
 
-        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
+        with patch("common.paths.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
 
         assert quotes.empty
 
         empty_raw_file = tmp_path / "sz000002.parquet"
         pd.DataFrame(columns=["date", "open", "close"]).to_parquet(empty_raw_file, index=False)
-        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
+        with patch("common.paths.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000002"], "2024-01-02", "2024-01-03")
         assert quotes.empty
 

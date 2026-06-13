@@ -256,3 +256,57 @@ def test_rule_engine_result_can_enter_leaderboard():
     assert hasattr(result, "portfolio_value")
     assert isinstance(result.daily_returns, pd.Series)
     assert isinstance(result.portfolio_value, pd.Series)
+
+
+# ── NAV 资产核算（P0 bug 修复：净值=现金+持仓市值，不虚高）─────────────────
+
+def _date_close_ohlcv(date, close):
+    idx = pd.MultiIndex.from_tuples([("X", date)], names=["instrument", "date"])
+    return pd.DataFrame({"close": [close]}, index=idx)
+
+
+def test_rule_engine_buy_and_hold_nav_tracks_price_not_inflated():
+    """单票满仓买入持有，价格 +10%，最终净值应约 +10%（扣成本），而非旧 bug 的累加虚高"""
+    engine = RuleBasedEngine({"initial_capital": 100_000})
+    strategy = BuyAndHoldStrategy({"name": "bah", "selection": {"universe": "all"}})
+
+    trade_dates = pd.date_range("2024-01-02", periods=5, freq="B")
+    # 价格序列：10, 10, 10, 11, 11（+10%）
+    price_by_date = dict(zip(trade_dates, [10.0, 10.0, 10.0, 11.0, 11.0]))
+
+    mock_dp = MagicMock()
+    mock_dp.get_universe.return_value = ["X"]
+
+    def ohlcv_side(instruments, start, end):
+        d = pd.Timestamp(start)
+        return _date_close_ohlcv(d, price_by_date.get(d, 10.0))
+    mock_dp.get_ohlcv.side_effect = ohlcv_side
+
+    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+            result = engine.run(strategy)
+
+    final_nav = 100_000 * float(result.portfolio_value.iloc[-1])
+    # +10% 价格、满仓、扣 ~0.1% 成本 → 终值约 109,000~110,000（绝非旧 bug 的 >120,000 虚高，也非 <90,000）
+    assert 108_000 <= final_nav <= 110_500, f"final_nav={final_nav:.0f} 不符合 NAV 核算预期"
+
+
+def test_rule_engine_buy_and_hold_flat_price_preserves_nav():
+    """价格不动时，满仓持有净值应基本守恒（仅损失买入成本）"""
+    engine = RuleBasedEngine({"initial_capital": 100_000})
+    strategy = BuyAndHoldStrategy({"name": "bah", "selection": {"universe": "all"}})
+
+    trade_dates = pd.date_range("2024-01-02", periods=4, freq="B")
+    mock_dp = MagicMock()
+    mock_dp.get_universe.return_value = ["X"]
+
+    def ohlcv_side(instruments, start, end):
+        return _date_close_ohlcv(pd.Timestamp(start), 10.0)
+    mock_dp.get_ohlcv.side_effect = ohlcv_side
+
+    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+            result = engine.run(strategy)
+
+    final_nav = 100_000 * float(result.portfolio_value.iloc[-1])
+    assert 99_700 <= final_nav <= 100_000, f"final_nav={final_nav:.0f} 应基本守恒"

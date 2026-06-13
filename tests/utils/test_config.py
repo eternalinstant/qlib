@@ -21,13 +21,14 @@ class TestLoadYaml:
         yaml_file = tmp_path / "test.yaml"
         yaml_file.write_text(yaml_content)
 
-        with patch("config.config.CONFIG_DIR", tmp_path):
+        # load_yaml 实体已下沉至 common.config，从该命名空间解析 CONFIG_DIR
+        with patch("common.config.CONFIG_DIR", tmp_path):
             result = load_yaml("test.yaml")
             assert result == {"key": "value", "number": 42}
 
     def test_load_yaml_nonexistent(self, tmp_path):
         """测试加载不存在的 YAML"""
-        with patch("config.config.CONFIG_DIR", tmp_path):
+        with patch("common.config.CONFIG_DIR", tmp_path):
             result = load_yaml("nonexistent.yaml")
             assert result == {}
 

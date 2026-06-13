@@ -21,8 +21,10 @@ def _build_price_series(start_price=10.0, n_days=60, trend=0.002):
 
 UNIVERSE = ["SZ000001", "SZ000002", "SZ000003"]
 
+# n_days 需覆盖整个回测区间（2024-01-02 ~ 2024-03-29 约 64 个工作日），
+# 否则末尾交易日无价格 → 持仓市值漏算 → NAV 失真
 _PRICE_DATA = {
-    inst: _build_price_series(start_price=10.0 + i, n_days=60, trend=0.003)
+    inst: _build_price_series(start_price=10.0 + i, n_days=80, trend=0.003)
     for i, inst in enumerate(UNIVERSE)
 }
 
@@ -98,46 +100,18 @@ _TURTLE_CONFIG = {
 
 
 def _run_with_mock_dp(config, strategy_cls):
-    dp = _build_price_series  # 用于验证入口
-
-    trade_dates = pd.bdate_range(config["start_date"], config["end_date"])
+    """通过真实 RuleBasedEngine.run() 跑端到端，patch 数据源与交易日历为合成数据。"""
     strategy = strategy_cls(config)
-
-    from modules.backtest.rule_engine import (
-        _execute_buy, _execute_sell, _execute_add, _compute_position_pnl,
-    )
-    from strategies.base import PositionState
-
     mock_dp = _make_full_dp()
-    positions = {}
-    current_value = float(config["initial_capital"])
-    daily_returns = []
+    trade_dates = pd.bdate_range(config["start_date"], config["end_date"])
 
-    strategy.on_start(mock_dp)
-    for date in trade_dates:
-        universe = mock_dp.get_universe(date)
-        signals = strategy.on_bar(date, universe, positions, mock_dp)
-        day_return = 0.0
-        for sig in signals:
-            if sig.action == "buy":
-                positions, current_value, cost = _execute_buy(sig, positions, current_value, mock_dp, date, config)
-                day_return -= cost / current_value if current_value > 0 else 0
-            elif sig.action == "sell":
-                positions, current_value, cost = _execute_sell(sig, positions, current_value, mock_dp, date, config)
-                day_return -= cost / current_value if current_value > 0 else 0
-            elif sig.action == "add":
-                positions, current_value, cost = _execute_add(sig, positions, current_value, mock_dp, date, config)
-                day_return -= cost / current_value if current_value > 0 else 0
+    engine = RuleBasedEngine(config)
+    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+            result = engine.run(strategy)
 
-        pnl = _compute_position_pnl(positions, date, mock_dp)
-        if current_value > 0:
-            day_return += pnl / current_value
-            current_value += pnl
-        daily_returns.append(day_return)
-    strategy.on_end()
-
-    returns = pd.Series(daily_returns, index=trade_dates)
-    return returns, current_value
+    final_value = float(config["initial_capital"]) * float(result.portfolio_value.iloc[-1])
+    return result.daily_returns, final_value
 
 
 def test_pyramid_e2e_runs_without_error():
