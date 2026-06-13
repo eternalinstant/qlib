@@ -200,7 +200,7 @@ def _parse_int_list(values: list[str]) -> list[int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-config", default="strategy/configs/models/push25_combo_only_k8d2_very_tight.yaml")
+    parser.add_argument("--base-config", default="src/strategy/configs/models/push25_combo_only_k8d2_very_tight.yaml")
     parser.add_argument("--full-overlay-csv", default="results/model_signals/push25_combo_only_k8d2_very_tight/overlay_results.csv")
     parser.add_argument(
         "--valid-overlay-csv",

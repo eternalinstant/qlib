@@ -209,7 +209,7 @@ def analyze_factor(
 
 def main():
     parser = argparse.ArgumentParser(description="core_12 因子详细审计")
-    parser.add_argument("--config", default="strategy/configs/models/qvf_alpha158_core12.yaml")
+    parser.add_argument("--config", default="src/strategy/configs/models/qvf_alpha158_core12.yaml")
     args = parser.parse_args()
 
     config_path = PROJECT_ROOT / args.config

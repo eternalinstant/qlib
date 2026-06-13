@@ -32,7 +32,7 @@ VALIDATION_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def load_initial_capital() -> float:
-    trading_cfg = PROJECT_ROOT / "common" / "configs" / "trading.yaml"
+    trading_cfg = PROJECT_ROOT / "src" / "common" / "configs" / "trading.yaml"
     if not trading_cfg.exists():
         return 5_000_000.0
     cfg = yaml.safe_load(trading_cfg.read_text(encoding="utf-8")) or {}
@@ -162,9 +162,9 @@ def main() -> None:
     csi300_close = load_csi300_close()
 
     baseline_configs = [
-        ("main_qvf", PROJECT_ROOT / "strategy" / "configs" / "models" / "qvf_core_plus_fixed80_k6_overlay_fullspan_turnover_soft_pruned.yaml"),
-        ("push25_cq10", PROJECT_ROOT / "strategy" / "configs" / "models" / "push25_cq10_k8d2_very_tight.yaml"),
-        ("push25_cq7", PROJECT_ROOT / "strategy" / "configs" / "models" / "push25_cq7_k8d2_very_tight.yaml"),
+        ("main_qvf", PROJECT_ROOT / "src" / "strategy" / "configs" / "models" / "qvf_core_plus_fixed80_k6_overlay_fullspan_turnover_soft_pruned.yaml"),
+        ("push25_cq10", PROJECT_ROOT / "src" / "strategy" / "configs" / "models" / "push25_cq10_k8d2_very_tight.yaml"),
+        ("push25_cq7", PROJECT_ROOT / "src" / "strategy" / "configs" / "models" / "push25_cq7_k8d2_very_tight.yaml"),
     ]
 
     rows: List[dict] = []

@@ -61,7 +61,7 @@ def _run_one(cfg: dict, label: str, overrides: dict | None, engine: str) -> dict
 
 
 def audit_strategy(config_name: str, engine: str, skip_baseline: bool) -> dict:
-    config_path = PROJECT_ROOT / "strategy" / "configs" / "models" / f"{config_name}.yaml"
+    config_path = PROJECT_ROOT / "src" / "strategy" / "configs" / "models" / f"{config_name}.yaml"
     if not config_path.exists():
         print(f"[SKIP] 配置不存在: {config_path}")
         return {}

@@ -8,7 +8,7 @@ from common.platform import temp_dir
 
 SCAN_DIR = temp_dir("scan_factor")
 
-with open("strategy/configs/models/push25_cq10_k8d2_very_tight.yaml", encoding="utf-8") as f:
+with open("src/strategy/configs/models/push25_cq10_k8d2_very_tight.yaml", encoding="utf-8") as f:
     cq10_cfg = yaml.safe_load(f)
 
 # Parquet 候选因子

@@ -27,8 +27,8 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-BASE_CONFIG = PROJECT_ROOT / "strategy" / "configs" / "models" / "qvf_alpha158_core12.yaml"
-FULL_CONFIG = PROJECT_ROOT / "strategy" / "configs" / "models" / "qvf_alpha158_hybrid24_prune_v2.yaml"
+BASE_CONFIG = PROJECT_ROOT / "src" / "strategy" / "configs" / "models" / "qvf_alpha158_core12.yaml"
+FULL_CONFIG = PROJECT_ROOT / "src" / "strategy" / "configs" / "models" / "qvf_alpha158_hybrid24_prune_v2.yaml"
 
 # 因子分组定义
 RANK_SYNTHETIC_4 = [

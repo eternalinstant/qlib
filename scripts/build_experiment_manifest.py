@@ -152,7 +152,7 @@ def main():
     args = parser.parse_args()
 
     if args.all:
-        configs = sorted((PROJECT_ROOT / "strategy" / "configs" / "models").glob("*.yaml"))
+        configs = sorted((PROJECT_ROOT / "src" / "strategy" / "configs" / "models").glob("*.yaml"))
     elif args.config:
         configs = [Path(args.config)]
     else:

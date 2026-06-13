@@ -73,7 +73,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--base-config",
-        default="strategy/configs/models/qvf_core_plus_fixed80_k6_overlay_fullspan_turnover_soft_pruned.yaml",
+        default="src/strategy/configs/models/qvf_core_plus_fixed80_k6_overlay_fullspan_turnover_soft_pruned.yaml",
         help="作为回测壳的基础配置",
     )
     parser.add_argument(

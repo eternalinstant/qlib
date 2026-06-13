@@ -38,11 +38,11 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-dir = {"" = "."}
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["core*", "modules*", "utils*", "config*"]
+where = ["src"]
+include = ["app*", "strategy*", "engine*", "data*", "common*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,12 @@
+{
+  "cache_version": 1,
+  "strategy_name": "stoploss_replace_plan",
+  "universe": "all",
+  "selection_mode": "stoploss_replace",
+  "factor_window_scale": 1,
+  "industry_leader_field": null,
+  "industry_leader_top_n": null,
+  "scorer": "linear",
+  "lgbm_train_start": "",
+  "lgbm_train_end": ""
+}

@@ -1,3 +1,6 @@
+import sys as _s, pathlib as _pl
+for _p in (str(_pl.Path(__file__).resolve().parent/"src"), str(_pl.Path(__file__).resolve().parent)):
+    if _p not in _s.path: _s.path.insert(0,_p)
 """
 共享测试 fixtures
 """

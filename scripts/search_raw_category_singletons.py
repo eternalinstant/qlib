@@ -49,7 +49,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--base-config",
-        default="strategy/configs/models/hybrid10_cashflow_quality10_qlib_k8_d2.yaml",
+        default="src/strategy/configs/models/hybrid10_cashflow_quality10_qlib_k8_d2.yaml",
         help="小因子搜索基线配置",
     )
     parser.add_argument(

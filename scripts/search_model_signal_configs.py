@@ -637,7 +637,7 @@ SCAN_PRESETS = {
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-config", default="strategy/configs/models/lgb_10d.yaml")
+    parser.add_argument("--base-config", default="src/strategy/configs/models/lgb_10d.yaml")
     parser.add_argument("--search-name", default="batch_scan_v1")
     parser.add_argument("--preset", default="batch_scan_v1", choices=sorted(SCAN_PRESETS))
     return parser.parse_args()

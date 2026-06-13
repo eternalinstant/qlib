@@ -80,7 +80,7 @@ OVERLAY_PRESETS = {
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-config", default="strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml")
+    parser.add_argument("--base-config", default="src/strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml")
     parser.add_argument("--search-name", default="daily_freq_search_v1")
     parser.add_argument("--bundles", default="", help="逗号分隔 bundle 名，空=全部")
     parser.add_argument("--engine", default="qlib")

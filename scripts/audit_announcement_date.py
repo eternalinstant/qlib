@@ -284,7 +284,7 @@ def check_cross_sectional_rank() -> dict:
 # ---- 检查 5: 训练/验证切分 ----
 
 def check_train_valid_split() -> dict:
-    cfg_path = PROJECT_ROOT / "strategy" / "configs" / "models" / "qvf_alpha158_core12.yaml"
+    cfg_path = PROJECT_ROOT / "src" / "strategy" / "configs" / "models" / "qvf_alpha158_core12.yaml"
     with open(cfg_path) as f:
         cfg = yaml.safe_load(f)
 

@@ -25,9 +25,9 @@ from strategy.producers.predictive_signal import (  # noqa: E402
 
 
 DEFAULT_CONFIGS = [
-    "strategy/configs/models/push25_fin_gate_top40_alpha3_k8d2_very_tight.yaml",
-    "strategy/configs/models/push25_fin_gate_top50_alpha3_k8d2_very_tight.yaml",
-    "strategy/configs/models/push25_fin_gate_top60_alpha3_k8d2_very_tight.yaml",
+    "src/strategy/configs/models/push25_fin_gate_top40_alpha3_k8d2_very_tight.yaml",
+    "src/strategy/configs/models/push25_fin_gate_top50_alpha3_k8d2_very_tight.yaml",
+    "src/strategy/configs/models/push25_fin_gate_top60_alpha3_k8d2_very_tight.yaml",
 ]
 DEFAULT_HOLDOUT_START = "2024-01-01"
 DEFAULT_RESULTS_SUBDIR = "three_window_eval"

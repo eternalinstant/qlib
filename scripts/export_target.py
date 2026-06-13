@@ -242,7 +242,7 @@ def main():
     parser = argparse.ArgumentParser(description="qlib 选股 → live_trade target JSON 桥接")
     parser.add_argument(
         "--config", "-c",
-        default="strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml",
+        default="src/strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml",
         help="策略 YAML 路径（相对 qlib_quant 根目录）",
     )
     parser.add_argument(

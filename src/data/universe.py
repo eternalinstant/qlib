@@ -71,7 +71,7 @@ def _load_st_set() -> set:
     if _st_instruments is not None:
         return _st_instruments
 
-    csv = Path(__file__).parent.parent / "data" / "tushare" / "stock_basic.csv"
+    csv = Path(__file__).resolve().parents[2] / "data" / "tushare" / "stock_basic.csv"
     if not csv.exists():
         _st_instruments = set()
         return _st_instruments
@@ -140,7 +140,7 @@ def _load_list_date_series() -> pd.Series:
 
 
 def _iter_namechange_paths() -> List[Path]:
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parents[2]
     paths = [
         project_root / "data" / "tushare" / "namechange.parquet",
         project_root / "data" / "tushare" / "namechange.csv",
@@ -149,7 +149,7 @@ def _iter_namechange_paths() -> List[Path]:
 
 
 def _iter_index_weight_paths() -> List[Path]:
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parents[2]
     paths = [
         project_root / "data" / "tushare" / "index_weight.parquet",
         project_root / "data" / "tushare" / "index_weight.csv",
