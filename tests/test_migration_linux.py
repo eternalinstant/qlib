@@ -123,7 +123,7 @@ def _check_project_root_resolve():
     print("=" * 70)
 
     all_pass = True
-    for script in ["utils/diagnose.py", "app/report/analysis.py"]:
+    for script in ["app/cli.py", "app/factor_mining.py"]:
         full_path = PROJECT_ROOT / script
         if not full_path.exists():
             print(f"  {SKIP} {script} 不存在")
@@ -220,12 +220,12 @@ def test_daily_run_sh_dynamic():
 
 
 def _check_platform_helper_centralizes_os_detection():
-    """平台差异统一通过 utils.platform 识别。"""
+    """平台差异统一通过 common.platform 识别。"""
     print("\n" + "=" * 70)
     print("测试: 平台差异统一入口")
     print("=" * 70)
 
-    from utils.platform import is_linux, is_macos, is_windows, project_root, runtime_profile
+    from common.platform import is_linux, is_macos, is_windows, project_root, runtime_profile
 
     root = project_root()
     profile = runtime_profile()
@@ -233,7 +233,7 @@ def _check_platform_helper_centralizes_os_detection():
     assert profile["project_root"] == str(PROJECT_ROOT)
     # 三平台判定必须恰有一个为真（Windows / macOS / Linux 一等公民）
     assert sum([is_macos(), is_linux(), is_windows()]) == 1, f"平台判定应恰有一个为真: {profile}"
-    print(f"  {PASS} utils.platform.runtime_profile = {profile}")
+    print(f"  {PASS} common.platform.runtime_profile = {profile}")
     return True
 
 
@@ -250,10 +250,10 @@ def _check_import_functions():
     sys.path.insert(0, str(PROJECT_ROOT))
     all_pass = True
     modules = [
-        ("core.factors", "FactorRegistry"),
-        ("core.selection", "compute_signal"),
-        ("core.position", "MarketPositionController"),
-        ("config.config", "ConfigManager"),
+        ("strategy.factors", "FactorRegistry"),
+        ("strategy.selection", "compute_signal"),
+        ("strategy.position", "MarketPositionController"),
+        ("common.config", "ConfigManager"),
     ]
     for mod_name, attr in modules:
         try:

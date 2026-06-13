@@ -10,8 +10,8 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from config.config import CONFIG
-from core.universe import _iter_index_weight_paths, _iter_namechange_paths
+from common.config import CONFIG
+from data.universe import _iter_index_weight_paths, _iter_namechange_paths
 
 
 CORE_TUSHARE_FILES = [
@@ -71,7 +71,7 @@ def _check_table_columns(path: Path, required_cols: List[str]) -> Optional[str]:
 
 def _qlib_root() -> Path:
     # 统一走路径层（项目根相对，跨平台）
-    from modules.data.paths import get_qlib_root
+    from common.paths import get_qlib_root
     return get_qlib_root()
 
 

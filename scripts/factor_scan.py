@@ -14,8 +14,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.qlib_init import init_qlib, load_features_safe
-from core.universe import filter_instruments
+from data.qlib_init import init_qlib, load_features_safe
+from data.universe import filter_instruments
 
 START_DATE = "2019-01-01"
 END_DATE = "2026-06-03"

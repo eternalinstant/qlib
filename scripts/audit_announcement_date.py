@@ -117,7 +117,7 @@ def check_ann_date_spot_check(raw_df: pd.DataFrame) -> dict:
 
 def check_merge_asof_weekend_behavior(raw_df: pd.DataFrame) -> dict:
     """验证 ann_date+1 在 merge_asof 后的匹配行为，特别是周末/节假日"""
-    from modules.data.paths import get_qlib_root
+    from common.paths import get_qlib_root
 
     # 加载交易日历
     calendars_dir = get_qlib_root() / "calendars"
@@ -306,7 +306,7 @@ def check_train_valid_split() -> dict:
 
 def check_st_filter_comparison() -> dict:
     """对比 filter_instruments(exclude_st=True) vs filter_st_instruments_by_date() 在历史时点的差异"""
-    from core.universe import (
+    from data.universe import (
         filter_instruments,
         filter_st_instruments_by_date,
         has_historical_st_data,

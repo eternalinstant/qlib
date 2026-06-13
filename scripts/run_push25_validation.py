@@ -16,7 +16,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import (
+from strategy.producers.predictive_signal import (
     backtest_from_config,
     backtest_summary_path,
     load_predictive_config,

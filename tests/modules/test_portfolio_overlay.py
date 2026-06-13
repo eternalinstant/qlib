@@ -8,7 +8,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.portfolio_overlay import (
+from strategy.overlay import (
     OverlayConfig,
     compute_inverse_vol_weights,
     compute_overlay_frame,

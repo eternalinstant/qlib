@@ -1,7 +1,7 @@
 """TDD: strategies/base.py — RED 阶段，所有测试应当失败"""
 import pytest
 import pandas as pd
-from strategies.base import (
+from strategy.base import (
     PositionState,
     StrategySignal,
     BaseStrategy,

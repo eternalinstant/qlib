@@ -13,9 +13,9 @@ import pandas as pd
 from engine.base import BacktestResult, BacktestEngine
 from common.calendar import load_trade_calendar
 from common.costs import compute_trade_cost
-from core.data_provider import DataProvider
-from core.qlib_data_provider import QlibDataProvider
-from strategies.base import RuleStrategy, PositionState, StrategySignal
+from data.provider import DataProvider
+from data.qlib_provider import QlibDataProvider
+from strategy.base import RuleStrategy, PositionState, StrategySignal
 
 
 class RuleBasedEngine(BacktestEngine):

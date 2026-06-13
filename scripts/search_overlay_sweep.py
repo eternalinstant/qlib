@@ -15,7 +15,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.portfolio_overlay import OverlayConfig, compute_overlay_frame
+from strategy.overlay import OverlayConfig, compute_overlay_frame
 
 
 def _annualized_return(total_return: float, days: int) -> float:

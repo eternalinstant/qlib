@@ -6,8 +6,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 import numpy as np
 
-from modules.modeling.predictive_signal import _alpha360_feature_map, _resolve_alpha158_instruments, init_qlib, load_features_safe
-from utils.platform import temp_dir
+from strategy.producers.predictive_signal import _alpha360_feature_map, _resolve_alpha158_instruments, init_qlib, load_features_safe
+from common.platform import temp_dir
 
 SCAN_DIR = temp_dir("scan_factor")
 

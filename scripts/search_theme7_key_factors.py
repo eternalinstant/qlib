@@ -18,7 +18,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import (  # noqa: E402
+from strategy.producers.predictive_signal import (  # noqa: E402
     backtest_from_config,
     load_predictive_config,
     save_json,

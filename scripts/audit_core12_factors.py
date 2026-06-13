@@ -37,8 +37,8 @@ def load_factor_data() -> pd.DataFrame:
 
 def load_alpha158_features(features: list[str], start_date: str, end_date: str) -> pd.DataFrame:
     sys.path.insert(0, str(PROJECT_ROOT))
-    from core.qlib_init import init_qlib, load_features_safe
-    from core.universe import filter_instruments
+    from data.qlib_init import init_qlib, load_features_safe
+    from data.universe import filter_instruments
     from qlib.data import D
 
     init_qlib()
@@ -60,8 +60,8 @@ def load_alpha158_features(features: list[str], start_date: str, end_date: str) 
 
 def load_forward_returns(start_date: str, end_date: str) -> pd.Series:
     sys.path.insert(0, str(PROJECT_ROOT))
-    from core.qlib_init import init_qlib, load_features_safe
-    from core.universe import filter_instruments
+    from data.qlib_init import init_qlib, load_features_safe
+    from data.universe import filter_instruments
     from qlib.data import D
 
     init_qlib()
@@ -76,8 +76,8 @@ def load_forward_returns(start_date: str, end_date: str) -> pd.Series:
 
 def load_market_cap() -> pd.Series:
     sys.path.insert(0, str(PROJECT_ROOT))
-    from core.qlib_init import init_qlib, load_features_safe
-    from core.universe import filter_instruments
+    from data.qlib_init import init_qlib, load_features_safe
+    from data.universe import filter_instruments
     from qlib.data import D
 
     init_qlib()

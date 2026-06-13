@@ -9,9 +9,9 @@ from typing import List, Optional
 
 import pandas as pd
 
-from config.config import CONFIG
-from core.factors import FactorRegistry
-from core.universe import filter_instruments
+from common.config import CONFIG
+from strategy.factors import FactorRegistry
+from data.universe import filter_instruments
 
 
 class DataLoader(ABC):

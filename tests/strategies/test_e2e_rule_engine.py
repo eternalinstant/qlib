@@ -4,10 +4,10 @@ import pandas as pd
 import numpy as np
 from unittest.mock import MagicMock, patch
 
-from strategies.pyramid.pyramid_strategy import PyramidStrategy
-from strategies.turtle.turtle_strategy import TurtleStrategy
-from modules.backtest.rule_engine import RuleBasedEngine
-from modules.backtest.base import BacktestResult
+from strategy.producers.pyramid_strategy import PyramidStrategy
+from strategy.producers.turtle_strategy import TurtleStrategy
+from engine.rule_engine import RuleBasedEngine
+from engine.base import BacktestResult
 
 
 # ── Mock DataProvider ────────────────────────────────────────────────────────
@@ -106,8 +106,8 @@ def _run_with_mock_dp(config, strategy_cls):
     trade_dates = pd.bdate_range(config["start_date"], config["end_date"])
 
     engine = RuleBasedEngine(config)
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             result = engine.run(strategy)
 
     final_value = float(config["initial_capital"]) * float(result.portfolio_value.iloc[-1])
@@ -144,11 +144,11 @@ def test_turtle_e2e_on_uptrend_gains_value():
 
 def test_rule_engine_result_is_backtest_result():
     """RuleBasedEngine.run() 返回 BacktestResult"""
-    from modules.backtest.common import load_trade_calendar
-    with patch("modules.backtest.rule_engine.QlibDataProvider") as MockDP:
+    from common.calendar import load_trade_calendar
+    with patch("engine.rule_engine.QlibDataProvider") as MockDP:
         mock_dp = _make_full_dp()
         MockDP.return_value = mock_dp
-        with patch("modules.backtest.rule_engine.load_trade_calendar") as mock_cal:
+        with patch("engine.rule_engine.load_trade_calendar") as mock_cal:
             mock_cal.return_value = pd.bdate_range("2024-01-02", "2024-03-29")
             engine = RuleBasedEngine(config=_PYRAMID_CONFIG)
             strategy = PyramidStrategy(_PYRAMID_CONFIG)

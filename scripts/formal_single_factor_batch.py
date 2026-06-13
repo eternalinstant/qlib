@@ -29,9 +29,9 @@ from typing import Dict, Iterable, List
 import pandas as pd
 import yaml
 
-from core.factors import default_registry
-from core.strategy import STRATEGIES_DIR, Strategy
-from modules.backtest.composite import run_strategy_backtest
+from strategy.factors import default_registry
+from strategy.builder import STRATEGIES_DIR, Strategy
+from app.composite_runner import run_strategy_backtest
 from scripts.factor_scan import get_all_factors, get_weekly_factors
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

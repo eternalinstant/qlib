@@ -35,7 +35,7 @@ def _file_hash(path: Path, max_bytes: int = 10 << 20) -> str:
 
 def build_manifest(config_path: Path) -> dict | None:
     sys.path.insert(0, str(PROJECT_ROOT))
-    from modules.modeling.predictive_signal import (
+    from strategy.producers.predictive_signal import (
         backtest_summary_path,
         load_predictive_config,
         output_root,

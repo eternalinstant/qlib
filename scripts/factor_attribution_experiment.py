@@ -64,7 +64,7 @@ def clone_config(base_cfg: dict, name_suffix: str, extra_parquet: list[str]) -> 
 
 
 def run_single_experiment(cfg: dict) -> dict | None:
-    from modules.modeling.predictive_signal import (
+    from strategy.producers.predictive_signal import (
         backtest_from_config,
         load_predictive_config,
         save_json,

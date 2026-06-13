@@ -17,17 +17,17 @@ from dataclasses import dataclass
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.config import CONFIG
-from core.factors import FactorInfo, FactorRegistry, create_default_registry
-from core.selection import (
+from common.config import CONFIG
+from strategy.factors import FactorInfo, FactorRegistry, create_default_registry
+from strategy.selection import (
     compute_signal, extract_topk, _load_parquet_factors,
     _fill_cross_sectional, _get_rebalance_dates,
 )
-from core.compute import compute_layer_score, neutralize_by_industry
-from core.universe import filter_instruments
-from core.position import MarketPositionController
-from core.qlib_init import init_qlib, load_features_safe
-from modules.backtest.base import BacktestResult
+from strategy.compute import compute_layer_score, neutralize_by_industry
+from data.universe import filter_instruments
+from strategy.position import MarketPositionController
+from data.qlib_init import init_qlib, load_features_safe
+from engine.base import BacktestResult
 
 
 @dataclass
@@ -135,7 +135,7 @@ class PreloadedDataManager:
         self.bond_daily_ret = self.controller.get_bond_daily_return()
 
     def _load_industry_map(self):
-        from core.selection import _load_industry_map
+        from strategy.selection import _load_industry_map
         self.industry_map = _load_industry_map()
 
     def get_rebalance_dates(self, freq: str) -> pd.DatetimeIndex:

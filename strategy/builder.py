@@ -17,8 +17,8 @@ from copy import deepcopy
 from typing import Dict, List, Optional, Any, Tuple
 from collections import defaultdict
 
-from core.factors import FactorInfo, FactorRegistry, default_registry
-from core.validity import ValidityConfig, build_validity_config
+from strategy.factors import FactorInfo, FactorRegistry, default_registry
+from strategy.validity import ValidityConfig, build_validity_config
 
 PROJECT_ROOT = Path(__file__).parent.parent
 STRATEGIES_DIR = PROJECT_ROOT / "config" / "strategies"
@@ -51,7 +51,7 @@ def _deep_merge_dict(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str
 
 def _load_strategy_defaults() -> Dict[str, Any]:
     """加载全局策略默认值，供单策略 YAML 继承"""
-    from config.config import load_yaml
+    from common.config import load_yaml
 
     defaults = load_yaml("strategy.yaml")
     if not isinstance(defaults, dict):
@@ -273,7 +273,7 @@ def _validate_strategy(cfg: Dict[str, Any], name: str) -> None:
 
     validity = cfg.get("validity", {})
     if validity:
-        from core.validity import VALID_VALIDITY_ACTIONS
+        from strategy.validity import VALID_VALIDITY_ACTIONS
 
         action = validity.get("action", "review")
         if action not in VALID_VALIDITY_ACTIONS:
@@ -599,7 +599,7 @@ class Strategy:
             - None for model="full" (100% stock)
         """
         if self.position_model == "trend":
-            from core.position import MarketPositionController, MarketConfig
+            from strategy.position import MarketPositionController, MarketConfig
 
             config_kwargs = {
                 key: value
@@ -610,7 +610,7 @@ class Strategy:
                 config=MarketConfig(**config_kwargs) if config_kwargs else None
             )
         elif self.position_model == "gate":
-            from core.position import MarketGatePositionController, MarketGateConfig
+            from strategy.position import MarketGatePositionController, MarketGateConfig
 
             config_kwargs = {
                 key: value
@@ -673,7 +673,7 @@ class Strategy:
 
     def get_rebalance_dates(self, trade_dates: pd.DatetimeIndex) -> pd.DatetimeIndex:
         """按 freq 从交易日历中生成调仓日期"""
-        from core.selection import compute_rebalance_dates
+        from strategy.selection import compute_rebalance_dates
 
         return compute_rebalance_dates(pd.Series(trade_dates), freq=self.rebalance_freq)
 
@@ -791,7 +791,7 @@ class Strategy:
                 frames.append(df)
             return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-        from core.selection import generate_selections
+        from strategy.selection import generate_selections
 
         self.selections_path().parent.mkdir(parents=True, exist_ok=True)
         df = generate_selections(
@@ -843,7 +843,7 @@ class Strategy:
             for child, _ in self.load_component_strategies():
                 results.append(child.validate_data_requirements())
             return results
-        from modules.data.precheck import ensure_strategy_data_ready
+        from data.sources.precheck import ensure_strategy_data_ready
 
         return ensure_strategy_data_ready(self)
 
@@ -860,7 +860,7 @@ class Strategy:
         if self.selections_are_stale():
             print(f"[INFO] 策略 {self.name} 选股列表缺失或已过期，正在重新生成...")
             self.generate_selections(force=True)
-        from core.selection import load_selections
+        from strategy.selection import load_selections
 
         return load_selections(csv_path=csv_path)
 
@@ -868,7 +868,7 @@ class Strategy:
         """基于策略 validity 配置评估最近一段时间是否仍然有效。"""
         if self.validity is None:
             return None
-        from core.validity import evaluate_strategy_validity
+        from strategy.validity import evaluate_strategy_validity
 
         return evaluate_strategy_validity(daily_returns, self.validity)
 
@@ -884,7 +884,7 @@ class _FixedPositionController:
         pass
 
     def get_allocation(self, date, is_rebalance_day=False):
-        from core.position import AllocationResult
+        from strategy.position import AllocationResult
 
         return AllocationResult(
             stock_pct=self.stock_pct,

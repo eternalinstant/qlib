@@ -2,8 +2,8 @@
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock
-from strategies.pyramid.pyramid_strategy import PyramidStrategy
-from strategies.base import RuleStrategy, PositionState, StrategySignal
+from strategy.producers.pyramid_strategy import PyramidStrategy
+from strategy.base import RuleStrategy, PositionState, StrategySignal
 
 
 def _make_dp(close_prices: dict):

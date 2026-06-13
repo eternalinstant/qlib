@@ -5,12 +5,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from modules.backtest.base import BacktestResult
+from engine.base import BacktestResult
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import (
+from strategy.producers.predictive_signal import (
     ModelSignalStrategy,
     _alpha158_feature_map,
     _load_alpha158_features_resilient,
@@ -433,7 +433,7 @@ class TestSelectionMaterialization:
         gate_frame = pd.DataFrame({"qvf_quality_gate": [0.10, 0.80, 0.90]}, index=index)
 
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal._load_selection_filter_frame",
+            "strategy.producers.predictive_signal._load_selection_filter_frame",
             lambda candidate_instruments, start_date, end_date, rebalance_dates, selection_cfg: gate_frame,
             raising=False,
         )
@@ -464,7 +464,7 @@ class TestSelectionMaterialization:
         captured = {}
 
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_close_series",
+            "strategy.producers.predictive_signal.load_close_series",
             lambda instruments, start_date, end_date, horizon_days: close_series,
         )
 
@@ -474,7 +474,7 @@ class TestSelectionMaterialization:
                 {"date": [pd.Timestamp("2024-01-02")], "rank": [1], "symbol": ["SZ000001"], "score": [0.3]}
             )
 
-        monkeypatch.setattr("modules.modeling.predictive_signal.extract_topk", fake_extract_topk)
+        monkeypatch.setattr("strategy.producers.predictive_signal.extract_topk", fake_extract_topk)
 
         selection_df = materialize_selections_from_scores(
             scores,
@@ -513,10 +513,10 @@ class TestBacktestOverlay:
             def run(self, strategy=None):
                 return base_result
 
-        monkeypatch.setattr("modules.backtest.qlib_engine.QlibBacktestEngine", lambda: FakeEngine())
-        monkeypatch.setattr("modules.modeling.predictive_signal.selection_path", lambda cfg: tmp_path / "selections.csv")
+        monkeypatch.setattr("engine.qlib_engine.QlibBacktestEngine", lambda: FakeEngine())
+        monkeypatch.setattr("strategy.producers.predictive_signal.selection_path", lambda cfg: tmp_path / "selections.csv")
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_bond_overlay_returns",
+            "strategy.producers.predictive_signal.load_bond_overlay_returns",
             lambda: pd.Series([0.0] * len(dates), index=dates, dtype=float),
         )
 
@@ -560,14 +560,14 @@ class TestBacktestOverlay:
             def run(self, strategy=None):
                 return base_result
 
-        monkeypatch.setattr("modules.backtest.qlib_engine.QlibBacktestEngine", lambda: FakeEngine())
-        monkeypatch.setattr("modules.modeling.predictive_signal.selection_path", lambda cfg: tmp_path / "selections.csv")
+        monkeypatch.setattr("engine.qlib_engine.QlibBacktestEngine", lambda: FakeEngine())
+        monkeypatch.setattr("strategy.producers.predictive_signal.selection_path", lambda cfg: tmp_path / "selections.csv")
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_bond_overlay_returns",
+            "strategy.producers.predictive_signal.load_bond_overlay_returns",
             lambda: pd.Series([0.0] * len(dates), index=dates, dtype=float),
         )
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_market_overlay_returns",
+            "strategy.producers.predictive_signal.load_market_overlay_returns",
             lambda index_code="000300.SH": pd.Series([0.02] * len(dates), index=dates, dtype=float),
         )
 
@@ -610,10 +610,10 @@ class TestBacktestOverlay:
             def run(self, strategy=None):
                 return base_result
 
-        monkeypatch.setattr("modules.backtest.pybroker_engine.PyBrokerBacktestEngine", lambda: FakeEngine())
-        monkeypatch.setattr("modules.modeling.predictive_signal.selection_path", lambda cfg: tmp_path / "selections.csv")
+        monkeypatch.setattr("engine.pybroker_engine.PyBrokerBacktestEngine", lambda: FakeEngine())
+        monkeypatch.setattr("strategy.producers.predictive_signal.selection_path", lambda cfg: tmp_path / "selections.csv")
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_bond_overlay_returns",
+            "strategy.producers.predictive_signal.load_bond_overlay_returns",
             lambda: pd.Series([0.0] * len(dates), index=dates, dtype=float),
         )
 
@@ -657,7 +657,7 @@ class TestAlpha158Source:
             return make_frame(symbols, 2.0, expr)
 
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_features_safe",
+            "strategy.producers.predictive_signal.load_features_safe",
             fake_load_features_safe,
         )
 
@@ -683,7 +683,7 @@ class TestAlpha158Source:
         rebalance_dates = pd.DatetimeIndex([pd.Timestamp("2024-01-02")])
 
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.get_universe_instruments",
+            "strategy.producers.predictive_signal.get_universe_instruments",
             lambda start_date, end_date, universe: ["SZ000001", "SZ000002"],
         )
 
@@ -699,7 +699,7 @@ class TestAlpha158Source:
             return feature_frame, rebalance_dates, list(feature_columns)
 
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_alpha158_feature_frame",
+            "strategy.producers.predictive_signal.load_alpha158_feature_frame",
             fake_load_alpha158_feature_frame,
         )
 
@@ -737,7 +737,7 @@ class TestAlpha158Source:
         rebalance_dates = pd.DatetimeIndex([pd.Timestamp("2024-01-02")])
 
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_parquet_feature_frame",
+            "strategy.producers.predictive_signal.load_parquet_feature_frame",
             lambda start_date, end_date, rebalance_freq, feature_columns=None: (
                 parquet_frame,
                 rebalance_dates,
@@ -745,7 +745,7 @@ class TestAlpha158Source:
             ),
         )
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_alpha158_feature_frame",
+            "strategy.producers.predictive_signal.load_alpha158_feature_frame",
             lambda start_date, end_date, rebalance_freq, feature_columns, alpha158_cfg=None, instruments="all": (
                 alpha_frame,
                 rebalance_dates,
@@ -772,7 +772,7 @@ class TestAlpha158Source:
         assert columns == ["book_to_market", "ROC20"]
 
     def test_train_from_config_uses_alpha158_source_loader(self, monkeypatch, tmp_path):
-        from modules.modeling.predictive_signal import train_from_config
+        from strategy.producers.predictive_signal import train_from_config
 
         dates = pd.to_datetime(["2024-01-02", "2024-01-09"])
         index = pd.MultiIndex.from_tuples(
@@ -794,7 +794,7 @@ class TestAlpha158Source:
         close_series = pd.Series([10.0, 11.0, 10.5, 11.5], index=index, name="close")
 
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_feature_frame",
+            "strategy.producers.predictive_signal.load_feature_frame",
             lambda start_date, end_date, rebalance_freq, feature_columns=None, data_cfg=None, selection_cfg=None: (
                 feature_frame,
                 dates,
@@ -802,7 +802,7 @@ class TestAlpha158Source:
             ),
         )
         monkeypatch.setattr(
-            "modules.modeling.predictive_signal.load_close_series",
+            "strategy.producers.predictive_signal.load_close_series",
             lambda instruments, start_date, end_date, horizon_days: close_series,
         )
 

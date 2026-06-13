@@ -20,7 +20,7 @@ def check_bug1_qlib_negate_not_applied():
     print("Bug#1: Qlib source 因子 negate 未生效")
     print("="*70)
 
-    from core.factors import FactorRegistry, FactorInfo
+    from strategy.factors import FactorRegistry, FactorInfo
 
     # 构造一个有 negate=True 的 qlib 因子的 registry
     registry = FactorRegistry()
@@ -31,14 +31,14 @@ def check_bug1_qlib_negate_not_applied():
 
     # 检查 selection.py 中 load_factor_data 的代码逻辑
     import inspect
-    from core.selection import load_factor_data
+    from strategy.selection import load_factor_data
     source = inspect.getsource(load_factor_data)
 
     # 在 load_factor_data 中搜索对 qlib 因子 negate 的处理
     has_qlib_negate = "negate" in source and "qlib" in source
 
     # 对比: _load_parquet_factors 有 negate 处理
-    from core.selection import _load_parquet_factors
+    from strategy.selection import _load_parquet_factors
     parquet_source = inspect.getsource(_load_parquet_factors)
     parquet_has_negate = "f.negate" in parquet_source or "negate" in parquet_source
 
@@ -57,7 +57,7 @@ def check_bug1_qlib_negate_not_applied():
         print(f"  未找到 df_qlib.columns = qlib_names 行")
 
     # 列出所有受影响的因子
-    from core.factors import default_registry
+    from strategy.factors import default_registry
     affected = [f for f in default_registry.get_by_source("qlib") if f.negate]
     print(f"\n  受影响因子（qlib source + negate=True）:")
     for f in affected:
@@ -78,7 +78,7 @@ def check_bug2_st_lookahead():
     print("="*70)
 
     import inspect
-    from core.universe import filter_instruments, _load_st_set
+    from data.universe import filter_instruments, _load_st_set
 
     source = inspect.getsource(_load_st_set)
 
@@ -121,7 +121,7 @@ def check_bug3_position_lookahead():
     print("="*70)
 
     import inspect
-    from core.position import MarketPositionController
+    from strategy.position import MarketPositionController
 
     source = inspect.getsource(MarketPositionController._get_regime)
     print(f"  _get_regime 代码:")
@@ -188,7 +188,7 @@ def check_bug5_ann_date_no_delay():
     print("="*70)
 
     import inspect
-    from modules.data.tushare_to_qlib import TushareToQlibConverter
+    from data.sources.tushare_to_qlib import TushareToQlibConverter
 
     source = inspect.getsource(TushareToQlibConverter.convert)
 
@@ -215,7 +215,7 @@ def check_bug6_cost_scaled_by_position():
     print("="*70)
 
     import inspect
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from engine.qlib_engine import QlibBacktestEngine
 
     source = inspect.getsource(QlibBacktestEngine.run)
 
@@ -262,7 +262,7 @@ def check_bug7_first_rebal_no_cost():
     print("="*70)
 
     import inspect
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from engine.qlib_engine import QlibBacktestEngine
     source = inspect.getsource(QlibBacktestEngine.run)
 
     # 检查 "if is_rebal and prev_selected:" 条件
@@ -290,7 +290,7 @@ def check_bug8_biweek_crossyear():
     print("Bug#8: biweek 分组跨年问题")
     print("="*70)
 
-    from core.selection import compute_rebalance_dates
+    from strategy.selection import compute_rebalance_dates
 
     # 构造跨年交易日序列
     dates = pd.bdate_range("2023-12-01", "2024-01-31")
@@ -321,7 +321,7 @@ def check_bug9_delisted_stocks():
     print("="*70)
 
     import inspect
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from engine.qlib_engine import QlibBacktestEngine
     source = inspect.getsource(QlibBacktestEngine.run)
 
     # 检查收益计算中对缺失股票的处理

@@ -12,7 +12,7 @@ class TestStopLossConfig:
 
     def test_default_config(self):
         """测试默认配置"""
-        from modules.risk.stoploss import StopLossConfig, StopLossType
+        from strategy.stoploss import StopLossConfig, StopLossType
         
         config = StopLossConfig()
         
@@ -22,7 +22,7 @@ class TestStopLossConfig:
 
     def test_custom_config(self):
         """测试自定义配置"""
-        from modules.risk.stoploss import StopLossConfig, StopLossType
+        from strategy.stoploss import StopLossConfig, StopLossType
         
         config = StopLossConfig(
             enabled=True,
@@ -42,7 +42,7 @@ class TestIndividualStopLoss:
 
     def test_on_buy_records_entry_price(self):
         """测试买入时记录入场价"""
-        from modules.risk.stoploss import IndividualStopLoss
+        from strategy.stoploss import IndividualStopLoss
         
         stoploss = IndividualStopLoss()
         stoploss.on_buy("SZ000001", 10.5)
@@ -52,7 +52,7 @@ class TestIndividualStopLoss:
 
     def test_on_sell_clears_record(self):
         """测试卖出时清除记录"""
-        from modules.risk.stoploss import IndividualStopLoss
+        from strategy.stoploss import IndividualStopLoss
         
         stoploss = IndividualStopLoss()
         stoploss.on_buy("SZ000001", 10.5)
@@ -62,7 +62,7 @@ class TestIndividualStopLoss:
 
     def test_fixed_pct_stop_loss_trigger(self):
         """测试固定比例止损触发"""
-        from modules.risk.stoploss import IndividualStopLoss, StopLossConfig, StopLossType
+        from strategy.stoploss import IndividualStopLoss, StopLossConfig, StopLossType
         
         config = StopLossConfig(
             enabled=True,
@@ -78,7 +78,7 @@ class TestIndividualStopLoss:
 
     def test_fixed_pct_stop_loss_not_trigger(self):
         """测试固定比例止损未触发"""
-        from modules.risk.stoploss import IndividualStopLoss, StopLossConfig, StopLossType
+        from strategy.stoploss import IndividualStopLoss, StopLossConfig, StopLossType
         
         config = StopLossConfig(
             enabled=True,
@@ -94,7 +94,7 @@ class TestIndividualStopLoss:
 
     def test_trailing_stop_loss(self):
         """测试移动止损"""
-        from modules.risk.stoploss import IndividualStopLoss, StopLossConfig, StopLossType
+        from strategy.stoploss import IndividualStopLoss, StopLossConfig, StopLossType
         
         config = StopLossConfig(
             enabled=True,
@@ -120,7 +120,7 @@ class TestPortfolioStopLoss:
 
     def test_portfolio_max_drawdown(self):
         """测试组合最大回撤止损"""
-        from modules.risk.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
+        from strategy.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
         
         config = PortfolioStopLossConfig(
             enabled=True,
@@ -140,7 +140,7 @@ class TestPortfolioStopLoss:
 
     def test_portfolio_no_drawdown(self):
         """测试组合无回撤不触发"""
-        from modules.risk.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
+        from strategy.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
         
         config = PortfolioStopLossConfig(
             enabled=True,
@@ -159,7 +159,7 @@ class TestPortfolioStopLoss:
 
     def test_daily_loss_limit(self):
         """测试单日亏损限制"""
-        from modules.risk.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
+        from strategy.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
         
         config = PortfolioStopLossConfig(
             enabled=True,
@@ -175,7 +175,7 @@ class TestPortfolioStopLoss:
 
     def test_daily_loss_limit_not_trigger(self):
         """测试单日亏损未触发"""
-        from modules.risk.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
+        from strategy.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
         
         config = PortfolioStopLossConfig(
             enabled=True,
@@ -194,7 +194,7 @@ class TestRiskModuleIntegration:
 
     def test_stop_loss_disabled(self):
         """测试禁用止损"""
-        from modules.risk.stoploss import IndividualStopLoss, StopLossConfig
+        from strategy.stoploss import IndividualStopLoss, StopLossConfig
         
         config = StopLossConfig(enabled=False)
         stoploss = IndividualStopLoss(config)
@@ -206,7 +206,7 @@ class TestRiskModuleIntegration:
 
     def test_portfolio_stop_loss_disabled(self):
         """测试组合止损禁用"""
-        from modules.risk.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
+        from strategy.stoploss import PortfolioStopLoss, PortfolioStopLossConfig
         
         config = PortfolioStopLossConfig(enabled=False)
         portfolio = PortfolioStopLoss(config)
@@ -218,7 +218,7 @@ class TestRiskModuleIntegration:
 
     def test_check_unknown_symbol(self):
         """测试检查未知股票"""
-        from modules.risk.stoploss import IndividualStopLoss
+        from strategy.stoploss import IndividualStopLoss
         
         stoploss = IndividualStopLoss()
         # 未买入的股票

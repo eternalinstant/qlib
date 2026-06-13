@@ -21,7 +21,7 @@ from typing import Dict, List, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from config.config import CONFIG
+from common.config import CONFIG
 
 
 class FactorMining:

@@ -39,7 +39,7 @@ ALPHA158_BASE_FIELDS = ["open", "high", "low", "close", "volume", "vwap"]
 
 def step_download_tushare(start_date: str, end_date: str, workers: int):
     """下载/检查 tushare 基础数据 (9个parquet文件)"""
-    from modules.data.tushare_downloader import TushareDownloader
+    from data.sources.tushare_downloader import TushareDownloader
 
     required = [
         "daily_basic.parquet", "adj_factor.parquet",
@@ -94,7 +94,7 @@ def _download_one_stock(pro, ts_code: str, start_date: str, end_date: str):
 
 def _save_raw_file(raw_path: Path, new_df: pd.DataFrame):
     """将新数据合并到 raw_data parquet 文件"""
-    from modules.data.tushare_to_qlib import ensure_vwap
+    from data.sources.tushare_to_qlib import ensure_vwap
 
     new_df = new_df.copy()
     new_df["date"] = pd.to_datetime(new_df["trade_date"], format="%Y%m%d")
@@ -333,7 +333,7 @@ def step_build_qlib_data(
     batch_size: int = 200,
 ):
     """转换 tushare + raw_data → qlib 格式"""
-    from modules.data.tushare_to_qlib import TushareToQlibConverter
+    from data.sources.tushare_to_qlib import TushareToQlibConverter
 
     logger.info("[3/4] 构建 Qlib 数据...")
 

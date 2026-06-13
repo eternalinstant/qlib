@@ -25,19 +25,19 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from core.compute import compute_layer_score
-from core.factors import FactorInfo, FactorRegistry
-from core.position import MarketGatePositionController
-from core.qlib_init import init_qlib, load_features_safe
-from core.selection import (
+from strategy.compute import compute_layer_score
+from strategy.factors import FactorInfo, FactorRegistry
+from strategy.position import MarketGatePositionController
+from data.qlib_init import init_qlib, load_features_safe
+from strategy.selection import (
     _fill_cross_sectional,
     _load_parquet_factors,
     compute_rebalance_dates,
     extract_topk,
 )
-from core.strategy import _FixedPositionController
-from core.universe import filter_instruments
-from modules.backtest.qlib_engine import _load_bond_etf_returns, _sum_symbol_returns
+from strategy.builder import _FixedPositionController
+from data.universe import filter_instruments
+from engine.qlib_engine import _load_bond_etf_returns, _sum_symbol_returns
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

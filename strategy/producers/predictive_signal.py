@@ -23,10 +23,10 @@ import yaml
 from qlib.contrib.data.loader import Alpha158DL, Alpha360DL
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-from config.config import CONFIG
-from modules.backtest.base import BacktestResult
-from core.qlib_init import init_qlib, load_features_safe
-from core.selection import (
+from common.config import CONFIG
+from engine.base import BacktestResult
+from data.qlib_init import init_qlib, load_features_safe
+from strategy.selection import (
     FACTOR_PARQUET,
     _get_factor_parquet_columns,
     _load_total_mv_frame,
@@ -36,7 +36,7 @@ from core.selection import (
     compute_rebalance_dates,
     extract_topk,
 )
-from core.universe import get_universe_instruments
+from data.universe import get_universe_instruments
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -640,7 +640,7 @@ def overlay_results_path(cfg: dict) -> Path:
 
 
 def load_bond_overlay_returns():
-    from modules.backtest.qlib_engine import _load_bond_etf_returns
+    from engine.qlib_engine import _load_bond_etf_returns
 
     return _load_bond_etf_returns()
 
@@ -663,7 +663,7 @@ def apply_overlay_to_backtest_result(result: BacktestResult, cfg: dict) -> tuple
     if not bool(overlay_cfg.get("enabled", False)):
         return result, None
 
-    from modules.modeling.portfolio_overlay import OverlayConfig, compute_overlay_frame
+    from strategy.overlay import OverlayConfig, compute_overlay_frame
 
     bond_returns = load_bond_overlay_returns()
     if bond_returns is None:
@@ -1717,7 +1717,7 @@ class _FixedPctController:
         pass
 
     def get_allocation(self, date, is_rebalance_day: bool = False):
-        from core.position import AllocationResult
+        from strategy.position import AllocationResult
 
         return AllocationResult(
             stock_pct=float(self.stock_pct),
@@ -1879,13 +1879,13 @@ class ModelSignalStrategy:
         return self.name.replace("/", "__")
 
     def load_selections(self):
-        from core.selection import load_selections
+        from strategy.selection import load_selections
 
         return load_selections(csv_path=self.selection_csv)
 
     def build_position_controller(self):
         if self.position_model == "trend":
-            from core.position import MarketConfig, MarketPositionController
+            from strategy.position import MarketConfig, MarketPositionController
 
             params = {
                 key: value
@@ -1894,7 +1894,7 @@ class ModelSignalStrategy:
             }
             return MarketPositionController(config=MarketConfig(**params) if params else None)
         if self.position_model == "gate":
-            from core.position import MarketGateConfig, MarketGatePositionController
+            from strategy.position import MarketGateConfig, MarketGatePositionController
 
             params = {
                 key: value
@@ -1915,11 +1915,11 @@ class ModelSignalStrategy:
 
 def backtest_from_config(cfg: dict, engine: str = "qlib"):
     if engine == "qlib":
-        from modules.backtest.qlib_engine import QlibBacktestEngine
+        from engine.qlib_engine import QlibBacktestEngine
 
         backtest_engine = QlibBacktestEngine()
     elif engine == "pybroker":
-        from modules.backtest.pybroker_engine import PyBrokerBacktestEngine
+        from engine.pybroker_engine import PyBrokerBacktestEngine
 
         backtest_engine = PyBrokerBacktestEngine()
     else:

@@ -1,18 +1,15 @@
-name: pyramid_atr_3layer
-strategy_class: strategies.pyramid.pyramid_strategy.PyramidStrategy
+name: pe_timing_csi800
+strategy_class: strategy.producers.pe_timing_strategy.PETimingStrategy
 
 selection:
   universe: csi800
-  min_market_cap: 80
+  top_k: 30
   exclude_st: true
 
-pyramid:
-  entry_lookback: 20
-  atr_period: 20
-  add_factor: 1.0
-  max_layers: 3
-  stop_atr: 2.0
-  position_size: 0.05
+pe_timing:
+  pe_low_pct: 30
+  pe_high_pct: 70
+  factor: pe_ttm
 
 trading:
   buy_commission_rate: 0.0003

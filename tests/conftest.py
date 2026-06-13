@@ -43,14 +43,14 @@ def empty_factor_data():
 @pytest.fixture
 def sample_market_config():
     """样本市场配置"""
-    from core.position import MarketConfig
+    from strategy.position import MarketConfig
     return MarketConfig()
 
 
 @pytest.fixture
 def mock_position_controller(sample_market_config):
     """Mock 的仓位控制器（不加载真实数据）"""
-    from core.position import MarketPositionController
+    from strategy.position import MarketPositionController
 
     controller = MarketPositionController.__new__(MarketPositionController)
     controller.config = sample_market_config
@@ -90,7 +90,7 @@ def mock_selection_csv(tmp_path):
 @pytest.fixture
 def reset_factor_registry():
     """重置因子注册表"""
-    from core.factors import default_registry, init_default_factors
+    from strategy.factors import default_registry, init_default_factors
     original = default_registry.all()
     default_registry.clear()
     yield

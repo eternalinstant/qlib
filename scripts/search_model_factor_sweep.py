@@ -19,14 +19,14 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import (
+from strategy.producers.predictive_signal import (
     backtest_from_config,
     load_predictive_config,
     save_json,
     score_from_config,
     train_from_config,
 )
-from modules.modeling.portfolio_overlay import OverlayConfig, compute_overlay_frame
+from strategy.overlay import OverlayConfig, compute_overlay_frame
 
 ALPHA158_TECH = {"BETA60", "MA60", "ROC20", "RSV20", "CORD10", "CORD20", "WVMA10", "VSUMD10", "RANK20"}
 

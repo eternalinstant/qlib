@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 import pandas as pd
 
-from utils.platform import temp_dir
+from common.platform import temp_dir
 
 SCAN_DIR = temp_dir("scan_factor")
 

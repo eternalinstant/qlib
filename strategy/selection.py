@@ -22,10 +22,10 @@ from typing import Dict, Optional
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
-from config.config import CONFIG
-from core.factors import FactorRegistry, default_registry
-from core.compute import compute_layer_score, neutralize_by_industry
-from core.universe import (
+from common.config import CONFIG
+from strategy.factors import FactorRegistry, default_registry
+from strategy.compute import compute_layer_score, neutralize_by_industry
+from data.universe import (
     filter_instruments,
     filter_instruments_by_universe,
     filter_new_listed_instruments,
@@ -1326,7 +1326,7 @@ def compute_selections(
 
     signal_start = time.perf_counter()
     if scorer == "lgbm":
-        from core.lgbm_scorer import compute_lgbm_signal
+        from strategy.scorer_lgbm import compute_lgbm_signal
 
         signal = compute_lgbm_signal(
             monthly_df,

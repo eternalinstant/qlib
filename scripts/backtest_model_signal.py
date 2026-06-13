@@ -11,7 +11,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import backtest_from_config, load_predictive_config
+from strategy.producers.predictive_signal import backtest_from_config, load_predictive_config
 
 
 def parse_args():
@@ -88,7 +88,7 @@ def main():
     # selection_path 复用 output.root；但选股文件是在 frozen 基线里生成的，
     # 需要把基线 selections.csv 软链/复制过来再回测。
     from pathlib import Path as _Path
-    from modules.modeling.predictive_signal import selection_path as _selection_path
+    from strategy.producers.predictive_signal import selection_path as _selection_path
     sel_path = _selection_path(cfg)
     if args.output_suffix and not sel_path.exists():
         base_sel = _Path(original_root) / "selections.csv"

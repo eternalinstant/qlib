@@ -43,8 +43,8 @@ def analyze_result(result, name):
 
 
 def main():
-    from core.strategy import Strategy
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from strategy.builder import Strategy
+    from engine.qlib_engine import QlibBacktestEngine
 
     print("=" * 80)
     print("  Stoploss 策略扫描 (2019-2026)")

@@ -19,9 +19,9 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from core.strategy import Strategy
-from core.selection import compute_rebalance_dates
-from modules.data.updater import DataUpdater
+from strategy.builder import Strategy
+from strategy.selection import compute_rebalance_dates
+from data.sources.updater import DataUpdater
 
 
 @dataclass

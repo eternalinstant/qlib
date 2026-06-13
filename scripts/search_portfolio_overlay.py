@@ -13,8 +13,8 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.backtest.qlib_engine import _load_bond_etf_returns
-from modules.modeling.portfolio_overlay import OverlayConfig, compute_overlay_frame, summarize_overlay
+from engine.qlib_engine import _load_bond_etf_returns
+from strategy.overlay import OverlayConfig, compute_overlay_frame, summarize_overlay
 
 
 BASELINES = [

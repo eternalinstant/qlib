@@ -28,16 +28,16 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.config import CONFIG
-from core.factors import FactorInfo, FactorRegistry
-from core.selection import (
+from common.config import CONFIG
+from strategy.factors import FactorInfo, FactorRegistry
+from strategy.selection import (
     _load_total_mv_frame,
     extract_topk,
     load_factor_data,
 )
-from core.strategy import Strategy
-from core.lgbm_scorer import predict_with_model, train_lgbm_model
-from modules.backtest.composite import run_strategy_backtest
+from strategy.builder import Strategy
+from strategy.scorer_lgbm import predict_with_model, train_lgbm_model
+from app.composite_runner import run_strategy_backtest
 
 
 BASE_LGBM_PARAMS = {

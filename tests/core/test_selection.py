@@ -13,7 +13,7 @@ from unittest.mock import patch, MagicMock
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.selection import (
+from strategy.selection import (
     compute_signal,
     compute_selections,
     extract_topk,
@@ -23,7 +23,7 @@ from core.selection import (
     _enrich_selections,
     _load_total_mv_frame,
 )
-from core.factors import (
+from strategy.factors import (
     FactorInfo,
     FactorRegistry,
     get_alpha_expressions,
@@ -79,8 +79,8 @@ class TestLoadSelections:
         """测试文件不存在时自动生成"""
         fake_path = tmp_path / "nonexistent.csv"
 
-        with patch("core.selection.SELECTION_CSV", fake_path):
-            with patch("core.selection.generate_selections") as mock_gen:
+        with patch("strategy.selection.SELECTION_CSV", fake_path):
+            with patch("strategy.selection.generate_selections") as mock_gen:
                 mock_gen.return_value = pd.DataFrame({
                     "date": [pd.Timestamp("2024-01-31")],
                     "rank": [1],
@@ -95,7 +95,7 @@ class TestLoadSelections:
 
     def test_load_selections_success(self, mock_selection_csv):
         """测试成功加载选股结果"""
-        with patch("core.selection.SELECTION_CSV", mock_selection_csv):
+        with patch("strategy.selection.SELECTION_CSV", mock_selection_csv):
             date_to_symbols, monthly_dates = load_selections()
 
             assert isinstance(date_to_symbols, dict)
@@ -137,7 +137,7 @@ class TestExtractTopk:
         )
         signal = pd.Series([0.9, 1.0], index=idx)
 
-        with patch("core.selection.filter_st_instruments_by_date", return_value=["SZ000001"]):
+        with patch("strategy.selection.filter_st_instruments_by_date", return_value=["SZ000001"]):
             result = extract_topk(
                 signal,
                 pd.DatetimeIndex([dt]),
@@ -189,11 +189,11 @@ class TestSelectionParquetOptimization:
         fake_factor_path = tmp_path / "factor_data.parquet"
         fake_factor_path.touch()
 
-        with patch("core.selection.load_factor_data", return_value=(monthly_df, pd.DatetimeIndex(dates))), \
-             patch("core.selection.compute_signal", return_value=signal), \
-             patch("core.selection._load_total_mv_frame", return_value=total_mv_frame) as mock_mv, \
-             patch("core.selection.extract_topk", return_value=pd.DataFrame()) as mock_extract, \
-             patch("core.selection.FACTOR_PARQUET", fake_factor_path):
+        with patch("strategy.selection.load_factor_data", return_value=(monthly_df, pd.DatetimeIndex(dates))), \
+             patch("strategy.selection.compute_signal", return_value=signal), \
+             patch("strategy.selection._load_total_mv_frame", return_value=total_mv_frame) as mock_mv, \
+             patch("strategy.selection.extract_topk", return_value=pd.DataFrame()) as mock_extract, \
+             patch("strategy.selection.FACTOR_PARQUET", fake_factor_path):
             compute_selections(
                 topk=2,
                 rebalance_freq="day",
@@ -235,10 +235,10 @@ class TestSelectionParquetOptimization:
                 return close_df
 
         with patch("qlib.init"), \
-             patch("core.selection.filter_instruments", return_value=["SZ000001", "SZ000002"]), \
-             patch("core.selection.get_universe_instruments", return_value=["SZ000001", "SZ000002"]), \
+             patch("strategy.selection.filter_instruments", return_value=["SZ000001", "SZ000002"]), \
+             patch("strategy.selection.get_universe_instruments", return_value=["SZ000001", "SZ000002"]), \
              patch("qlib.data.D", new=FakeD()), \
-             patch("core.selection._load_parquet_factors", return_value=parquet_df):
+             patch("strategy.selection._load_parquet_factors", return_value=parquet_df):
             monthly_df, rebalance_dates = load_factor_data(
                 registry=registry,
                 start_date="2024-01-02",
@@ -311,8 +311,8 @@ class TestSelectionParquetOptimization:
         )
         df.to_parquet(parquet_path, index=False)
 
-        with patch("core.selection.FACTOR_PARQUET", parquet_path):
-            with patch("core.selection._factor_parquet_columns_cache", None):
+        with patch("strategy.selection.FACTOR_PARQUET", parquet_path):
+            with patch("strategy.selection._factor_parquet_columns_cache", None):
                 result = _load_total_mv_frame(
                     instruments=["SZ000001"],
                     start_date="2024-01-01",
@@ -340,7 +340,7 @@ class TestSelectionParquetOptimization:
             }
         )
 
-        with patch("core.selection._load_name_map", return_value={"SZ000001": "平安银行"}):
+        with patch("strategy.selection._load_name_map", return_value={"SZ000001": "平安银行"}):
             enriched = _enrich_selections(df_sel, total_mv_frame=total_mv_frame)
 
         assert enriched.iloc[0]["name"] == "平安银行"
@@ -357,7 +357,7 @@ class TestSelectionParquetOptimization:
         )
         signal = pd.Series([0.9, 1.0], index=idx)
 
-        with patch("core.selection.filter_instruments_by_universe", return_value=["SZ000001"]):
+        with patch("strategy.selection.filter_instruments_by_universe", return_value=["SZ000001"]):
             result = extract_topk(
                 signal,
                 pd.DatetimeIndex([dt]),
@@ -379,7 +379,7 @@ class TestSelectionParquetOptimization:
         )
         signal = pd.Series([0.9, 1.0], index=idx)
 
-        with patch("core.selection.filter_new_listed_instruments", return_value=["SZ000001"]):
+        with patch("strategy.selection.filter_new_listed_instruments", return_value=["SZ000001"]):
             result = extract_topk(
                 signal,
                 pd.DatetimeIndex([dt]),
@@ -547,7 +547,7 @@ class TestSelectionParquetOptimization:
         )
 
         with patch(
-            "core.selection.filter_st_instruments_by_date",
+            "strategy.selection.filter_st_instruments_by_date",
             side_effect=[
                 ["SZ000001", "SZ000002", "SZ000003"],
                 ["SZ000001", "SZ000003"],

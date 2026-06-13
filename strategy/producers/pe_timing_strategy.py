@@ -6,7 +6,7 @@ PE 估值择时策略
 from typing import Dict
 import pandas as pd
 
-from strategies.base import SignalStrategy
+from strategy.base import SignalStrategy
 
 
 class PETimingStrategy(SignalStrategy):

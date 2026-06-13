@@ -2,8 +2,8 @@
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock
-from strategies.turtle.turtle_strategy import TurtleStrategy
-from strategies.base import RuleStrategy, PositionState, StrategySignal
+from strategy.producers.turtle_strategy import TurtleStrategy
+from strategy.base import RuleStrategy, PositionState, StrategySignal
 
 
 def _make_dp(close_prices: dict):

@@ -11,7 +11,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import load_predictive_config, score_from_config
+from strategy.producers.predictive_signal import load_predictive_config, score_from_config
 
 
 def parse_args():

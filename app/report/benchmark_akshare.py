@@ -12,7 +12,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from config.config import CONFIG
+from common.config import CONFIG
 import akshare as ak
 
 

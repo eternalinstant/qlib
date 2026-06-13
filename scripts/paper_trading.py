@@ -143,7 +143,7 @@ def rebuild_factor_data() -> bool:
     log.info("=" * 60)
 
     try:
-        from modules.data.tushare_to_qlib import TushareToQlibConverter
+        from data.sources.tushare_to_qlib import TushareToQlibConverter
 
         converter = TushareToQlibConverter(tushare_dir=str(TUSHARE_DIR), qlib_dir=str(QLIB_DIR))
         df = converter.convert()
@@ -184,7 +184,7 @@ def generate_signals() -> Optional[pd.DataFrame]:
         log.info(f"模型: {type(model).__name__}, 特征: {feature_columns}")
 
         # Load config for selection parameters
-        from modules.modeling.predictive_signal import (
+        from strategy.producers.predictive_signal import (
             load_predictive_config,
             load_feature_frame,
         )
@@ -687,7 +687,7 @@ def main():
         sys.exit(0)
 
     # Check if today is a rebalance day (biweekly)
-    from core.selection import compute_rebalance_dates
+    from strategy.selection import compute_rebalance_dates
     rebalance_dates = compute_rebalance_dates(
         pd.Series(sorted(trading_days)), freq="biweek"
     )

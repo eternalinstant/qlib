@@ -19,7 +19,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import backtest_from_config, load_predictive_config
+from strategy.producers.predictive_signal import backtest_from_config, load_predictive_config
 
 # P0 约束参数
 P0_TRADING_OVERRIDES = {

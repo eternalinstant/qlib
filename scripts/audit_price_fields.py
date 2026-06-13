@@ -18,7 +18,7 @@ from typing import Iterable, List
 import pandas as pd
 import tushare as ts
 
-from core.qlib_init import init_qlib, load_features_safe
+from data.qlib_init import init_qlib, load_features_safe
 
 
 DEFAULT_STRATEGIES = [

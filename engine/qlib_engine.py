@@ -15,27 +15,29 @@ from pathlib import Path
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from config.config import CONFIG
-from core.selection import SELECTION_CSV
+from common.config import CONFIG
+from strategy.selection import SELECTION_CSV
 from data.qlib_init import init_qlib, load_features_safe
 from data.universe import filter_instruments, is_st_on_date
 from engine.base import BacktestResult, BacktestEngine
-from modules.backtest.common import (  # 过渡：common.py 仍宿主 load_raw_trade_quotes（Phase 3 拆至 data/quotes）
+from common.price_limit import (
     CHINEXT_REFORM_DATE,
     PRICE_LIMIT_TOL,
-    raw_data_root as _raw_data_root,
-    raw_data_path_for_instrument as _raw_data_path_for_instrument,
-    load_trade_calendar as _load_trade_calendar_slice,
     round_limit_price as _round_limit_price,
     get_price_limit_pct as _get_price_limit_pct,
     get_limit_prices as _get_limit_prices,
     can_buy_at_open as _can_buy_at_open,
     can_sell_at_open as _can_sell_at_open,
-    load_raw_trade_quotes as _load_raw_trade_quotes,
 )
-from modules.modeling.portfolio_overlay import compute_inverse_vol_weights
-from utils.logger import setup_logger, TradeLogger
-from utils.platform import resolve_path
+from common.paths import (
+    raw_data_root as _raw_data_root,
+    raw_data_path_for_instrument as _raw_data_path_for_instrument,
+)
+from common.calendar import load_trade_calendar as _load_trade_calendar_slice
+from data.quotes import load_raw_trade_quotes as _load_raw_trade_quotes
+from strategy.overlay import compute_inverse_vol_weights
+from common.logger import setup_logger, TradeLogger
+from common.platform import resolve_path
 
 # 进度回调 hook：每个交易日完成时调用。供 qlib_ui worker 实时显示用。
 # 签名: fn(date: pd.Timestamp, return_value: float, portfolio_value: float, stock_pct: float, current_value: float) -> None

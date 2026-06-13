@@ -10,7 +10,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import core.universe as universe
+import data.universe as universe
 
 
 def test_filter_st_instruments_by_date_with_history(tmp_path, monkeypatch):

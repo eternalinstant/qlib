@@ -16,10 +16,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.qlib_init import init_qlib, load_features_safe
-from core.universe import filter_instruments
-from core.position import MarketPositionController
-from core.compute import compute_layer_score
+from data.qlib_init import init_qlib, load_features_safe
+from data.universe import filter_instruments
+from strategy.position import MarketPositionController
+from strategy.compute import compute_layer_score
 
 START_DATE = "2024-01-01"
 END_DATE = "2026-03-15"
@@ -268,8 +268,8 @@ def main():
 
     # 对比当前策略（原7因子）
     print("\n[对比] 当前策略也跑一遍...")
-    from core.factors import default_registry
-    from core.selection import compute_signal, _load_parquet_factors, _fill_cross_sectional
+    from strategy.factors import default_registry
+    from strategy.selection import compute_signal, _load_parquet_factors, _fill_cross_sectional
 
     # 加载当前因子
     qlib_factors = default_registry.get_by_source("qlib")

@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from core.strategy import Strategy
-from modules.backtest.composite import run_strategy_backtest
+from strategy.builder import Strategy
+from app.composite_runner import run_strategy_backtest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

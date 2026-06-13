@@ -18,9 +18,9 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.strategy import Strategy
-from modules.backtest.composite import run_strategy_backtest
-from modules.data.tushare_to_qlib import write_dense_bin_file
+from strategy.builder import Strategy
+from app.composite_runner import run_strategy_backtest
+from data.sources.tushare_to_qlib import write_dense_bin_file
 from scripts.search_alpha158_lgbm_biweek import period_metrics
 
 

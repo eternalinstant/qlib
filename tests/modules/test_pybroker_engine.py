@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pandas as pd
 from pybroker.common import FeeInfo, PriceType
 
-from modules.backtest.pybroker_engine import (
+from engine.pybroker_engine import (
     PyBrokerBacktestEngine,
     _build_close_only_price_frame,
     make_exec_fn,
@@ -114,8 +114,8 @@ def test_build_result_saves_with_explicit_strategy_slug(tmp_path):
         get=lambda key, default=None: str(tmp_path) if key == "paths.results" else default
     )
 
-    with patch("modules.backtest.pybroker_engine.CONFIG", fake_config), \
-         patch("modules.backtest.pybroker_engine.get_name_map", return_value={"SH600000": "浦发银行"}):
+    with patch("engine.pybroker_engine.CONFIG", fake_config), \
+         patch("engine.pybroker_engine.get_name_map", return_value={"SH600000": "浦发银行"}):
         result = engine._build_result(
             result_obj,
             initial_cash=100000.0,

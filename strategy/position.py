@@ -84,7 +84,7 @@ class MarketPositionController:
         self.config = config or MarketConfig()
         # 从全局配置获取数据路径
         if self.config.qlib_data_path is None:
-            from config.config import CONFIG
+            from common.config import CONFIG
             self.config.qlib_data_path = Path(CONFIG.get("paths.qlib_data",
                 "~/code/qlib/data/qlib_data/cn_data")).expanduser()
         self.csi300_close: pd.Series = None
@@ -100,7 +100,7 @@ class MarketPositionController:
     # ----------------------------------------------------------
     def load_market_data_v2(self) -> None:
         """使用 Qlib API 加载沪深300数据（推荐方式）"""
-        from core.qlib_init import init_qlib, load_features_safe
+        from data.qlib_init import init_qlib, load_features_safe
         init_qlib()
 
         instruments = ["sh399300"]
@@ -295,7 +295,7 @@ class MarketGatePositionController:
     def __init__(self, config: MarketGateConfig = None):
         self.config = config or MarketGateConfig()
         if self.config.qlib_data_path is None:
-            from config.config import CONFIG
+            from common.config import CONFIG
             self.config.qlib_data_path = Path(
                 CONFIG.get("paths.qlib_data", "~/code/qlib/data/qlib_data/cn_data")
             ).expanduser()

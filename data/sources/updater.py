@@ -16,9 +16,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 
-from config.config import CONFIG
-from modules.data.precheck import run_data_precheck
-from modules.data.tushare_to_qlib import TushareToQlibConverter
+from common.config import CONFIG
+from data.sources.precheck import run_data_precheck
+from data.sources.tushare_to_qlib import TushareToQlibConverter
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class DataUpdater:
         if qlib_data_path:
             self.qlib_data_path = Path(qlib_data_path).expanduser()
         else:
-            from modules.data.paths import get_qlib_root
+            from common.paths import get_qlib_root
             self.qlib_data_path = get_qlib_root()
         self.qlib_data_path.mkdir(parents=True, exist_ok=True)
 
@@ -1551,7 +1551,7 @@ class DataUpdater:
         bool 是否成功
         """
         try:
-            from core.strategy import Strategy
+            from strategy.builder import Strategy
             from pandas import Timestamp, Timedelta
             import os
 

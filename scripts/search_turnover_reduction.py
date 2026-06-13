@@ -15,13 +15,13 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import (  # noqa: E402
+from strategy.producers.predictive_signal import (  # noqa: E402
     backtest_from_config,
     load_predictive_config,
     save_json,
     save_selection_frame,
 )
-from modules.modeling.predictive_signal import materialize_selections_from_scores as materialize_selections  # noqa: E402
+from strategy.producers.predictive_signal import materialize_selections_from_scores as materialize_selections  # noqa: E402
 
 
 TURNOVER_PRESET_V1 = [

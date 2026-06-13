@@ -22,15 +22,15 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.compute import compute_layer_score
-from core.factors import FactorInfo, FactorRegistry
-from core.position import MarketPositionController
-from core.qlib_init import init_qlib, load_features_safe
-from core.selection import extract_topk
-from core.strategy import Strategy
-from core.universe import filter_instruments
-from modules.backtest.base import BacktestResult
-from modules.backtest.qlib_engine import QlibBacktestEngine
+from strategy.compute import compute_layer_score
+from strategy.factors import FactorInfo, FactorRegistry
+from strategy.position import MarketPositionController
+from data.qlib_init import init_qlib, load_features_safe
+from strategy.selection import extract_topk
+from strategy.builder import Strategy
+from data.universe import filter_instruments
+from engine.base import BacktestResult
+from engine.qlib_engine import QlibBacktestEngine
 from scripts.factor_scan import get_all_factors
 
 START_DATE = "2019-01-01"

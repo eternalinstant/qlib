@@ -1,17 +1,18 @@
-name: turtle_20_10
-strategy_class: strategies.turtle.turtle_strategy.TurtleStrategy
+name: pyramid_atr_3layer
+strategy_class: strategy.producers.pyramid_strategy.PyramidStrategy
 
 selection:
   universe: csi800
   min_market_cap: 80
   exclude_st: true
 
-turtle:
+pyramid:
   entry_lookback: 20
-  exit_lookback: 10
   atr_period: 20
+  add_factor: 1.0
+  max_layers: 3
   stop_atr: 2.0
-  position_size: 0.02
+  position_size: 0.05
 
 trading:
   buy_commission_rate: 0.0003

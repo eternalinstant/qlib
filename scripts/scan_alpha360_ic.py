@@ -2,8 +2,8 @@
 import sys, yaml, os, json
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from modules.modeling.predictive_signal import load_predictive_config, train_from_config, _alpha360_feature_map
-from utils.platform import temp_dir
+from strategy.producers.predictive_signal import load_predictive_config, train_from_config, _alpha360_feature_map
+from common.platform import temp_dir
 
 SCAN_DIR = temp_dir("scan_factor")
 

@@ -17,8 +17,8 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.strategy import Strategy
-from modules.backtest.composite import run_strategy_backtest
+from strategy.builder import Strategy
+from app.composite_runner import run_strategy_backtest
 
 # ── 精选 8 因子定义 ──────────────────────────────────────────────
 

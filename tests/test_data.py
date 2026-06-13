@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.config import CONFIG
+from common.config import CONFIG
 
 
 class TestTushareData:
@@ -275,7 +275,7 @@ class TestConfig:
 
     def test_config_qlib_data_path(self):
         """测试 QLib 数据路径配置（统一走路径层，跨平台）"""
-        from modules.data.paths import get_qlib_root
+        from common.paths import get_qlib_root
         path = get_qlib_root()
         # 无数据的环境（如 CI）允许不存在；存在则必须是目录
         if path.exists():

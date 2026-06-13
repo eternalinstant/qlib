@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.backtest.compare import (
+from app.compare import (
     compare_strategies,
     blend_strategies,
     calculate_metrics,
@@ -27,7 +27,7 @@ from modules.backtest.compare import (
     print_comparison,
     run_compare,
 )
-from modules.backtest.base import BacktestResult
+from engine.base import BacktestResult
 
 
 class TestCompareStrtegies:
@@ -124,13 +124,13 @@ def test_run_compare_validates_strategy_and_saves_outputs(tmp_path):
     fake_engine.run.return_value = result
     fake_config = SimpleNamespace(get=lambda key, default=None: str(tmp_path) if key == "results_path" else default)
 
-    with patch("core.strategy.Strategy.load", return_value=fake_strategy), \
-         patch("modules.backtest.compare.print_comparison"), \
-         patch("modules.backtest.compare.print_yearly_comparison"), \
-         patch("modules.backtest.compare.plot_multi_strategy"), \
-         patch("modules.backtest.compare.plot_yearly_comparison"), \
-         patch("modules.backtest.qlib_engine.QlibBacktestEngine", return_value=fake_engine), \
-         patch("config.config.CONFIG", fake_config):
+    with patch("strategy.builder.Strategy.load", return_value=fake_strategy), \
+         patch("app.compare.print_comparison"), \
+         patch("app.compare.print_yearly_comparison"), \
+         patch("app.compare.plot_multi_strategy"), \
+         patch("app.compare.plot_yearly_comparison"), \
+         patch("engine.qlib_engine.QlibBacktestEngine", return_value=fake_engine), \
+         patch("common.config.CONFIG", fake_config):
         run_compare(strategy_names=["top15_robust_ma5_fixed"], engine="qlib", benchmark=False)
 
     fake_strategy.validate_data_requirements.assert_called_once_with()
@@ -217,7 +217,7 @@ def test_load_benchmark_returns_backtest_result():
     )
 
     with patch(
-        "utils.benchmark_comparison_akshare.get_benchmark_data_akshare",
+        "app.report.benchmark_akshare.get_benchmark_data_akshare",
         return_value=benchmark_df,
     ) as mock_get:
         result = load_benchmark("2026-01-01", "2026-01-03")
@@ -231,7 +231,7 @@ def test_load_benchmark_returns_backtest_result():
 def test_load_benchmark_returns_none_when_data_missing(capsys):
     """基准缺失时应返回 None 并打印警告。"""
     with patch(
-        "utils.benchmark_comparison_akshare.get_benchmark_data_akshare",
+        "app.report.benchmark_akshare.get_benchmark_data_akshare",
         return_value=pd.DataFrame(),
     ):
         result = load_benchmark("2026-01-01", "2026-01-03")
@@ -270,17 +270,17 @@ def test_run_compare_with_benchmark_and_mixed_universe(tmp_path):
     )
 
     with patch(
-        "core.strategy.Strategy.load",
+        "strategy.builder.Strategy.load",
         side_effect=[strategy_all, strategy_csi300],
     ), \
-        patch("modules.backtest.compare.print_comparison"), \
-        patch("modules.backtest.compare.print_yearly_comparison"), \
-        patch("modules.backtest.compare.plot_multi_strategy") as mock_plot_multi, \
-        patch("modules.backtest.compare.plot_yearly_comparison") as mock_plot_yearly, \
-        patch("modules.backtest.compare.load_benchmark", return_value=benchmark_result) as mock_load_benchmark, \
-        patch("modules.backtest.qlib_engine.QlibBacktestEngine", return_value=fake_engine), \
-        patch("modules.backtest.compare.datetime") as mock_datetime, \
-        patch("config.config.CONFIG", fake_config):
+        patch("app.compare.print_comparison"), \
+        patch("app.compare.print_yearly_comparison"), \
+        patch("app.compare.plot_multi_strategy") as mock_plot_multi, \
+        patch("app.compare.plot_yearly_comparison") as mock_plot_yearly, \
+        patch("app.compare.load_benchmark", return_value=benchmark_result) as mock_load_benchmark, \
+        patch("engine.qlib_engine.QlibBacktestEngine", return_value=fake_engine), \
+        patch("app.compare.datetime") as mock_datetime, \
+        patch("common.config.CONFIG", fake_config):
         mock_datetime.now.return_value.strftime.return_value = "20260322_235959"
         results = run_compare(
             strategy_names=["top15_core_day", "top15_core_trend"],
@@ -313,7 +313,7 @@ def test_run_compare_invalid_engine_returns_empty(capsys):
 
 def test_run_compare_without_available_strategies_returns_empty(capsys):
     """没有可用策略时应返回空结果。"""
-    with patch("core.strategy.Strategy.list_available", return_value=[]):
+    with patch("strategy.builder.Strategy.list_available", return_value=[]):
         results = run_compare(strategy_names=None, engine="qlib", benchmark=False)
 
     captured = capsys.readouterr()

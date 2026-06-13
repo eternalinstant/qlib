@@ -16,14 +16,14 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.feature_pruning import (  # noqa: E402
+from strategy.feature_pruning import (  # noqa: E402
     CATEGORY_ORDER,
     FEATURE_CATEGORY_SPECS,
     category_status_rows,
     extract_feature_importance_map,
     ordered_category_removals,
 )
-from modules.modeling.predictive_signal import (  # noqa: E402
+from strategy.producers.predictive_signal import (  # noqa: E402
     backtest_from_config,
     backtest_summary_path,
     load_model_bundle,

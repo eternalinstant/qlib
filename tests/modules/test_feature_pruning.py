@@ -5,7 +5,7 @@ import sys
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.feature_pruning import (  # noqa: E402
+from strategy.feature_pruning import (  # noqa: E402
     category_status_rows,
     classify_feature_columns,
     extract_feature_importance_map,

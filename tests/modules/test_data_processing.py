@@ -14,7 +14,7 @@ class TestTushareToQlibConverter:
 
     def test_converter_default_paths(self):
         """测试默认路径"""
-        from modules.data.tushare_to_qlib import TushareToQlibConverter
+        from data.sources.tushare_to_qlib import TushareToQlibConverter
         
         converter = TushareToQlibConverter()
         
@@ -23,7 +23,7 @@ class TestTushareToQlibConverter:
 
     def test_converter_custom_paths(self):
         """测试自定义路径"""
-        from modules.data.tushare_to_qlib import TushareToQlibConverter
+        from data.sources.tushare_to_qlib import TushareToQlibConverter
         
         converter = TushareToQlibConverter(
             tushare_dir="/custom/tushare",
@@ -37,7 +37,7 @@ class TestTushareToQlibConverter:
 
     def test_build_adjusted_bins_for_instruments_preserves_calendar_gaps(self, tmp_path):
         """前复权 bin 写入必须按交易日历补 NaN，不能压缩停牌日。"""
-        from modules.data.tushare_to_qlib import TushareToQlibConverter
+        from data.sources.tushare_to_qlib import TushareToQlibConverter
 
         qlib_dir = tmp_path / "cn_data"
         raw_dir = qlib_dir.parent / "raw_data"
@@ -95,7 +95,7 @@ class TestTushareToQlibConverter:
 
     def test_vwap_uses_same_adjustment_as_prices(self, tmp_path):
         """Alpha158 的 VWAP0 要和 close 使用同一前复权口径。"""
-        from modules.data.tushare_to_qlib import TushareToQlibConverter
+        from data.sources.tushare_to_qlib import TushareToQlibConverter
 
         qlib_dir = tmp_path / "cn_data"
         raw_dir = qlib_dir.parent / "raw_data"
@@ -145,7 +145,7 @@ class TestTushareDownloader:
 
     def test_downloader_env_token(self):
         """测试环境变量 Token"""
-        from modules.data.tushare_downloader import TushareDownloader
+        from data.sources.tushare_downloader import TushareDownloader
 
         with patch.dict(os.environ, {"TUSHARE_TOKEN": "env_token"}):
             with patch("tushare.pro_api") as mock_pro_api:
@@ -156,7 +156,7 @@ class TestTushareDownloader:
 
     def test_downloader_custom_token(self):
         """测试自定义 Token"""
-        from modules.data.tushare_downloader import TushareDownloader
+        from data.sources.tushare_downloader import TushareDownloader
 
         with patch("tushare.pro_api") as mock_pro_api:
             downloader = TushareDownloader(token="custom_token")
@@ -166,7 +166,7 @@ class TestTushareDownloader:
 
     def test_downloader_default_data_dir(self):
         """测试默认数据目录"""
-        from modules.data.tushare_downloader import TushareDownloader
+        from data.sources.tushare_downloader import TushareDownloader
 
         with patch.dict(os.environ, {"TUSHARE_TOKEN": "env_token"}):
             with patch("tushare.pro_api"):
@@ -176,7 +176,7 @@ class TestTushareDownloader:
 
     def test_downloader_max_workers(self):
         """测试并发线程数"""
-        from modules.data.tushare_downloader import TushareDownloader
+        from data.sources.tushare_downloader import TushareDownloader
 
         with patch.dict(os.environ, {"TUSHARE_TOKEN": "env_token"}):
             with patch("tushare.pro_api"):
@@ -186,7 +186,7 @@ class TestTushareDownloader:
 
     def test_downloader_requires_token(self):
         """未提供 Token 时抛错"""
-        from modules.data.tushare_downloader import TushareDownloader
+        from data.sources.tushare_downloader import TushareDownloader
 
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="TUSHARE_TOKEN"):
@@ -198,7 +198,7 @@ class TestDataUpdater:
 
     def test_updater_default_path(self):
         """测试默认路径"""
-        from modules.data.updater import DataUpdater
+        from data.sources.updater import DataUpdater
         
         updater = DataUpdater()
         
@@ -206,7 +206,7 @@ class TestDataUpdater:
 
     def test_updater_custom_path(self, tmp_path):
         """测试自定义路径"""
-        from modules.data.updater import DataUpdater
+        from data.sources.updater import DataUpdater
 
         custom_path = str(tmp_path / "custom_qlib_data")
         updater = DataUpdater(qlib_data_path=custom_path)

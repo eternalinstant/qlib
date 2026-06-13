@@ -11,7 +11,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from config.config import CONFIG
+from common.config import CONFIG
 
 
 class BacktestCache:

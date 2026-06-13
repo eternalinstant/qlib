@@ -13,8 +13,8 @@ from datetime import datetime
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.backtest.base import BacktestEngine, BacktestResult
-from modules.backtest.qlib_engine import (
+from engine.base import BacktestEngine, BacktestResult
+from engine.qlib_engine import (
     _raw_data_root,
     _raw_data_path_for_instrument,
     _round_limit_price,
@@ -33,7 +33,7 @@ from modules.backtest.qlib_engine import (
     main as qlib_main,
     QlibBacktestEngine,
 )
-from config.config import CONFIG
+from common.config import CONFIG
 
 
 class MockBacktestEngine(BacktestEngine):
@@ -111,8 +111,8 @@ class TestBacktestEngine:
         engine = MockBacktestEngine()
         
         # 模拟 load_selections
-        with patch('core.selection.load_selections') as mock_load:
-            with patch('core.position.MarketPositionController') as mock_controller:
+        with patch('strategy.selection.load_selections') as mock_load:
+            with patch('strategy.position.MarketPositionController') as mock_controller:
                 mock_load.return_value = (
                     {pd.Timestamp("2024-01-01"): {"SZ000001"}},
                     {pd.Timestamp("2024-01-01")}
@@ -144,7 +144,7 @@ class TestBacktestEngine:
         mock_strategy.build_position_controller.return_value = Mock()
         mock_strategy.topk = 30
         
-        with patch('core.selection.load_selections') as mock_load:
+        with patch('strategy.selection.load_selections') as mock_load:
             result = engine._prepare(strategy=mock_strategy)
         
         # 验证策略的方法被调用
@@ -159,8 +159,8 @@ class TestBacktestEngine:
         """测试仓位控制器加载市场数据"""
         engine = MockBacktestEngine()
         
-        with patch('core.selection.load_selections') as mock_load:
-            with patch('core.position.MarketPositionController') as mock_ctrl_class:
+        with patch('strategy.selection.load_selections') as mock_load:
+            with patch('strategy.position.MarketPositionController') as mock_ctrl_class:
                 mock_load.return_value = (
                     {pd.Timestamp("2024-01-01"): {"SZ000001"}},
                     {pd.Timestamp("2024-01-01")}
@@ -179,8 +179,8 @@ class TestBacktestEngine:
         """测试无 load_market_data 方法的控制器"""
         engine = MockBacktestEngine()
         
-        with patch('core.selection.load_selections') as mock_load:
-            with patch('core.position.MarketPositionController') as mock_ctrl_class:
+        with patch('strategy.selection.load_selections') as mock_load:
+            with patch('strategy.position.MarketPositionController') as mock_ctrl_class:
                 mock_load.return_value = (
                     {pd.Timestamp("2024-01-01"): {"SZ000001"}},
                     {pd.Timestamp("2024-01-01")}
@@ -213,7 +213,7 @@ class TestQlibBacktestHelpers:
         fake_config = Mock()
         fake_config.get.return_value = "~/repo/data/qlib_data/cn_data"
 
-        with patch("modules.backtest.qlib_engine.CONFIG", fake_config):
+        with patch("engine.qlib_engine.CONFIG", fake_config):
             root = _raw_data_root()
 
         assert root.as_posix().endswith("data/qlib_data/raw_data")
@@ -293,9 +293,9 @@ class TestQlibBacktestHelpers:
         provider_px = pd.DataFrame({"close": [100.0, 101.0]}, index=provider_index)
 
         with patch("common.paths.raw_data_root", return_value=tmp_path), \
-             patch("modules.backtest.qlib_engine.load_features_safe", return_value=provider_px), \
+             patch("engine.qlib_engine.load_features_safe", return_value=provider_px), \
              patch(
-                 "modules.backtest.qlib_engine._load_trade_calendar_slice",
+                 "engine.qlib_engine._load_trade_calendar_slice",
                  return_value=pd.DatetimeIndex([pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")]),
              ):
             df_px, raw_quotes = _load_backtest_return_frame(["SZ000001"], "2024-01-02", "2024-01-03")
@@ -347,14 +347,14 @@ class TestQlibBacktestHelpers:
 
     def test_tradability_constraint_requires_explicit_support(self, tmp_path):
         missing_root = tmp_path / "nonexistent_raw_data"
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=missing_root):
+        with patch("engine.qlib_engine._raw_data_root", return_value=missing_root):
             with pytest.raises(FileNotFoundError):
                 _ensure_tradability_constraints_supported(True, False)
 
             with pytest.raises(FileNotFoundError):
                 _ensure_tradability_constraints_supported(False, True)
 
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
+        with patch("engine.qlib_engine._raw_data_root", return_value=tmp_path):
             _ensure_tradability_constraints_supported(True, False)
             _ensure_tradability_constraints_supported(False, True)
             _ensure_tradability_constraints_supported(False, False)
@@ -460,7 +460,7 @@ class TestQlibBacktestHelpers:
             index=["OLD"],
         )
 
-        with patch("modules.backtest.qlib_engine.is_st_on_date", return_value=False):
+        with patch("engine.qlib_engine.is_st_on_date", return_value=False):
             result = _compute_rebalance_day(
                 day_px,
                 selected={"KEEP", "NEW"},
@@ -488,7 +488,7 @@ class TestQlibBacktestHelpers:
             index=["NEW"],
         )
 
-        with patch("modules.backtest.qlib_engine.is_st_on_date", return_value=False):
+        with patch("engine.qlib_engine.is_st_on_date", return_value=False):
             result = _compute_rebalance_day(
                 day_px,
                 selected={"KEEP", "NEW"},
@@ -577,11 +577,11 @@ class TestQlibBacktestHelpers:
         df_px = pd.DataFrame({"close": [10.0, 11.0, 12.0, 10.2, 11.1, 12.3, 10.3, 11.4, 12.2]}, index=px_index)
 
         with patch.object(engine, "_prepare", return_value=(date_to_symbols, set(rebal_dates), None, 2)):
-            with patch("modules.backtest.qlib_engine.init_qlib"):
-                with patch("modules.backtest.qlib_engine.setup_logger", return_value=Mock()):
-                    with patch("modules.backtest.qlib_engine.TradeLogger"):
-                        with patch("modules.backtest.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
-                            with patch("modules.backtest.qlib_engine.load_features_safe", return_value=df_px) as mock_load_features:
+            with patch("engine.qlib_engine.init_qlib"):
+                with patch("engine.qlib_engine.setup_logger", return_value=Mock()):
+                    with patch("engine.qlib_engine.TradeLogger"):
+                        with patch("engine.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
+                            with patch("engine.qlib_engine.load_features_safe", return_value=df_px) as mock_load_features:
                                 with patch("pandas.DataFrame.to_csv"):
                                     result = engine.run(strategy=strategy)
 
@@ -599,9 +599,9 @@ class TestQlibBacktestHelpers:
 
         logger = Mock()
         with patch.object(engine, "_prepare", return_value=({}, set(), None, 2)):
-            with patch("modules.backtest.qlib_engine.init_qlib"):
-                with patch("modules.backtest.qlib_engine.setup_logger", return_value=logger):
-                    with patch("modules.backtest.qlib_engine.TradeLogger"):
+            with patch("engine.qlib_engine.init_qlib"):
+                with patch("engine.qlib_engine.setup_logger", return_value=logger):
+                    with patch("engine.qlib_engine.TradeLogger"):
                         result = engine.run(strategy=strategy)
 
         assert result.daily_returns.empty
@@ -639,11 +639,11 @@ class TestQlibBacktestHelpers:
         df_px = pd.DataFrame({"close": [10.0, 11.0, 10.2, 11.1, 10.3, 11.2]}, index=px_index)
 
         with patch.object(engine, "_prepare", return_value=(date_to_symbols, set(rebal_dates), None, 2)):
-            with patch("modules.backtest.qlib_engine.init_qlib"):
-                with patch("modules.backtest.qlib_engine.setup_logger", return_value=Mock()):
-                    with patch("modules.backtest.qlib_engine.TradeLogger"):
-                        with patch("modules.backtest.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
-                            with patch("modules.backtest.qlib_engine.load_features_safe", return_value=df_px):
+            with patch("engine.qlib_engine.init_qlib"):
+                with patch("engine.qlib_engine.setup_logger", return_value=Mock()):
+                    with patch("engine.qlib_engine.TradeLogger"):
+                        with patch("engine.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
+                            with patch("engine.qlib_engine.load_features_safe", return_value=df_px):
                                 with patch("pandas.DataFrame.to_csv"):
                                     result = engine.run(strategy=strategy)
 
@@ -688,14 +688,14 @@ class TestQlibBacktestHelpers:
         )
 
         with patch.object(engine, "_prepare", return_value=(date_to_symbols, set(rebal_dates), None, 1)):
-            with patch("modules.backtest.qlib_engine.init_qlib"):
-                with patch("modules.backtest.qlib_engine.setup_logger", return_value=Mock()):
-                    with patch("modules.backtest.qlib_engine.TradeLogger"):
-                        with patch("modules.backtest.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
-                            with patch("modules.backtest.qlib_engine.load_features_safe", return_value=df_px):
-                                with patch("modules.backtest.qlib_engine._ensure_tradability_constraints_supported"):
-                                    with patch("modules.backtest.qlib_engine._load_ranked_selection_orders", return_value={rebal_dates[0]: ["SZ000001"]}) as mock_ranked:
-                                        with patch("modules.backtest.qlib_engine._load_raw_trade_quotes", return_value=raw_quotes) as mock_raw:
+            with patch("engine.qlib_engine.init_qlib"):
+                with patch("engine.qlib_engine.setup_logger", return_value=Mock()):
+                    with patch("engine.qlib_engine.TradeLogger"):
+                        with patch("engine.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
+                            with patch("engine.qlib_engine.load_features_safe", return_value=df_px):
+                                with patch("engine.qlib_engine._ensure_tradability_constraints_supported"):
+                                    with patch("engine.qlib_engine._load_ranked_selection_orders", return_value={rebal_dates[0]: ["SZ000001"]}) as mock_ranked:
+                                        with patch("engine.qlib_engine._load_raw_trade_quotes", return_value=raw_quotes) as mock_raw:
                                             with patch("pandas.DataFrame.to_csv"):
                                                 result = engine.run(strategy=strategy)
 
@@ -755,12 +755,12 @@ class TestQlibBacktestHelpers:
         )
 
         with patch.object(engine, "_prepare", return_value=(date_to_symbols, set(rebal_dates), controller, 2)):
-            with patch("modules.backtest.qlib_engine.init_qlib"):
-                with patch("modules.backtest.qlib_engine.setup_logger", return_value=Mock()):
-                    with patch("modules.backtest.qlib_engine.TradeLogger"):
-                        with patch("modules.backtest.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
-                            with patch("modules.backtest.qlib_engine.load_features_safe", return_value=df_px):
-                                with patch("modules.backtest.qlib_engine._load_bond_etf_returns", return_value=None):
+            with patch("engine.qlib_engine.init_qlib"):
+                with patch("engine.qlib_engine.setup_logger", return_value=Mock()):
+                    with patch("engine.qlib_engine.TradeLogger"):
+                        with patch("engine.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
+                            with patch("engine.qlib_engine.load_features_safe", return_value=df_px):
+                                with patch("engine.qlib_engine._load_bond_etf_returns", return_value=None):
                                     with patch("pandas.DataFrame.to_csv"):
                                         result = engine.run(strategy=strategy)
 
@@ -797,11 +797,11 @@ class TestQlibBacktestHelpers:
         logger = Mock()
 
         with patch.object(engine, "_prepare", return_value=(date_to_symbols, set(rebal_dates), None, 2)):
-            with patch("modules.backtest.qlib_engine.init_qlib"):
-                with patch("modules.backtest.qlib_engine.setup_logger", return_value=logger):
-                    with patch("modules.backtest.qlib_engine.TradeLogger"):
-                        with patch("modules.backtest.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
-                            with patch("modules.backtest.qlib_engine.load_features_safe", return_value=df_px):
+            with patch("engine.qlib_engine.init_qlib"):
+                with patch("engine.qlib_engine.setup_logger", return_value=logger):
+                    with patch("engine.qlib_engine.TradeLogger"):
+                        with patch("engine.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
+                            with patch("engine.qlib_engine.load_features_safe", return_value=df_px):
                                 result = engine.run(strategy=strategy)
 
         assert result.daily_returns.empty
@@ -839,15 +839,15 @@ class TestQlibBacktestHelpers:
         )
 
         with patch.object(engine, "_prepare", return_value=(date_to_symbols, set(rebal_dates), None, 1)):
-            with patch("modules.backtest.qlib_engine.init_qlib"):
-                with patch("modules.backtest.qlib_engine.setup_logger", return_value=Mock()):
-                    with patch("modules.backtest.qlib_engine.TradeLogger"):
-                        with patch("modules.backtest.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
-                            with patch("modules.backtest.qlib_engine.load_features_safe", return_value=df_px):
-                                with patch("modules.backtest.qlib_engine._load_bond_etf_returns", return_value=None):
-                                    with patch("modules.backtest.qlib_engine._ensure_tradability_constraints_supported"):
-                                        with patch("modules.backtest.qlib_engine._load_ranked_selection_orders", return_value={rebal_dates[0]: ["SZ000001"]}):
-                                            with patch("modules.backtest.qlib_engine._load_raw_trade_quotes", return_value=empty_raw_quotes):
+            with patch("engine.qlib_engine.init_qlib"):
+                with patch("engine.qlib_engine.setup_logger", return_value=Mock()):
+                    with patch("engine.qlib_engine.TradeLogger"):
+                        with patch("engine.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
+                            with patch("engine.qlib_engine.load_features_safe", return_value=df_px):
+                                with patch("engine.qlib_engine._load_bond_etf_returns", return_value=None):
+                                    with patch("engine.qlib_engine._ensure_tradability_constraints_supported"):
+                                        with patch("engine.qlib_engine._load_ranked_selection_orders", return_value={rebal_dates[0]: ["SZ000001"]}):
+                                            with patch("engine.qlib_engine._load_raw_trade_quotes", return_value=empty_raw_quotes):
                                                 with patch("pandas.DataFrame.to_csv"):
                                                     result = engine.run(strategy=strategy)
 
@@ -881,11 +881,11 @@ class TestQlibBacktestHelpers:
         df_px = pd.DataFrame({"close": [10.0, 10.4, 10.5]}, index=px_index)
 
         with patch.object(engine, "_prepare", return_value=(date_to_symbols, set(rebal_dates), None, 1)):
-            with patch("modules.backtest.qlib_engine.init_qlib"):
-                with patch("modules.backtest.qlib_engine.setup_logger", return_value=Mock()):
-                    with patch("modules.backtest.qlib_engine.TradeLogger"):
-                        with patch("modules.backtest.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
-                            with patch("modules.backtest.qlib_engine.load_features_safe", return_value=df_px):
+            with patch("engine.qlib_engine.init_qlib"):
+                with patch("engine.qlib_engine.setup_logger", return_value=Mock()):
+                    with patch("engine.qlib_engine.TradeLogger"):
+                        with patch("engine.qlib_engine.filter_instruments", side_effect=lambda instruments, exclude_st=False: instruments):
+                            with patch("engine.qlib_engine.load_features_safe", return_value=df_px):
                                 with patch("pandas.DataFrame.to_csv"):
                                     result = engine.run(strategy=strategy)
 
@@ -897,7 +897,7 @@ class TestQlibBacktestHelpers:
         result = Mock()
         result.metadata = {"results_file": "results/backtest.csv"}
 
-        with patch("modules.backtest.qlib_engine.QlibBacktestEngine") as mock_engine_cls:
+        with patch("engine.qlib_engine.QlibBacktestEngine") as mock_engine_cls:
             mock_engine = mock_engine_cls.return_value
             mock_engine.run.return_value = result
             returned = qlib_main(strategy=strategy)

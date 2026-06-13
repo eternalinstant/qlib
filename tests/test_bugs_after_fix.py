@@ -20,7 +20,7 @@ def check_fix1_qlib_negate():
     print("Fix#1: Qlib source 因子 negate")
     print("="*70)
 
-    from core.selection import load_factor_data
+    from strategy.selection import load_factor_data
     source = inspect.getsource(load_factor_data)
 
     idx = source.find("df_qlib.columns = qlib_names")
@@ -46,12 +46,12 @@ def check_fix2_st_no_lookahead():
     print("Fix#2: ST名单前视偏差")
     print("="*70)
 
-    from core.selection import load_factor_data
+    from strategy.selection import load_factor_data
     sel_source = inspect.getsource(load_factor_data)
     sel_no_st = "exclude_st=False" in sel_source
     print(f"  selection.py 关闭ST过滤: {sel_no_st}")
 
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from engine.qlib_engine import QlibBacktestEngine
     bt_source = inspect.getsource(QlibBacktestEngine.run)
     bt_no_st = "exclude_st=False" in bt_source
     print(f"  qlib_engine.py 关闭ST过滤: {bt_no_st}")
@@ -70,7 +70,7 @@ def check_fix3_position_prev_day():
     print("Fix#3: 仓位控制前视偏差")
     print("="*70)
 
-    from core.position import MarketPositionController
+    from strategy.position import MarketPositionController
     regime_src = inspect.getsource(MarketPositionController._get_regime)
     opp_src = inspect.getsource(MarketPositionController._get_opportunity)
 
@@ -94,7 +94,7 @@ def check_fix5_ann_date_delay():
     print("Fix#5: 财报公告日延迟")
     print("="*70)
 
-    from modules.data.tushare_to_qlib import TushareToQlibConverter
+    from data.sources.tushare_to_qlib import TushareToQlibConverter
     source = inspect.getsource(TushareToQlibConverter.convert)
 
     delay_count = source.count("Timedelta(days=1)")
@@ -115,7 +115,7 @@ def check_fix6_cost_not_scaled():
     print("Fix#6: 交易成本计算")
     print("="*70)
 
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from engine.qlib_engine import QlibBacktestEngine
     source = inspect.getsource(QlibBacktestEngine.run)
 
     # 成本应该在 port_ret 层面扣除，而不是从 stock_ret 扣除
@@ -147,7 +147,7 @@ def check_fix7_first_rebal_cost():
     print("Fix#7: 首次建仓成本")
     print("="*70)
 
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from engine.qlib_engine import QlibBacktestEngine
     source = inspect.getsource(QlibBacktestEngine.run)
 
     # 应该不再要求 prev_selected 非空
@@ -173,7 +173,7 @@ def check_fix9_delist_penalty():
     print("Fix#9: 退市股票处理")
     print("="*70)
 
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from engine.qlib_engine import QlibBacktestEngine
     source = inspect.getsource(QlibBacktestEngine.run)
 
     has_missing = "missing_count" in source

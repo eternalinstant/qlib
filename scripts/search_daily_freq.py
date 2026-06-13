@@ -17,7 +17,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.predictive_signal import (
+from strategy.producers.predictive_signal import (
     backtest_from_config,
     load_predictive_config,
     save_json,

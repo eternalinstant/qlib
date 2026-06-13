@@ -13,7 +13,7 @@ def test_load_strategy_none_uses_default():
     fake_strategy = Mock()
     fake_strategy.name = "default"
 
-    with patch("core.strategy.Strategy.load", return_value=fake_strategy) as mock_load:
+    with patch("strategy.builder.Strategy.load", return_value=fake_strategy) as mock_load:
         strategy = main._load_strategy(None)
 
     assert strategy is fake_strategy
@@ -28,7 +28,7 @@ def test_cmd_select_without_strategy_uses_default_strategy():
     args = SimpleNamespace(strategy=None, config="strategy.yaml")
 
     with patch("main._load_strategy", return_value=fake_strategy) as mock_load, \
-         patch("core.selection.generate_selections") as legacy_generate:
+         patch("strategy.selection.generate_selections") as legacy_generate:
         main.cmd_select(args)
 
     mock_load.assert_called_once_with(None)
@@ -52,8 +52,8 @@ def test_cmd_backtest_validates_strategy_data():
     )
 
     with patch("main._load_strategy", return_value=fake_strategy), \
-         patch("modules.backtest.composite.run_strategy_backtest", return_value=fake_result) as mock_run, \
-         patch("config.config.CONFIG", SimpleNamespace(get=lambda key, default=None: 500000 if key == "initial_capital" else default)):
+         patch("app.composite_runner.run_strategy_backtest", return_value=fake_result) as mock_run, \
+         patch("common.config.CONFIG", SimpleNamespace(get=lambda key, default=None: 500000 if key == "initial_capital" else default)):
         main.cmd_backtest(args)
 
     fake_strategy.validate_data_requirements.assert_called_once_with()

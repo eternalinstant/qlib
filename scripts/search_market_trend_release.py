@@ -16,7 +16,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.modeling.portfolio_overlay import (  # noqa: E402
+from strategy.overlay import (  # noqa: E402
     OverlayConfig,
     compute_overlay_frame,
     summarize_overlay,

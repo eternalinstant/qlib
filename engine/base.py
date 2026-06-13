@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from common.config import CONFIG
-# 注：引擎层不在导入期依赖策略层（core.selection / core.position）。
+# 注：引擎层不在导入期依赖策略层（strategy.selection / strategy.position）。
 # strategy=None 的 legacy 回退路径所需的 load_selections / MarketPositionController
 # 改为在 _prepare() 内延迟 import，保持分层依赖单向（engine → data/common）。
 
@@ -95,8 +95,8 @@ class BacktestEngine(ABC):
             topk = strategy.topk
         else:
             # legacy 回退：延迟 import 策略层，避免引擎模块在导入期反向依赖
-            from core.selection import load_selections
-            from core.position import MarketPositionController
+            from strategy.selection import load_selections
+            from strategy.position import MarketPositionController
             date_to_symbols, rebalance_dates = load_selections()
             controller = MarketPositionController()
             topk = CONFIG.get("topk", 20)
@@ -112,7 +112,7 @@ class BacktestEngine(ABC):
 
         Parameters
         ----------
-        strategy : core.strategy.Strategy, optional
+        strategy : strategy.builder.Strategy, optional
             策略对象。传入时使用策略的选股列表和仓位控制器；
             为 None 时使用默认行为（向后兼容）。
         """

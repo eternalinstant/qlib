@@ -12,10 +12,10 @@ from typing import Dict, Optional, Set, Tuple
 
 import pandas as pd
 
-from config.config import CONFIG
-from core.strategy import Strategy, is_composite_strategy
-from core.validity import ValidityConfig, apply_validity_overlay
-from modules.backtest.base import BacktestResult
+from common.config import CONFIG
+from strategy.builder import Strategy, is_composite_strategy
+from strategy.validity import ValidityConfig, apply_validity_overlay
+from engine.base import BacktestResult
 
 
 def _results_dir() -> Path:
@@ -36,11 +36,11 @@ def _scope_tag(universe: str) -> str:
 
 def _make_engine(engine: str):
     if engine == "qlib":
-        from modules.backtest.qlib_engine import QlibBacktestEngine
+        from engine.qlib_engine import QlibBacktestEngine
 
         return QlibBacktestEngine()
     if engine == "pybroker":
-        from modules.backtest.pybroker_engine import PyBrokerBacktestEngine
+        from engine.pybroker_engine import PyBrokerBacktestEngine
 
         return PyBrokerBacktestEngine()
     raise ValueError(f"不支持的引擎: {engine}")

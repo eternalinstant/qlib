@@ -1,15 +1,17 @@
-name: pe_timing_csi800
-strategy_class: strategies.pe_timing.pe_timing_strategy.PETimingStrategy
+name: turtle_20_10
+strategy_class: strategy.producers.turtle_strategy.TurtleStrategy
 
 selection:
   universe: csi800
-  top_k: 30
+  min_market_cap: 80
   exclude_st: true
 
-pe_timing:
-  pe_low_pct: 30
-  pe_high_pct: 70
-  factor: pe_ttm
+turtle:
+  entry_lookback: 20
+  exit_lookback: 10
+  atr_period: 20
+  stop_atr: 2.0
+  position_size: 0.02
 
 trading:
   buy_commission_rate: 0.0003

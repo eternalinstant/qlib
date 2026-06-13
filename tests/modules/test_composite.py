@@ -9,9 +9,9 @@ from unittest.mock import patch
 import pandas as pd
 import yaml
 
-from core.strategy import Strategy
-from modules.backtest.base import BacktestResult
-from modules.backtest.composite import run_strategy_backtest
+from strategy.builder import Strategy
+from engine.base import BacktestResult
+from app.composite_runner import run_strategy_backtest
 
 
 def test_run_strategy_backtest_blends_component_results(tmp_path):
@@ -55,10 +55,10 @@ def test_run_strategy_backtest_blends_component_results(tmp_path):
         get=lambda key, default=None: str(tmp_path) if key in {"paths.results", "results_path"} else default
     )
 
-    with patch("core.strategy.STRATEGIES_DIR", strategies_dir), \
-         patch("core.strategy._load_strategy_defaults", return_value={}), \
-         patch("modules.backtest.composite._make_engine", return_value=FakeEngine()), \
-         patch("modules.backtest.composite.CONFIG", fake_config):
+    with patch("strategy.builder.STRATEGIES_DIR", strategies_dir), \
+         patch("strategy.builder._load_strategy_defaults", return_value={}), \
+         patch("app.composite_runner._make_engine", return_value=FakeEngine()), \
+         patch("app.composite_runner.CONFIG", fake_config):
         combo = Strategy.load("combo")
         result = run_strategy_backtest(combo, engine="qlib")
 
@@ -118,10 +118,10 @@ def test_run_strategy_backtest_applies_validity_overlay_for_composite(tmp_path):
         get=lambda key, default=None: str(tmp_path) if key in {"paths.results", "results_path"} else default
     )
 
-    with patch("core.strategy.STRATEGIES_DIR", strategies_dir), \
-         patch("core.strategy._load_strategy_defaults", return_value={}), \
-         patch("modules.backtest.composite._make_engine", return_value=FakeEngine()), \
-         patch("modules.backtest.composite.CONFIG", fake_config):
+    with patch("strategy.builder.STRATEGIES_DIR", strategies_dir), \
+         patch("strategy.builder._load_strategy_defaults", return_value={}), \
+         patch("app.composite_runner._make_engine", return_value=FakeEngine()), \
+         patch("app.composite_runner.CONFIG", fake_config):
         combo = Strategy.load("combo_dynamic")
         result = run_strategy_backtest(combo, engine="qlib")
 

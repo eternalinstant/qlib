@@ -2,8 +2,8 @@
 import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock
-from core.data_provider import DataProvider
-from core.qlib_data_provider import QlibDataProvider
+from data.provider import DataProvider
+from data.qlib_provider import QlibDataProvider
 
 
 # ── DataProvider ABC ──────────────────────────────────────────────────────────
@@ -144,7 +144,7 @@ def test_qlib_data_provider_get_ohlcv_returns_dataframe():
 
 def test_qlib_data_provider_get_universe_returns_list():
     dp = QlibDataProvider()
-    with patch("core.universe.filter_instruments") as mock_filter:
+    with patch("data.universe.filter_instruments") as mock_filter:
         mock_filter.return_value = ["SH600000", "SZ000001"]
         result = dp.get_universe(pd.Timestamp("2024-01-02"), universe="csi800")
     assert isinstance(result, list)

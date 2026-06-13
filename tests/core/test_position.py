@@ -13,7 +13,7 @@ from unittest.mock import patch, MagicMock
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.position import (
+from strategy.position import (
     MarketConfig,
     AllocationResult,
     MarketPositionController,

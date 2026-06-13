@@ -6,7 +6,7 @@ Qlib 初始化与安全数据加载
 import os
 import sys
 
-from utils.platform import is_macos, is_windows
+from common.platform import is_macos, is_windows
 
 
 _QLIB_PROVIDER_URI = None
@@ -62,7 +62,7 @@ def init_qlib():
     from qlib.config import REG_CN
 
     # 单一真源：provider 路径统一由 modules/data/paths 推导（项目根相对，跨平台）
-    from modules.data.paths import get_qlib_root
+    from common.paths import get_qlib_root
 
     provider_uri = get_qlib_root()
     if not provider_uri.exists():

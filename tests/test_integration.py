@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 def test_factors_import():
     """测试因子模块导入"""
-    from core.factors import (
+    from strategy.factors import (
         FactorRegistry,
         get_alpha_expressions,
         get_risk_expressions,
@@ -25,14 +25,14 @@ def test_factors_import():
 
 def test_selection_import():
     """测试选股模块导入"""
-    from core.selection import compute_signal
+    from strategy.selection import compute_signal
 
     assert callable(compute_signal)
 
 
 def test_position_import():
     """测试仓位模块导入"""
-    from core.position import MarketPositionController, MarketConfig
+    from strategy.position import MarketPositionController, MarketConfig
 
     config = MarketConfig()
     assert config.ma_fast > 0
@@ -41,7 +41,7 @@ def test_position_import():
 
 def test_config_backward_compat():
     """测试配置向后兼容性"""
-    from config.config import CONFIG
+    from common.config import CONFIG
 
     old_style_access = {
         "w_alpha": CONFIG.get("w_alpha"),

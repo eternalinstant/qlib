@@ -4,9 +4,9 @@ import sys, os, json, copy
 sys.path.insert(0, os.path.expanduser("~/code/qlib"))
 os.chdir(os.path.expanduser("~/code/qlib"))
 
-from config.config import ConfigManager, config as global_config
-from core.strategy import Strategy
-from modules.backtest.qlib_engine import QlibBacktestEngine
+from common.config import ConfigManager, config as global_config
+from strategy.builder import Strategy
+from engine.qlib_engine import QlibBacktestEngine
 
 def run_test(capital, strategy_yaml, label):
     """Run backtest with given capital and strategy"""

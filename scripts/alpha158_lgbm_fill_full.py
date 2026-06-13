@@ -8,10 +8,10 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.config import CONFIG
-from core.strategy import Strategy
-from core.selection import load_factor_data, extract_topk
-from core.lgbm_scorer import train_lgbm_model, predict_with_model
+from common.config import CONFIG
+from strategy.builder import Strategy
+from strategy.selection import load_factor_data, extract_topk
+from strategy.scorer_lgbm import train_lgbm_model, predict_with_model
 
 CSV_PATH = PROJECT_ROOT / "results" / "alpha158_lgbm_hptune.csv"
 

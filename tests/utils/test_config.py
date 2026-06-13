@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch, mock_open
 
-from config.config import ConfigManager, AppConfig, load_yaml, save_yaml, get_config_manager, CONFIG
+from common.config import ConfigManager, AppConfig, load_yaml, save_yaml, get_config_manager, CONFIG
 
 
 class TestLoadYaml:

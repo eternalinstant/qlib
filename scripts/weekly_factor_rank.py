@@ -17,7 +17,7 @@ from typing import Iterable
 
 import pandas as pd
 
-from config.config import CONFIG
+from common.config import CONFIG
 from scripts.factor_scan import get_all_factors
 from scripts.single_factor_backtest import (
     ScanConfig,

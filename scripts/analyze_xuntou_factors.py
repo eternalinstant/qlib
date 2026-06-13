@@ -12,7 +12,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from config.config import CONFIG
+from common.config import CONFIG
 
 def get_real_stock_codes(n=10):
     """从instruments文件中获取真实的股票代码"""

@@ -7,7 +7,7 @@
 from typing import Dict, List
 import pandas as pd
 
-from strategies.base import RuleStrategy, PositionState, StrategySignal
+from strategy.base import RuleStrategy, PositionState, StrategySignal
 
 
 class PyramidStrategy(RuleStrategy):

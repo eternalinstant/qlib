@@ -9,7 +9,7 @@ import os
 import pandas as pd
 from pathlib import Path
 
-from config.config import CONFIG
+from common.config import CONFIG
 
 def init_qlib():
     """初始化 Qlib"""

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from config.config import ConfigManager, AppConfig, get_config_manager
+from common.config import ConfigManager, AppConfig, get_config_manager
 
 def test_config_manager():
     print("=" * 50)

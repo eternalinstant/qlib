@@ -2,8 +2,8 @@
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock
-from strategies.pe_timing.pe_timing_strategy import PETimingStrategy
-from strategies.base import SignalStrategy
+from strategy.producers.pe_timing_strategy import PETimingStrategy
+from strategy.base import SignalStrategy
 
 
 def _make_dp(pe_map: dict):

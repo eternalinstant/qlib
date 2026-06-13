@@ -3,9 +3,9 @@ import pytest
 import pandas as pd
 import numpy as np
 from unittest.mock import MagicMock, patch
-from strategies.base import RuleStrategy, PositionState, StrategySignal
-from modules.backtest.base import BacktestResult
-from modules.backtest.rule_engine import RuleBasedEngine
+from strategy.base import RuleStrategy, PositionState, StrategySignal
+from engine.base import BacktestResult
+from engine.rule_engine import RuleBasedEngine
 
 
 # ── 辅助：简单的 Hold 策略 ─────────────────────────────────────────────────────
@@ -62,8 +62,8 @@ def test_rule_engine_run_returns_backtest_result():
 
     trade_dates = pd.date_range("2024-01-02", periods=5, freq="B")
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             result = engine.run(strategy)
 
     assert isinstance(result, BacktestResult)
@@ -78,8 +78,8 @@ def test_rule_engine_daily_returns_length_matches_calendar():
 
     trade_dates = pd.date_range("2024-01-02", periods=10, freq="B")
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             result = engine.run(strategy)
 
     assert len(result.daily_returns) == len(trade_dates)
@@ -104,8 +104,8 @@ def test_rule_engine_calls_on_start_and_on_end():
     mock_dp.get_universe.return_value = []
     trade_dates = pd.date_range("2024-01-02", periods=3, freq="B")
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             engine.run(strategy)
 
     assert call_log[0] == "start"
@@ -127,8 +127,8 @@ def test_rule_engine_passes_universe_to_on_bar():
     mock_dp.get_universe.return_value = ["SH600000", "SZ000001"]
     trade_dates = pd.date_range("2024-01-02", periods=2, freq="B")
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             engine.run(strategy)
 
     assert received_universes[0] == ["SH600000", "SZ000001"]
@@ -169,8 +169,8 @@ def test_rule_engine_buy_signal_creates_position():
         {"name": "capture", "selection": {"universe": "all"}}, final_positions
     )
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             engine.run(strategy2)
 
     assert "SZ000001" in final_positions
@@ -215,8 +215,8 @@ def test_rule_engine_sell_signal_removes_position():
     strategy = TrackSell({"name": "track", "selection": {"universe": "all"}}, final_positions)
     trade_dates = pd.date_range("2024-01-02", periods=3, freq="B")
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             engine.run(strategy)
 
     assert "SZ000001" not in final_positions
@@ -232,8 +232,8 @@ def test_rule_engine_hold_returns_zero_with_no_positions():
     mock_dp.get_universe.return_value = []
     trade_dates = pd.date_range("2024-01-02", periods=5, freq="B")
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             result = engine.run(strategy)
 
     assert (result.daily_returns == 0.0).all()
@@ -248,8 +248,8 @@ def test_rule_engine_result_can_enter_leaderboard():
     mock_dp.get_universe.return_value = []
     trade_dates = pd.date_range("2024-01-02", periods=5, freq="B")
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             result = engine.run(strategy)
 
     assert hasattr(result, "daily_returns")
@@ -282,8 +282,8 @@ def test_rule_engine_buy_and_hold_nav_tracks_price_not_inflated():
         return _date_close_ohlcv(d, price_by_date.get(d, 10.0))
     mock_dp.get_ohlcv.side_effect = ohlcv_side
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             result = engine.run(strategy)
 
     final_nav = 100_000 * float(result.portfolio_value.iloc[-1])
@@ -304,8 +304,8 @@ def test_rule_engine_buy_and_hold_flat_price_preserves_nav():
         return _date_close_ohlcv(pd.Timestamp(start), 10.0)
     mock_dp.get_ohlcv.side_effect = ohlcv_side
 
-    with patch("modules.backtest.rule_engine.QlibDataProvider", return_value=mock_dp):
-        with patch("modules.backtest.rule_engine.load_trade_calendar", return_value=trade_dates):
+    with patch("engine.rule_engine.QlibDataProvider", return_value=mock_dp):
+        with patch("engine.rule_engine.load_trade_calendar", return_value=trade_dates):
             result = engine.run(strategy)
 
     final_nav = 100_000 * float(result.portfolio_value.iloc[-1])

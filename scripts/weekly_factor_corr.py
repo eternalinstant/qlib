@@ -15,9 +15,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from config.config import CONFIG
-from core.qlib_init import init_qlib, load_features_safe
-from core.universe import filter_instruments
+from common.config import CONFIG
+from data.qlib_init import init_qlib, load_features_safe
+from data.universe import filter_instruments
 from qlib.data import D
 
 

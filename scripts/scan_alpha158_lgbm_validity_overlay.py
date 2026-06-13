@@ -20,7 +20,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.validity import ValidityConfig
+from strategy.validity import ValidityConfig
 
 
 OUTPUT_COLUMNS = [
@@ -83,7 +83,7 @@ def fast_validity_overlay(
     daily_returns: pd.Series,
     config: ValidityConfig,
 ) -> tuple[pd.Series, pd.Series]:
-    """Apply the same validity rule as core.validity, but without per-day pandas rebuilds."""
+    """Apply the same validity rule as strategy.validity, but without per-day pandas rebuilds."""
     rets = pd.Series(daily_returns, copy=False).dropna().astype(float)
     if rets.empty:
         return rets, pd.Series(dtype=float)

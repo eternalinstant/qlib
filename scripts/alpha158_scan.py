@@ -16,8 +16,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.qlib_init import init_qlib, load_features_safe
-from core.universe import get_universe_instruments, filter_instruments
+from data.qlib_init import init_qlib, load_features_safe
+from data.universe import get_universe_instruments, filter_instruments
 from scripts.factor_scan import compute_ic_series, scan_all_factors
 
 START_DATE = "2019-01-01"

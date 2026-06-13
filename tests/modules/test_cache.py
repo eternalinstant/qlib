@@ -12,7 +12,7 @@ import pickle
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.backtest.cache import BacktestCache, get_cache
+from engine.cache import BacktestCache, get_cache
 
 
 class TestBacktestCache:

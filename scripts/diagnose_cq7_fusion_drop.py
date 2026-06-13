@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-from modules.modeling.predictive_signal import (
+from strategy.producers.predictive_signal import (
     assemble_labeled_frame,
     load_close_series,
     load_feature_frame,

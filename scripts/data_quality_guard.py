@@ -330,7 +330,7 @@ class DataQualityGuard:
         """重新下载缺失的 tushare 文件"""
         self._ensure_tushare_token()
 
-        from modules.data.tushare_downloader import TushareDownloader
+        from data.sources.tushare_downloader import TushareDownloader
 
         dl = TushareDownloader()
         dl.MAX_WORKERS = 4
@@ -392,7 +392,7 @@ class DataQualityGuard:
 
     def _make_converter(self):
         """Create a TushareToQlibConverter with standard paths."""
-        from modules.data.tushare_to_qlib import TushareToQlibConverter
+        from data.sources.tushare_to_qlib import TushareToQlibConverter
         return TushareToQlibConverter(
             tushare_dir=str(self.tushare_dir),
             qlib_dir=str(self.qlib_dir),

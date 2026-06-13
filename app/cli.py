@@ -43,7 +43,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 def _load_strategy(name):
     """加载策略对象，未指定时优先加载 default 策略"""
-    from core.strategy import Strategy
+    from strategy.builder import Strategy
     strategy_name = name or "default"
     try:
         return Strategy.load(strategy_name)
@@ -55,7 +55,7 @@ def _load_strategy(name):
 
 def _load_config(config_file: str):
     """加载策略配置文件并更新全局配置"""
-    from config.config import ConfigManager, config as global_config
+    from common.config import ConfigManager, config as global_config
     if config_file and config_file != "strategy.yaml":
         new_config = ConfigManager(strategy_file=config_file)
         # 更新全局配置的内部数据
@@ -73,7 +73,7 @@ def cmd_backtest(args):
 
     # --list: 列出可用策略
     if getattr(args, "list_strategies", False):
-        from core.strategy import Strategy
+        from strategy.builder import Strategy
         strategies = Strategy.list_available()
         if not strategies:
             print("[WARN] 没有可用策略 (config/strategies/ 目录为空)")
@@ -98,9 +98,9 @@ def cmd_backtest(args):
     print(f"{'='*60}\n")
 
     if args.engine == "qlib":
-        from config.config import CONFIG
-        from modules.backtest.composite import run_strategy_backtest
-        from modules.backtest.qlib_engine import QlibBacktestEngine
+        from common.config import CONFIG
+        from app.composite_runner import run_strategy_backtest
+        from engine.qlib_engine import QlibBacktestEngine
 
         result = (
             run_strategy_backtest(strategy=strategy, engine="qlib")
@@ -112,9 +112,9 @@ def cmd_backtest(args):
         if result.metadata.get("results_file"):
             print(f"\n  [OK] 结果已保存: {result.metadata['results_file']}")
     elif args.engine == "pybroker":
-        from config.config import CONFIG
-        from modules.backtest.composite import run_strategy_backtest
-        from modules.backtest.pybroker_engine import PyBrokerBacktestEngine
+        from common.config import CONFIG
+        from app.composite_runner import run_strategy_backtest
+        from engine.pybroker_engine import PyBrokerBacktestEngine
 
         result = (
             run_strategy_backtest(strategy=strategy, engine="pybroker")
@@ -168,7 +168,7 @@ def _cmd_backtest_rule(args):
     cls = getattr(mod, class_name)
     strategy = cls(config)
 
-    from modules.backtest.rule_engine import RuleBasedEngine
+    from engine.rule_engine import RuleBasedEngine
 
     engine = RuleBasedEngine(config=config)
     result = engine.run(strategy)
@@ -185,7 +185,7 @@ def cmd_update(args):
     print("  更新数据")
     print(f"{'='*60}\n")
 
-    from modules.data.updater import DataUpdater
+    from data.sources.updater import DataUpdater
 
     updater = DataUpdater()
     result = updater.update_daily()
@@ -217,7 +217,7 @@ def cmd_select(args):
     if strategy:
         strategy.generate_selections(force=True)
     else:
-        from core.selection import generate_selections
+        from strategy.selection import generate_selections
         generate_selections(force=True)
 
 
@@ -228,14 +228,14 @@ def cmd_plot(args):
         print("  基准对比图")
         print(f"{'='*60}\n")
 
-        from utils.benchmark_comparison_akshare import main as benchmark_main
+        from app.report.benchmark_akshare import main as benchmark_main
         benchmark_main()
     else:
         print(f"\n{'='*60}")
         print("  回测净值对比图")
         print(f"{'='*60}\n")
 
-        from utils.compare_plot import plot_comparison
+        from app.report.compare_plot import plot_comparison
         plot_comparison()
 
 
@@ -272,16 +272,16 @@ def cmd_run(args):
     print(f"{'='*60}\n")
 
     # 1. 更新数据
-    from modules.data.updater import DataUpdater
+    from data.sources.updater import DataUpdater
     updater = DataUpdater()
     updater.update_daily()
 
     # 2. 快速回测验证
     if strategy is not None:
         strategy.validate_data_requirements()
-    from config.config import CONFIG
-    from modules.backtest.composite import run_strategy_backtest
-    from modules.backtest.qlib_engine import QlibBacktestEngine
+    from common.config import CONFIG
+    from app.composite_runner import run_strategy_backtest
+    from engine.qlib_engine import QlibBacktestEngine
 
     result = (
         run_strategy_backtest(strategy=strategy, engine="qlib")
@@ -296,7 +296,7 @@ def cmd_run(args):
 
 def cmd_compare(args):
     """多策略对比"""
-    from modules.backtest.compare import run_compare
+    from app.compare import run_compare
     names = args.strategy.split(",") if args.strategy else None
     run_compare(
         strategy_names=names,
@@ -324,7 +324,7 @@ def cmd_leaderboard(args):
 
 def cmd_report(args):
     """生成 QuantStats 回测报告"""
-    from utils.quantstats_report import generate_report, print_summary
+    from app.report.quantstats_report import generate_report, print_summary
     
     print(f"\n{'='*60}")
     print("  QuantStats 回测报告")
@@ -473,7 +473,7 @@ def interactive_menu(parser, subparsers, commands):
 
 def _ask_strategy():
     """交互选择策略"""
-    from core.strategy import Strategy
+    from strategy.builder import Strategy
     strategies = Strategy.list_available()
     if not strategies:
         print("[WARN] 没有可用策略")

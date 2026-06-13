@@ -32,16 +32,16 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config.config import CONFIG
-from core.qlib_init import init_qlib, load_features_safe
-from core.selection import (
+from common.config import CONFIG
+from data.qlib_init import init_qlib, load_features_safe
+from strategy.selection import (
     _load_total_mv_frame,
     compute_rebalance_dates,
     extract_topk,
     FACTOR_PARQUET,
 )
-from core.universe import filter_instruments
-from modules.backtest.qlib_engine import _load_bond_etf_returns, _sum_symbol_returns
+from data.universe import filter_instruments
+from engine.qlib_engine import _load_bond_etf_returns, _sum_symbol_returns
 from scripts.factor_scan import get_all_factors, get_weekly_factors
 
 

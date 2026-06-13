@@ -45,7 +45,7 @@ def _prepare_tushare_root(root: Path):
 
 
 def test_run_data_precheck_requires_index_weight_and_namechange(monkeypatch, tmp_path):
-    from modules.data import precheck
+    from data.sources import precheck
 
     qlib_root = tmp_path / "qlib"
     tushare_root = tmp_path / "tushare"
@@ -74,7 +74,7 @@ def test_run_data_precheck_requires_index_weight_and_namechange(monkeypatch, tmp
 
 
 def test_run_data_precheck_passes_with_history_files(monkeypatch, tmp_path):
-    from modules.data import precheck
+    from data.sources import precheck
 
     qlib_root = tmp_path / "qlib"
     tushare_root = tmp_path / "tushare"
@@ -117,7 +117,7 @@ def test_run_data_precheck_passes_with_history_files(monkeypatch, tmp_path):
 
 
 def test_run_data_precheck_requires_index_weight_history_from_backtest_start(monkeypatch, tmp_path):
-    from modules.data import precheck
+    from data.sources import precheck
 
     qlib_root = tmp_path / "qlib"
     tushare_root = tmp_path / "tushare"
@@ -158,7 +158,7 @@ def test_run_data_precheck_requires_index_weight_history_from_backtest_start(mon
 
 
 def test_run_data_precheck_detects_provider_inconsistency(monkeypatch, tmp_path):
-    from modules.data import precheck
+    from data.sources import precheck
 
     qlib_root = tmp_path / "qlib"
     tushare_root = tmp_path / "tushare"
@@ -208,7 +208,7 @@ def test_run_data_precheck_detects_provider_inconsistency(monkeypatch, tmp_path)
 
 
 def test_run_data_precheck_detects_compressed_close_coverage(monkeypatch, tmp_path):
-    from modules.data import precheck
+    from data.sources import precheck
 
     qlib_root = tmp_path / "qlib"
     tushare_root = tmp_path / "tushare"
@@ -271,7 +271,7 @@ def test_run_data_precheck_detects_compressed_close_coverage(monkeypatch, tmp_pa
 
 
 def test_run_data_precheck_ignores_orphan_feature_dirs(monkeypatch, tmp_path):
-    from modules.data import precheck
+    from data.sources import precheck
 
     qlib_root = tmp_path / "qlib"
     tushare_root = tmp_path / "tushare"
@@ -325,7 +325,7 @@ def test_run_data_precheck_ignores_orphan_feature_dirs(monkeypatch, tmp_path):
 
 
 def test_run_data_precheck_missing_calendar_does_not_crash(monkeypatch, tmp_path):
-    from modules.data import precheck
+    from data.sources import precheck
 
     qlib_root = tmp_path / "qlib"
     tushare_root = tmp_path / "tushare"

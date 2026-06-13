@@ -114,11 +114,11 @@ def compute_live_exposure(cfg, base_return_history) -> float:
     hist = pd.Series(base_return_history, dtype=float).dropna().sort_index()
     if hist.empty:
         return 1.0
-    from modules.modeling.predictive_signal import (
+    from strategy.producers.predictive_signal import (
         load_bond_overlay_returns,
         load_market_overlay_returns,
     )
-    from modules.modeling.portfolio_overlay import build_overlay_config, compute_overlay_frame
+    from strategy.overlay import build_overlay_config, compute_overlay_frame
 
     bond = load_bond_overlay_returns()
     if bond is None:
@@ -143,7 +143,7 @@ def _load_base_return_history(cfg):
     进来；当前实现仅用已落盘的回测历史，对回测区间内的离线对账完全够用。
     """
     import pandas as pd
-    from modules.modeling.predictive_signal import overlay_results_path
+    from strategy.producers.predictive_signal import overlay_results_path
 
     p = Path(overlay_results_path(cfg))
     if not p.exists():
@@ -158,7 +158,7 @@ def _load_base_return_history(cfg):
 # ── 主流程 ──────────────────────────────────────────────────
 def run(config_path: str, target_dir: str, dry_run: bool = False):
     import pandas as pd
-    from modules.modeling.predictive_signal import (
+    from strategy.producers.predictive_signal import (
         load_predictive_config,
         score_from_config,
         selection_path,

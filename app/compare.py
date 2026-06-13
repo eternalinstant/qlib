@@ -133,7 +133,7 @@ def blend_strategies(
     BacktestResult
         组合后的回测结果
     """
-    from modules.backtest.base import BacktestResult
+    from engine.base import BacktestResult
 
     if not results:
         return BacktestResult(
@@ -361,8 +361,8 @@ def plot_yearly_comparison(
 
 def load_benchmark(start_date: str, end_date: str) -> Optional["BacktestResult"]:
     """加载沪深300基准，返回 BacktestResult 格式"""
-    from modules.backtest.base import BacktestResult
-    from utils.benchmark_comparison_akshare import get_benchmark_data_akshare
+    from engine.base import BacktestResult
+    from app.report.benchmark_akshare import get_benchmark_data_akshare
 
     hs300 = get_benchmark_data_akshare("sh000300", start_date, end_date)
     if hs300 is None or hs300.empty:
@@ -384,9 +384,9 @@ def run_compare(
     benchmark: bool = True,
 ) -> Dict[str, "BacktestResult"]:
     """跑所有/指定策略，返回 {name: BacktestResult}"""
-    from core.strategy import Strategy, is_composite_strategy
-    from modules.backtest.composite import run_strategy_backtest
-    from config.config import CONFIG
+    from strategy.builder import Strategy, is_composite_strategy
+    from app.composite_runner import run_strategy_backtest
+    from common.config import CONFIG
 
     # 1. 确定策略列表
     if strategy_names:

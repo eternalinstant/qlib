@@ -71,7 +71,7 @@ def _make_dated_series(rets):
 
 def test_cagr_matches_backtest_result(tmp_path):
     """CAGR computed here must match BacktestResult.annual_return."""
-    from modules.backtest.base import BacktestResult
+    from engine.base import BacktestResult
 
     np.random.seed(42)
     rets = np.random.normal(0.001, 0.015, 500)
@@ -86,7 +86,7 @@ def test_cagr_matches_backtest_result(tmp_path):
 
 
 def test_sharpe_matches_backtest_result(tmp_path):
-    from modules.backtest.base import BacktestResult
+    from engine.base import BacktestResult
 
     np.random.seed(7)
     rets = np.random.normal(0.0008, 0.012, 600)
@@ -101,7 +101,7 @@ def test_sharpe_matches_backtest_result(tmp_path):
 
 
 def test_max_dd_matches_backtest_result(tmp_path):
-    from modules.backtest.base import BacktestResult
+    from engine.base import BacktestResult
 
     np.random.seed(13)
     rets = np.random.normal(0.0005, 0.018, 400)

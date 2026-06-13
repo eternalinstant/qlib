@@ -20,8 +20,8 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from core.strategy import STRATEGIES_DIR, Strategy
-from modules.backtest.composite import run_strategy_backtest
+from strategy.builder import STRATEGIES_DIR, Strategy
+from app.composite_runner import run_strategy_backtest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = PROJECT_ROOT / "results"

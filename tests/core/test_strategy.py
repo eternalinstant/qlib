@@ -13,8 +13,8 @@ from unittest.mock import patch
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.strategy import Strategy, _FixedPositionController, STRATEGIES_DIR
-from core.factors import FactorRegistry
+from strategy.builder import Strategy, _FixedPositionController, STRATEGIES_DIR
+from strategy.factors import FactorRegistry
 
 
 # ── Fixtures ──────────────────────────────────────────────
@@ -62,8 +62,8 @@ def sample_strategy_yaml(tmp_strategies_dir):
 class TestStrategyLoad:
 
     def test_load_from_yaml(self, sample_strategy_yaml, tmp_strategies_dir):
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("test_strategy")
 
         assert s.name == "test_strategy"
@@ -82,7 +82,7 @@ class TestStrategyLoad:
         assert s.weights == {"alpha": 0.70, "risk": 0.30}
 
     def test_load_builds_registry(self, sample_strategy_yaml, tmp_strategies_dir):
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("test_strategy")
 
         reg = s.registry
@@ -96,7 +96,7 @@ class TestStrategyLoad:
         assert risk[0].source == "qlib"
 
     def test_load_nonexistent_raises(self, tmp_strategies_dir):
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(FileNotFoundError):
                 Strategy.load("nonexistent")
 
@@ -107,8 +107,8 @@ class TestStrategyLoad:
         with open(nested_dir / "demo.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("experimental/safety/demo")
 
         assert s.name == "experimental/safety/demo"
@@ -121,8 +121,8 @@ class TestStrategyLoad:
         with open(nested_dir / "unique_demo.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("unique_demo")
 
         assert s.name == "experimental/regime/unique_demo"
@@ -136,8 +136,8 @@ class TestStrategyLoad:
             with open(directory / "shared.yaml", "w") as f:
                 yaml.dump({"name": "shared", "factors": {}}, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             with pytest.raises(ValueError, match="不唯一"):
                 Strategy.load("shared")
 
@@ -148,8 +148,8 @@ class TestStrategyLoad:
         with open(yaml_path, "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("minimal")
 
         assert s.topk == 20
@@ -183,8 +183,8 @@ class TestStrategyLoad:
             "rebalance": {"freq": "week"},
         }
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value=defaults):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value=defaults):
             s = Strategy.load("inherit_test")
 
         assert s.topk == 15
@@ -215,8 +215,8 @@ class TestStrategyLoad:
             "stability": {"threshold": 0.3, "churn_limit": 5, "margin_stable": True},
         }
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value=defaults):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value=defaults):
             s = Strategy.load("stability_override")
 
         assert s.sticky == 2
@@ -236,9 +236,9 @@ class TestStrategyLoad:
         with open(yaml_path, "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}), \
-             patch("core.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}), \
+             patch("strategy.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
             s = Strategy.load("forward_stability")
             s.generate_selections(force=True)
 
@@ -265,8 +265,8 @@ class TestStrategyLoad:
         with open(yaml_path, "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("selection_stability_fallback")
 
         assert s.sticky == 2
@@ -293,8 +293,8 @@ class TestStrategyLoad:
             "stability": {"threshold": 0.4, "churn_limit": 5, "margin_stable": False},
         }
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value=defaults):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value=defaults):
             s = Strategy.load("selection_override_defaults")
 
         assert s.threshold == 0.25
@@ -311,9 +311,9 @@ class TestStrategyLoad:
         with open(yaml_path, "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}), \
-             patch("core.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}), \
+             patch("strategy.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
             s = Strategy.load("quantile_filter_test")
             s.generate_selections(force=True)
 
@@ -338,9 +338,9 @@ class TestStrategyLoad:
         with open(yaml_path, "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}), \
-             patch("core.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}), \
+             patch("strategy.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
             s = Strategy.load("low_turnover_gate")
             s.generate_selections(force=True)
 
@@ -375,9 +375,9 @@ class TestStrategyLoad:
         with open(yaml_path, "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}), \
-             patch("core.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}), \
+             patch("strategy.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
             s = Strategy.load("stoploss_replace_plan")
             s.generate_selections(force=True)
 
@@ -403,10 +403,10 @@ class TestStrategyLoad:
             yaml.dump(cfg, f)
 
         selections_dir = tmp_path / "selections"
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy.SELECTIONS_DIR", selections_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}), \
-             patch("core.selection.generate_selections", return_value=pd.DataFrame()):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder.SELECTIONS_DIR", selections_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}), \
+             patch("strategy.selection.generate_selections", return_value=pd.DataFrame()):
             s = Strategy.load("cache_meta_plan")
             s.generate_selections(force=True)
             meta = json.loads(s.selections_meta_path().read_text(encoding="utf-8"))
@@ -422,9 +422,9 @@ class TestStrategyLoad:
             yaml.dump(cfg, f)
 
         selections_dir = tmp_path / "selections"
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy.SELECTIONS_DIR", selections_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder.SELECTIONS_DIR", selections_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("stale_meta_missing")
             s.selections_path().parent.mkdir(parents=True, exist_ok=True)
             s.selections_path().write_text("date,rank,symbol,score\n", encoding="utf-8")
@@ -441,9 +441,9 @@ class TestStrategyLoad:
             yaml.dump(cfg, f)
 
         selections_dir = tmp_path / "selections"
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy.SELECTIONS_DIR", selections_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder.SELECTIONS_DIR", selections_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("stale_meta_mismatch")
             s.selections_path().parent.mkdir(parents=True, exist_ok=True)
             s.selections_path().write_text("date,rank,symbol,score\n", encoding="utf-8")
@@ -478,8 +478,8 @@ class TestStrategyLoad:
         with open(tmp_strategies_dir / "combo.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("combo")
             assert s.is_composite is True
             assert s.component_weights() == {"base_a": 0.5, "base_b": 0.2}
@@ -504,8 +504,8 @@ class TestStrategyLoad:
         with open(tmp_strategies_dir / "bad_combo.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             with pytest.raises(ValueError, match="cash_weight"):
                 Strategy.load("bad_combo")
 
@@ -527,9 +527,9 @@ class TestStrategyLoad:
         with open(tmp_strategies_dir / "combo.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}), \
-             patch("modules.data.precheck.ensure_strategy_data_ready", return_value=True) as mock_ready:
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}), \
+             patch("data.sources.precheck.ensure_strategy_data_ready", return_value=True) as mock_ready:
             s = Strategy.load("combo")
             result = s.validate_data_requirements()
             assert s.effective_universe() == "mixed"
@@ -547,7 +547,7 @@ class TestListAvailable:
         with open(tmp_strategies_dir / "another.yaml", "w") as f:
             yaml.dump({"name": "another"}, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             names = Strategy.list_available()
 
         assert "test_strategy" in names
@@ -555,12 +555,12 @@ class TestListAvailable:
         assert names == sorted(names)
 
     def test_list_empty(self, tmp_strategies_dir):
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             names = Strategy.list_available()
         assert names == []
 
     def test_list_nonexistent_dir(self, tmp_path):
-        with patch("core.strategy.STRATEGIES_DIR", tmp_path / "nope"):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_path / "nope"):
             names = Strategy.list_available()
         assert names == []
 
@@ -577,7 +577,7 @@ class TestListAvailable:
         with open(exp_dir / "trial.yaml", "w") as f:
             yaml.dump({"name": "trial", "factors": {}}, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             names = Strategy.list_available()
             grouped = Strategy.list_grouped()
 
@@ -606,7 +606,7 @@ class TestBuildRegistry:
         with open(tmp_strategies_dir / "negate_test.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("negate_test")
 
         risk = s.registry.get_by_category("risk")
@@ -622,15 +622,15 @@ class TestBuildPositionController:
         with open(tmp_strategies_dir / "trend_test.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("trend_test")
         ctrl = s.build_position_controller()
 
-        from core.position import MarketPositionController
+        from strategy.position import MarketPositionController
         assert isinstance(ctrl, MarketPositionController)
 
     def test_fixed_model(self, sample_strategy_yaml, tmp_strategies_dir):
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("test_strategy")  # model=fixed, stock_pct=0.8
         ctrl = s.build_position_controller()
 
@@ -646,7 +646,7 @@ class TestBuildPositionController:
         with open(tmp_strategies_dir / "full_test.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("full_test")
         ctrl = s.build_position_controller()
         assert ctrl is None
@@ -656,7 +656,7 @@ class TestBuildPositionController:
         with open(tmp_strategies_dir / "bad.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="position.model"):
                 Strategy.load("bad")
 
@@ -674,7 +674,7 @@ class TestGetRebalanceDates:
         cfg = {"name": "m", "factors": {}, "rebalance": {"freq": "month"}}
         with open(tmp_strategies_dir / "m.yaml", "w") as f:
             yaml.dump(cfg, f)
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("m")
 
         dates = s.get_rebalance_dates(trade_dates)
@@ -685,7 +685,7 @@ class TestGetRebalanceDates:
         cfg = {"name": "w", "factors": {}, "rebalance": {"freq": "week"}}
         with open(tmp_strategies_dir / "w.yaml", "w") as f:
             yaml.dump(cfg, f)
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("w")
 
         dates = s.get_rebalance_dates(trade_dates)
@@ -696,7 +696,7 @@ class TestGetRebalanceDates:
         cfg = {"name": "bw", "factors": {}, "rebalance": {"freq": "biweek"}}
         with open(tmp_strategies_dir / "bw.yaml", "w") as f:
             yaml.dump(cfg, f)
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("bw")
 
         dates = s.get_rebalance_dates(trade_dates)
@@ -707,7 +707,7 @@ class TestGetRebalanceDates:
         cfg = {"name": "bad", "factors": {}, "rebalance": {"freq": "daily"}}
         with open(tmp_strategies_dir / "bad.yaml", "w") as f:
             yaml.dump(cfg, f)
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="rebalance.freq"):
                 Strategy.load("bad")
 
@@ -717,7 +717,7 @@ class TestGetRebalanceDates:
 class TestSelectionsPath:
 
     def test_path_contains_name(self, sample_strategy_yaml, tmp_strategies_dir):
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("test_strategy")
 
         path = s.selections_path()
@@ -731,9 +731,9 @@ class TestSelectionsPath:
             yaml.dump({"name": "gated", "factors": {}}, f)
 
         selections_dir = tmp_path / "selections"
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy.SELECTIONS_DIR", selections_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder.SELECTIONS_DIR", selections_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("experimental/validity/gated")
             assert s.selections_path() == selections_dir / "experimental" / "validity" / "gated.csv"
 
@@ -750,12 +750,12 @@ class TestSelectionsPath:
         dep = tmp_path / "dep.py"
         dep.write_text("# newer\n", encoding="utf-8")
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy.SELECTIONS_DIR", selections_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}), \
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder.SELECTIONS_DIR", selections_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}), \
              patch.object(Strategy, "selection_dependency_paths", return_value=[dep]), \
              patch.object(Strategy, "generate_selections") as mock_generate, \
-             patch("core.selection.load_selections", return_value=({}, set())) as mock_load:
+             patch("strategy.selection.load_selections", return_value=({}, set())) as mock_load:
             s = Strategy.load("stale_test")
             dep.touch()
             s.load_selections()
@@ -824,7 +824,7 @@ class TestStrategyValidation:
         with open(tmp_strategies_dir / "bad_model.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="position.model='trends' 无效"):
                 Strategy.load("bad_model")
 
@@ -837,7 +837,7 @@ class TestStrategyValidation:
         with open(tmp_strategies_dir / "bad_freq.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="rebalance.freq='daily' 无效"):
                 Strategy.load("bad_freq")
 
@@ -853,7 +853,7 @@ class TestStrategyValidation:
         with open(tmp_strategies_dir / "bad_source.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="source='invalid' 无效"):
                 Strategy.load("bad_source")
 
@@ -866,7 +866,7 @@ class TestStrategyValidation:
         with open(tmp_strategies_dir / "bad_quantile.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="hard_filter_quantiles.roa_fina=1.2 超出范围"):
                 Strategy.load("bad_quantile")
 
@@ -879,7 +879,7 @@ class TestStrategyValidation:
         with open(tmp_strategies_dir / "bad_mode.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="selection.mode='unknown_mode' 无效"):
                 Strategy.load("bad_mode")
 
@@ -895,7 +895,7 @@ class TestStrategyValidation:
         with open(tmp_strategies_dir / "bad_stoploss_drawdown.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="selection.stoploss_drawdown 必须在 \\(0, 1\\) 之间"):
                 Strategy.load("bad_stoploss_drawdown")
 
@@ -911,7 +911,7 @@ class TestStrategyValidation:
         with open(tmp_strategies_dir / "missing_name.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="缺少 'name' 字段"):
                 Strategy.load("missing_name")
 
@@ -927,7 +927,7 @@ class TestStrategyValidation:
         with open(tmp_strategies_dir / "missing_expr.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             with pytest.raises(ValueError, match="缺少 'expression' 字段"):
                 Strategy.load("missing_expr")
 
@@ -950,7 +950,7 @@ class TestTradingCost:
         with open(tmp_strategies_dir / "with_cost.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("with_cost")
 
         assert s.trading_cost["open_cost"] == 0.0001
@@ -962,7 +962,7 @@ class TestTradingCost:
         with open(tmp_strategies_dir / "no_cost.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir):
             s = Strategy.load("no_cost")
 
         assert s.trading_cost["open_cost"] == 0.0003
@@ -988,8 +988,8 @@ class TestValidityConfig:
         with open(tmp_strategies_dir / "with_validity.yaml", "w") as f:
             yaml.dump(cfg, f)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("with_validity")
 
         assert s.validity is not None
@@ -1016,8 +1016,8 @@ class TestValidityConfig:
 
         daily_returns = pd.Series([-0.01] * 20)
 
-        with patch("core.strategy.STRATEGIES_DIR", tmp_strategies_dir), \
-             patch("core.strategy._load_strategy_defaults", return_value={}):
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
             s = Strategy.load("gated")
 
         result = s.evaluate_validity(daily_returns)

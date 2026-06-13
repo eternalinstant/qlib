@@ -13,7 +13,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ── Step 1: 初始化 Qlib ──
-from core.qlib_init import init_qlib
+from data.qlib_init import init_qlib
 init_qlib()
 
 from qlib.data import D

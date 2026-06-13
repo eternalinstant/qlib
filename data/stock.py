@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from config.config import CONFIG
+from common.config import CONFIG
 
 # ---------------------------------------------------------------------------
 # 格式转换

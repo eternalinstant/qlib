@@ -4,7 +4,7 @@
 
 import pandas as pd
 
-from core.validity import (
+from strategy.validity import (
     ValidityConfig,
     apply_validity_overlay,
     build_validity_config,

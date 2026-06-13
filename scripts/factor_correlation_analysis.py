@@ -18,8 +18,8 @@ from scipy.spatial.distance import squareform
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.qlib_init import init_qlib, load_features_safe
-from core.universe import filter_instruments
+from data.qlib_init import init_qlib, load_features_safe
+from data.universe import filter_instruments
 
 # 使用 $high/$low 的因子列表（可能损坏）
 HIGH_LOW_FACTORS = {

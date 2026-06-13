@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Optional
 
-from config.config import CONFIG
+from common.config import CONFIG
 
 DEFAULT_LGBM_PARAMS = {
     "objective": "regression",
@@ -52,7 +52,7 @@ def _load_forward_returns(
     import qlib
     from qlib.config import REG_CN
     from qlib.data import D
-    from core.selection import _to_provider_instruments, _normalize_multiindex_instruments
+    from strategy.selection import _to_provider_instruments, _normalize_multiindex_instruments
 
     try:
         qlib.init(provider_uri=CONFIG.get("qlib_data_path"), region=REG_CN)
@@ -110,8 +110,8 @@ def compute_lgbm_signal(
         预测得分，index 同 monthly_df
     """
     import lightgbm as lgb
-    from core.selection import _load_industry_map
-    from core.compute import neutralize_by_industry
+    from strategy.selection import _load_industry_map
+    from strategy.compute import neutralize_by_industry
 
     if lgbm_params is None:
         lgbm_params = DEFAULT_LGBM_PARAMS.copy()
@@ -274,8 +274,8 @@ def train_lgbm_model(
         df_neutralized: DataFrame (中性化后的因子数据)
     """
     import lightgbm as lgb
-    from core.selection import _load_industry_map
-    from core.compute import neutralize_by_industry
+    from strategy.selection import _load_industry_map
+    from strategy.compute import neutralize_by_industry
 
     if lgbm_params is None:
         lgbm_params = DEFAULT_LGBM_PARAMS.copy()
@@ -375,8 +375,8 @@ def walk_forward_train_predict(
         windows: list of dict, 各窗口信息
     """
     import lightgbm as lgb
-    from core.selection import _load_industry_map
-    from core.compute import neutralize_by_industry
+    from strategy.selection import _load_industry_map
+    from strategy.compute import neutralize_by_industry
 
     if lgbm_params is None:
         lgbm_params = DEFAULT_LGBM_PARAMS.copy()

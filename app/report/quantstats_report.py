@@ -4,7 +4,7 @@ QuantStats 集成
 生成专业回测分析报告
 
 Usage:
-    from utils.quantstats_report import generate_report, analyze_result
+    from app.report.quantstats_report import generate_report, analyze_result
     
     # 从回测结果生成报告
     result = engine.run(strategy=strategy)

@@ -8,11 +8,11 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from config.config import CONFIG
-from core.factors import default_registry, FactorRegistry
-from core.qlib_init import init_qlib, load_features_safe
-from core.universe import filter_instruments
-from core.selection import (
+from common.config import CONFIG
+from strategy.factors import default_registry, FactorRegistry
+from data.qlib_init import init_qlib, load_features_safe
+from data.universe import filter_instruments
+from strategy.selection import (
     _load_parquet_factors, compute_rebalance_dates, FACTOR_PARQUET
 )
 
