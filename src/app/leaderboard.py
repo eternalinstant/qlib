@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 # ── paths ────────────────────────────────────────────────────────────────────
-_ROOT = Path(__file__).resolve().parent.parent
+_ROOT = next(_p for _p in Path(__file__).resolve().parents if (_p/"pytest.ini").exists())
 RESULTS_DIR = _ROOT / "results"
 AGG_METRICS_PATH = RESULTS_DIR / "analysis" / "all_return_series_metrics.csv"
 CONFIG_DIRS = [_ROOT / "config" / "models", _ROOT / "config" / "strategies"]
