@@ -20,13 +20,22 @@ from core.selection import SELECTION_CSV
 from core.qlib_init import init_qlib, load_features_safe
 from core.universe import filter_instruments, is_st_on_date
 from modules.backtest.base import BacktestResult, BacktestEngine
+from modules.backtest.common import (
+    CHINEXT_REFORM_DATE,
+    PRICE_LIMIT_TOL,
+    raw_data_root as _raw_data_root,
+    raw_data_path_for_instrument as _raw_data_path_for_instrument,
+    load_trade_calendar as _load_trade_calendar_slice,
+    round_limit_price as _round_limit_price,
+    get_price_limit_pct as _get_price_limit_pct,
+    get_limit_prices as _get_limit_prices,
+    can_buy_at_open as _can_buy_at_open,
+    can_sell_at_open as _can_sell_at_open,
+    load_raw_trade_quotes as _load_raw_trade_quotes,
+)
 from modules.modeling.portfolio_overlay import compute_inverse_vol_weights
 from utils.logger import setup_logger, TradeLogger
 from utils.platform import resolve_path
-
-
-CHINEXT_REFORM_DATE = pd.Timestamp("2020-08-24")
-PRICE_LIMIT_TOL = 1e-6
 
 # 进度回调 hook：每个交易日完成时调用。供 qlib_ui worker 实时显示用。
 # 签名: fn(date: pd.Timestamp, return_value: float, portfolio_value: float, stock_pct: float, current_value: float) -> None
@@ -59,79 +68,6 @@ def _load_bond_etf_returns() -> pd.Series:
         return None
 
 
-def _raw_data_root() -> Path:
-    qlib_root = Path(
-        CONFIG.get("paths.qlib_data", "~/code/qlib/data/qlib_data/cn_data")
-    ).expanduser()
-    return qlib_root.parent / "raw_data"
-
-
-def _raw_data_path_for_instrument(instrument: str) -> Path:
-    return _raw_data_root() / f"{instrument[:2].lower()}{instrument[2:]}.parquet"
-
-
-@lru_cache(maxsize=32)
-def _load_trade_calendar_slice(start_date: str, end_date: str) -> pd.DatetimeIndex:
-    qlib_root = resolve_path(
-        CONFIG.get(
-            "paths.data.qlib_data",
-            CONFIG.get("qlib_data_path", "~/code/qlib/data/qlib_data/cn_data"),
-        )
-    )
-    cal_file = qlib_root / "calendars" / "day.txt"
-    cal = pd.read_csv(cal_file, header=None, names=["date"], parse_dates=["date"])["date"]
-    mask = (cal >= pd.Timestamp(start_date)) & (cal <= pd.Timestamp(end_date))
-    return pd.DatetimeIndex(cal.loc[mask].tolist())
-
-
-def _round_limit_price(value: float) -> float:
-    if pd.isna(value):
-        return np.nan
-    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
-
-
-def _get_price_limit_pct(instrument: str, trade_date, is_st: bool = False) -> float:
-    trade_ts = pd.Timestamp(trade_date)
-    if is_st:
-        return 0.05
-    if instrument.startswith("BJ"):
-        return 0.30
-    if instrument.startswith("SH688"):
-        return 0.20
-    if instrument.startswith("SZ300") and trade_ts >= CHINEXT_REFORM_DATE:
-        return 0.20
-    return 0.10
-
-
-def _get_limit_prices(instrument: str, trade_date, prev_close: float, is_st: bool = False):
-    if pd.isna(prev_close) or prev_close <= 0:
-        return np.nan, np.nan
-    pct = _get_price_limit_pct(instrument, trade_date, is_st=is_st)
-    up_limit = _round_limit_price(prev_close * (1 + pct))
-    down_limit = _round_limit_price(prev_close * (1 - pct))
-    return up_limit, down_limit
-
-
-def _can_buy_at_open(
-    instrument: str, trade_date, open_price: float, prev_close: float, is_st: bool = False
-) -> bool:
-    if pd.isna(open_price) or pd.isna(prev_close) or open_price <= 0 or prev_close <= 0:
-        return False
-    up_limit, _ = _get_limit_prices(instrument, trade_date, prev_close, is_st=is_st)
-    if pd.isna(up_limit):
-        return False
-    return float(open_price) < float(up_limit) - PRICE_LIMIT_TOL
-
-
-def _can_sell_at_open(
-    instrument: str, trade_date, open_price: float, prev_close: float, is_st: bool = False
-) -> bool:
-    if pd.isna(open_price) or pd.isna(prev_close) or open_price <= 0 or prev_close <= 0:
-        return False
-    _, down_limit = _get_limit_prices(instrument, trade_date, prev_close, is_st=is_st)
-    if pd.isna(down_limit):
-        return False
-    return float(open_price) > float(down_limit) + PRICE_LIMIT_TOL
 
 
 def _compute_next_open_return_adj(
@@ -205,60 +141,6 @@ def _collect_required_instruments(date_to_symbols: dict) -> list:
     for symbols in date_to_symbols.values():
         instruments.update(symbols)
     return sorted(instruments)
-
-
-def _load_raw_trade_quotes(instruments, start_date: str, end_date: str) -> pd.DataFrame:
-    if not instruments:
-        return pd.DataFrame(columns=["open", "close", "prev_close"])
-
-    root = _raw_data_root()
-    lookback_start = pd.Timestamp(start_date) - pd.Timedelta(days=10)
-    end_ts = pd.Timestamp(end_date)
-    frames = []
-    missing_files = []
-
-    for instrument in sorted(set(instruments)):
-        path = _raw_data_path_for_instrument(instrument)
-        if not path.exists():
-            missing_files.append(instrument)
-            continue
-
-        df = pd.read_parquet(path)
-        if df.empty:
-            continue
-
-        df["date"] = pd.to_datetime(df["date"], errors="coerce")
-        df = df.dropna(subset=["date"]).sort_values("date")
-        df = df[(df["date"] >= lookback_start) & (df["date"] <= end_ts)].copy()
-        if df.empty:
-            continue
-
-        df["instrument"] = instrument
-        if "pre_close" in df.columns:
-            df["prev_close"] = pd.to_numeric(df["pre_close"], errors="coerce")
-        else:
-            df["prev_close"] = pd.to_numeric(df["close"], errors="coerce").groupby(
-                df["instrument"]
-            ).shift(1)
-        frames.append(df)
-
-    if missing_files:
-        preview = ", ".join(missing_files[:10])
-        suffix = " ..." if len(missing_files) > 10 else ""
-        print(
-            f"[WARN] raw_data 缺少 {len(missing_files)} 个标的文件，按不可买卖处理: {preview}{suffix}"
-        )
-
-    if not frames:
-        return pd.DataFrame(columns=["open", "close", "prev_close"])
-
-    raw = pd.concat(frames, ignore_index=True)
-    raw = raw.sort_values(["instrument", "date"])
-    raw = raw.rename(columns={"date": "datetime"})
-    raw = raw[raw["datetime"] >= pd.Timestamp(start_date)].copy()
-    raw = raw.drop_duplicates(subset=["datetime", "instrument"], keep="last")
-    raw_cols = [c for c in ["open", "close", "prev_close", "amount"] if c in raw.columns]
-    return raw.set_index(["datetime", "instrument"])[raw_cols].sort_index()
 
 
 def _load_provider_close_frame(instruments, start_date: str, end_date: str) -> pd.DataFrame:

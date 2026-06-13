@@ -248,7 +248,7 @@ class TestQlibBacktestHelpers:
             }
         ).to_parquet(raw_file, index=False)
 
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
+        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
 
         assert list(quotes.index.get_level_values("instrument").unique()) == ["SZ000001"]
@@ -266,7 +266,7 @@ class TestQlibBacktestHelpers:
             }
         ).to_parquet(raw_file, index=False)
 
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
+        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
 
         assert quotes.loc[(pd.Timestamp("2024-01-02"), "SZ000001"), "prev_close"] == pytest.approx(9.95)
@@ -292,7 +292,7 @@ class TestQlibBacktestHelpers:
         )
         provider_px = pd.DataFrame({"close": [100.0, 101.0]}, index=provider_index)
 
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path), \
+        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path), \
              patch("modules.backtest.qlib_engine.load_features_safe", return_value=provider_px), \
              patch(
                  "modules.backtest.qlib_engine._load_trade_calendar_slice",
@@ -305,7 +305,7 @@ class TestQlibBacktestHelpers:
         assert df_px.loc[(pd.Timestamp("2024-01-03"), "SZ000001"), "daily_ret"] == pytest.approx(0.01)
 
     def test_load_raw_trade_quotes_warns_and_skips_missing_files(self, tmp_path, capsys):
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
+        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
 
         captured = capsys.readouterr()
@@ -339,9 +339,9 @@ class TestQlibBacktestHelpers:
         assert _can_buy_at_open("SH600000", "2024-01-01", 10.0, np.nan) is False
         assert _can_sell_at_open("SH600000", "2024-01-01", 0.0, 10.0) is False
         assert _can_sell_at_open("SH600000", "2024-01-01", 10.0, 0.0) is False
-        with patch("modules.backtest.qlib_engine._get_limit_prices", return_value=(np.nan, 9.0)):
+        with patch("modules.backtest.common.get_limit_prices", return_value=(np.nan, 9.0)):
             assert _can_buy_at_open("SH600000", "2024-01-01", 10.0, 10.0) is False
-        with patch("modules.backtest.qlib_engine._get_limit_prices", return_value=(11.0, np.nan)):
+        with patch("modules.backtest.common.get_limit_prices", return_value=(11.0, np.nan)):
             assert _can_sell_at_open("SH600000", "2024-01-01", 10.0, 10.0) is False
 
     def test_tradability_constraint_requires_explicit_support(self, tmp_path):
@@ -383,14 +383,14 @@ class TestQlibBacktestHelpers:
             }
         ).to_parquet(raw_file, index=False)
 
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
+        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000001"], "2024-01-02", "2024-01-03")
 
         assert quotes.empty
 
         empty_raw_file = tmp_path / "sz000002.parquet"
         pd.DataFrame(columns=["date", "open", "close"]).to_parquet(empty_raw_file, index=False)
-        with patch("modules.backtest.qlib_engine._raw_data_root", return_value=tmp_path):
+        with patch("modules.backtest.common.raw_data_root", return_value=tmp_path):
             quotes = _load_raw_trade_quotes(["SZ000002"], "2024-01-02", "2024-01-03")
         assert quotes.empty
 
