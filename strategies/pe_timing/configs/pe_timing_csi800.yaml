@@ -1,0 +1,25 @@
+name: pe_timing_csi800
+strategy_class: strategies.pe_timing.pe_timing_strategy.PETimingStrategy
+
+selection:
+  universe: csi800
+  top_k: 30
+  exclude_st: true
+
+pe_timing:
+  pe_low_pct: 30
+  pe_high_pct: 70
+  factor: pe_ttm
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  block_limit_up_buy: true
+  block_limit_down_sell: true
+  slippage_bps: 5
+  impact_bps: 2
+
+start_date: "2019-01-01"
+end_date: "2026-05-22"
+initial_capital: 1000000

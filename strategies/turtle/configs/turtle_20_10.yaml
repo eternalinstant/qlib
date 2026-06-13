@@ -1,0 +1,27 @@
+name: turtle_20_10
+strategy_class: strategies.turtle.turtle_strategy.TurtleStrategy
+
+selection:
+  universe: csi800
+  min_market_cap: 80
+  exclude_st: true
+
+turtle:
+  entry_lookback: 20
+  exit_lookback: 10
+  atr_period: 20
+  stop_atr: 2.0
+  position_size: 0.02
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  block_limit_up_buy: true
+  block_limit_down_sell: true
+  slippage_bps: 5
+  impact_bps: 2
+
+start_date: "2019-01-01"
+end_date: "2026-05-22"
+initial_capital: 1000000

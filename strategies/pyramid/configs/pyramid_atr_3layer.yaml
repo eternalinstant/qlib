@@ -1,0 +1,28 @@
+name: pyramid_atr_3layer
+strategy_class: strategies.pyramid.pyramid_strategy.PyramidStrategy
+
+selection:
+  universe: csi800
+  min_market_cap: 80
+  exclude_st: true
+
+pyramid:
+  entry_lookback: 20
+  atr_period: 20
+  add_factor: 1.0
+  max_layers: 3
+  stop_atr: 2.0
+  position_size: 0.05
+
+trading:
+  buy_commission_rate: 0.0003
+  sell_commission_rate: 0.0003
+  sell_stamp_tax_rate: 0.001
+  block_limit_up_buy: true
+  block_limit_down_sell: true
+  slippage_bps: 5
+  impact_bps: 2
+
+start_date: "2019-01-01"
+end_date: "2026-05-22"
+initial_capital: 1000000

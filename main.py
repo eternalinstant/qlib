@@ -125,9 +125,55 @@ def cmd_backtest(args):
         result.print_summary(initial_capital)
         if result.metadata.get("results_file"):
             print(f"\n  [OK] 结果已保存: {result.metadata['results_file']}")
+    elif args.engine == "rule":
+        _cmd_backtest_rule(args)
     else:
         print(f"[ERROR] 不支持的引擎: {args.engine}")
         sys.exit(1)
+
+
+def _cmd_backtest_rule(args):
+    """规则驱动策略回测（海龟/金字塔等）"""
+    import importlib
+    import yaml
+
+    yaml_path = getattr(args, "strategy", None)
+    if not yaml_path:
+        print("[ERROR] --engine rule 需要通过 -s 指定策略 YAML 路径")
+        sys.exit(1)
+
+    # 支持短名或完整路径
+    p = Path(yaml_path)
+    if not p.exists():
+        # 尝试在 strategies/ 下搜索
+        candidates = list(Path("strategies").rglob(f"{yaml_path}.yaml")) + list(
+            Path("strategies").rglob(f"{yaml_path}")
+        )
+        if candidates:
+            p = candidates[0]
+        else:
+            print(f"[ERROR] 找不到策略配置: {yaml_path}")
+            sys.exit(1)
+
+    with open(p) as f:
+        config = yaml.safe_load(f)
+
+    strategy_class_path = config.get("strategy_class")
+    if not strategy_class_path:
+        print(f"[ERROR] YAML 中缺少 strategy_class 字段: {p}")
+        sys.exit(1)
+
+    module_path, class_name = strategy_class_path.rsplit(".", 1)
+    mod = importlib.import_module(module_path)
+    cls = getattr(mod, class_name)
+    strategy = cls(config)
+
+    from modules.backtest.rule_engine import RuleBasedEngine
+
+    engine = RuleBasedEngine(config=config)
+    result = engine.run(strategy)
+    initial_capital = float(config.get("initial_capital", 1_000_000))
+    result.print_summary(initial_capital)
 
 
 def cmd_update(args):
@@ -503,7 +549,7 @@ def main():
 
     # 回测命令
     backtest_parser = subparsers.add_parser("backtest", help="运行回测")
-    backtest_parser.add_argument("--engine", "-e", choices=["qlib", "pybroker"],
+    backtest_parser.add_argument("--engine", "-e", choices=["qlib", "pybroker", "rule"],
                                 default="qlib", help="回测引擎 (默认: qlib)")
     backtest_parser.add_argument("--strategy", "-s", default=None,
                                 help="策略名称 (默认: 使用全局配置)")
