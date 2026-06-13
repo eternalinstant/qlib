@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from core.strategy import Strategy
-from modules.backtest.qlib_engine import QlibBacktestEngine
+from strategy.builder import Strategy
+from engine.qlib_engine import QlibBacktestEngine
 
 BASE_STRATEGY = "sf_ma120dev_rev_daily_buffered_k50"
 RESULTS_DIR = Path("results")

@@ -6,8 +6,8 @@ from __future__ import annotations
 import argparse
 import time
 
-from core.strategy import Strategy
-from modules.backtest.qlib_engine import QlibBacktestEngine
+from strategy.builder import Strategy
+from engine.qlib_engine import QlibBacktestEngine
 
 
 def _format_seconds(value: float) -> str:
