@@ -1,3 +1,6 @@
+import pathlib as _pl
+def _repo_root(f):
+    return next(p for p in _pl.Path(f).resolve().parents if (p/"pytest.ini").exists())
 """
 迁移兼容性测试：验证从 macOS 迁移到 Linux 后，所有硬编码路径和平台特定代码已修正
 """
@@ -8,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = _repo_root(__file__)
 PASS = "\033[92m[PASS]\033[0m"
 FAIL = "\033[91m[FAIL]\033[0m"
 SKIP = "\033[93m[SKIP]\033[0m"

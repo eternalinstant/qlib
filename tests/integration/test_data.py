@@ -1,3 +1,6 @@
+import pathlib as _pl
+def _repo_root(f):
+    return next(p for p in _pl.Path(f).resolve().parents if (p/"pytest.ini").exists())
 """
 数据处理模块测试
 测试数据下载、转换、完整性验证
@@ -9,7 +12,7 @@ import sys
 from pathlib import Path
 
 # 项目根目录 = tests 目录的父目录的父目录
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = _repo_root(__file__)
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from common.config import CONFIG

@@ -1,9 +1,12 @@
+import pathlib as _pl
+def _repo_root(f):
+    return next(p for p in _pl.Path(f).resolve().parents if (p/"pytest.ini").exists())
 """
 集成测试：确保原有代码仍能正常工作
 """
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(_repo_root(__file__)))
 
 def test_factors_import():
     """测试因子模块导入"""

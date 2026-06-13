@@ -1,10 +1,13 @@
+import pathlib as _pl
+def _repo_root(f):
+    return next(p for p in _pl.Path(f).resolve().parents if (p/"pytest.ini").exists())
 """
 策略审计验证脚本 — 逐项确认已发现的bug
 运行: python tests/test_bugs.py   （从仓库根目录）
 """
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(_repo_root(__file__)))
 
 import pandas as pd
 import numpy as np
@@ -102,7 +105,7 @@ def check_bug2_st_lookahead():
         print(f"\n  {FAIL} 确认Bug: ST名单无时间维度，存在前视偏差!")
         # 量化影响
         from pathlib import Path
-        csv = Path(__file__).resolve().parent.parent / "data/tushare/stock_basic.csv"
+        csv = _repo_root(__file__) / "data/tushare/stock_basic.csv"
         if csv.exists():
             df = pd.read_csv(csv, dtype=str)
             st_count = df[df["name"].str.contains("ST", na=False)].shape[0]
@@ -152,7 +155,7 @@ def check_bug4_report_type_not_filtered():
 
     # 检查实际数据中是否有重复
     from pathlib import Path
-    fina_path = Path(__file__).resolve().parent.parent / "data/tushare/fina_indicator.parquet"
+    fina_path = _repo_root(__file__) / "data/tushare/fina_indicator.parquet"
     if not fina_path.exists():
         print(f"  {WARN} fina_indicator.parquet 不存在，跳过")
         return None
@@ -343,7 +346,7 @@ def check_bug9_delisted_stocks():
         return True
 
 
-from tests.conftest import make_pytest_wrapper
+from conftest import make_pytest_wrapper
 
 test_bug1_qlib_negate_not_applied = make_pytest_wrapper(check_bug1_qlib_negate_not_applied)
 test_bug2_st_lookahead = make_pytest_wrapper(check_bug2_st_lookahead)

@@ -1,9 +1,12 @@
+import pathlib as _pl
+def _repo_root(f):
+    return next(p for p in _pl.Path(f).resolve().parents if (p/"pytest.ini").exists())
 """
 修复后验证脚本 — 确认所有bug已修复
 """
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(_repo_root(__file__)))
 
 import pandas as pd
 import numpy as np
@@ -190,7 +193,7 @@ def check_fix9_delist_penalty():
         return False
 
 
-from tests.conftest import make_pytest_wrapper
+from conftest import make_pytest_wrapper
 
 test_fix1_qlib_negate = make_pytest_wrapper(check_fix1_qlib_negate)
 test_fix2_st_no_lookahead = make_pytest_wrapper(check_fix2_st_no_lookahead)
