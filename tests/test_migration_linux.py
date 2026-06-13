@@ -123,7 +123,7 @@ def _check_project_root_resolve():
     print("=" * 70)
 
     all_pass = True
-    for script in ["utils/diagnose.py", "utils/analysis.py"]:
+    for script in ["utils/diagnose.py", "app/report/analysis.py"]:
         full_path = PROJECT_ROOT / script
         if not full_path.exists():
             print(f"  {SKIP} {script} 不存在")
