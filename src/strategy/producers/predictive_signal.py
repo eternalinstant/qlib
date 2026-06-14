@@ -39,7 +39,7 @@ from strategy.selection import (
 from data.universe import get_universe_instruments
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RESULTS_ROOT = Path(CONFIG.get("paths.results", "./results")).expanduser()
 DEFAULT_FEATURE_EXCLUDES = {"datetime", "instrument", "label", "score", "rank", "symbol", "date"}
 logger = logging.getLogger(__name__)
@@ -1186,6 +1186,10 @@ def resolve_regressor(
             lgb_params.setdefault("n_jobs", 1)
             lgb_params.setdefault("deterministic", True)
             lgb_params.setdefault("force_col_wise", True)
+            # 确定性兜底：即便 yaml 漏写 random_state 或开启行/列抽样，也锁死随机种子
+            lgb_params.setdefault("random_state", 42)
+            lgb_params.setdefault("bagging_seed", 42)
+            lgb_params.setdefault("feature_fraction_seed", 42)
             model = LGBMRegressor(**lgb_params)
             return model, "lightgbm"
         except Exception:
