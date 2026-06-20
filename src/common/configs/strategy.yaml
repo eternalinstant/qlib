@@ -33,6 +33,7 @@ stability:
   threshold: 0.3             # 得分阈值(0-1)，超过该排名的旧持仓才保留
   churn_limit: 5             # 每次最多换仓数量，0=不限制
   margin_stable: true        # 边缘股票(11-15名)稳定性
+  monthly_decay: 0.0         # 旧持仓每跨一个自然月的分数衰减比例，0=关闭
 
 # 回测区间
 backtest_period:

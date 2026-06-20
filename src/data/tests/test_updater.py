@@ -9,6 +9,7 @@
 """
 
 import pytest
+import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -472,6 +473,58 @@ class TestDataUpdaterDownload:
         assert result is True
         assert mock_pro.daily.call_args.kwargs["start_date"] == "20260228"
         assert (updater.raw_data_dir / ".download_state.json").exists()
+
+    def test_update_raw_data_quotes_rebuilds_future_download_state(self, tmp_path):
+        """状态文件日期晚于最新交易日时，应按 raw_data 实际日期重建。"""
+        from data.sources.updater import DataUpdater
+
+        updater = DataUpdater(qlib_data_path=str(tmp_path))
+        updater.tushare_dir = tmp_path
+        updater.raw_data_dir = tmp_path / "raw_data"
+        updater.raw_data_dir.mkdir(parents=True)
+
+        pd.DataFrame({"ts_code": ["600000.SH"], "name": ["A"]}).to_csv(
+            tmp_path / "stock_basic.csv",
+            index=False,
+        )
+        pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2026-02-27")],
+                "open": [10.0],
+                "high": [10.5],
+                "low": [9.9],
+                "close": [10.2],
+                "volume": [1000.0],
+                "amount": [10000.0],
+                "symbol": ["600000.SH"],
+            }
+        ).to_parquet(updater.raw_data_dir / "sh600000.parquet", index=False)
+        state_path = updater.raw_data_dir / ".download_state.json"
+        state_path.write_text('{"600000.SH": "20261231"}', encoding="utf-8")
+
+        mock_pro = Mock()
+        mock_pro.trade_cal.return_value = pd.DataFrame({"cal_date": ["20260227", "20260228"]})
+        mock_pro.daily.return_value = pd.DataFrame(
+            {
+                "ts_code": ["600000.SH"],
+                "trade_date": ["20260228"],
+                "open": [10.3],
+                "high": [10.6],
+                "low": [10.1],
+                "close": [10.4],
+                "vol": [1200.0],
+                "amount": [12000.0],
+            }
+        )
+
+        with patch("data.sources.updater.get_tushare_pro", return_value=mock_pro), \
+             patch("data.sources.updater.time.sleep", return_value=None):
+            result = updater.update_raw_data_quotes()
+
+        assert result is True
+        assert mock_pro.daily.call_args.kwargs["start_date"] == "20260228"
+        refreshed_state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert refreshed_state["600000.SH"] == "20260228"
 
     def test_update_raw_data_quotes_bootstrap_backfills_full_history(self, tmp_path):
         """首次 bootstrap 没有 raw_data 文件时，应按 daily_basic 全历史回补。"""

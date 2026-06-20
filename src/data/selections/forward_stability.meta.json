@@ -4,6 +4,7 @@
   "universe": "all",
   "selection_mode": "factor_topk",
   "factor_window_scale": 1,
+  "monthly_decay": 0.0,
   "industry_leader_field": null,
   "industry_leader_top_n": null,
   "scorer": "linear",

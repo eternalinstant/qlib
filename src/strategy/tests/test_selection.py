@@ -199,11 +199,13 @@ class TestSelectionParquetOptimization:
                 rebalance_freq="day",
                 min_market_cap=50,
                 buffer=7,
+                monthly_decay=0.2,
                 universe="all",
             )
 
         assert mock_mv.call_args.kwargs["start_date"] == "2019-01-01"
         assert mock_extract.call_args.kwargs["buffer"] == 7
+        assert mock_extract.call_args.kwargs["monthly_decay"] == 0.2
 
     def test_load_factor_data_supports_parquet_only_registry(self):
         dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
@@ -598,6 +600,36 @@ class TestSelectionParquetOptimization:
         }
         assert by_date[dates[0]] == ["SZ000001"]
         assert by_date[dates[1]] == ["SZ000001"]
+
+    def test_monthly_decay_penalizes_existing_holding_after_month_boundary(self):
+        dates = pd.to_datetime(["2024-01-05", "2024-01-19", "2024-02-02"])
+        idx = pd.MultiIndex.from_product(
+            [dates, ["SZ000001", "SZ000002"]],
+            names=["datetime", "instrument"],
+        )
+        signal = pd.Series(
+            [
+                1.00, 0.90,
+                1.00, 0.95,
+                1.00, 0.95,
+            ],
+            index=idx,
+        )
+
+        result = extract_topk(
+            signal,
+            pd.DatetimeIndex(dates),
+            topk=1,
+            monthly_decay=0.2,
+        )
+
+        by_date = {
+            dt: grp.sort_values("rank")["symbol"].tolist()
+            for dt, grp in result.groupby("date")
+        }
+        assert by_date[dates[0]] == ["SZ000001"]
+        assert by_date[dates[1]] == ["SZ000001"]
+        assert by_date[dates[2]] == ["SZ000002"]
 
 
 class TestTieBreakingDeterminism:

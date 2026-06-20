@@ -27,7 +27,7 @@ SELECTIONS_DIR = PROJECT_ROOT / "data" / "selections"
 VALID_POSITION_MODELS = {"trend", "fixed", "full", "gate"}
 VALID_REBALANCE_FREQS = {"day", "week", "biweek", "month"}
 VALID_SOURCES = {"qlib", "parquet"}
-VALID_SELECTION_UNIVERSES = {"all", "csi300", "csi500", "csi800"}
+VALID_SELECTION_UNIVERSES = {"all", "csi300", "csi500", "csi800", "csi1000"}
 VALID_SELECTION_MODES = {"factor_topk", "stoploss_replace"}
 SELECTION_CACHE_VERSION = 1
 
@@ -199,6 +199,17 @@ def _validate_strategy(cfg: Dict[str, Any], name: str) -> None:
         errors.append(
             "selection.industry_leader_field 与 selection.industry_leader_top_n 必须同时配置"
         )
+    for section_name in ("selection", "stability"):
+        section = cfg.get(section_name, {}) or {}
+        if "monthly_decay" not in section:
+            continue
+        try:
+            value = float(section["monthly_decay"])
+        except (TypeError, ValueError):
+            errors.append(f"{section_name}.monthly_decay 必须是数值")
+            continue
+        if value < 0.0 or value > 1.0:
+            errors.append(f"{section_name}.monthly_decay 超出范围，应在 [0, 1]")
     for name in (
         "score_smoothing_days",
         "entry_persist_days",
@@ -324,6 +335,7 @@ class Strategy:
     stoploss_lookback_days: int = 20
     stoploss_drawdown: float = 0.10
     replacement_pool_size: int = 0
+    monthly_decay: float = 0.0
     threshold: float = 0.0  # 稳定性阈值
     churn_limit: int = 0  # 单次最大换仓数
     margin_stable: bool = False  # 边缘持仓稳定性
@@ -387,6 +399,13 @@ class Strategy:
             margin_stable = raw_selection["margin_stable"]
         else:
             margin_stable = stability.get("margin_stable", selection.get("margin_stable", False))
+
+        if "monthly_decay" in raw_stability:
+            monthly_decay = raw_stability["monthly_decay"]
+        elif "monthly_decay" in raw_selection:
+            monthly_decay = raw_selection["monthly_decay"]
+        else:
+            monthly_decay = stability.get("monthly_decay", selection.get("monthly_decay", 0.0))
 
         score_smoothing_days = int(selection.get("score_smoothing_days", 1))
         selection_mode = str(selection.get("mode", "factor_topk"))
@@ -465,6 +484,7 @@ class Strategy:
             stoploss_lookback_days=stoploss_lookback_days,
             stoploss_drawdown=stoploss_drawdown,
             replacement_pool_size=replacement_pool_size,
+            monthly_decay=float(monthly_decay),
             threshold=threshold,
             churn_limit=churn_limit,
             margin_stable=margin_stable,
@@ -732,6 +752,7 @@ class Strategy:
             "universe": self.universe,
             "selection_mode": self.selection_mode,
             "factor_window_scale": self.factor_window_scale,
+            "monthly_decay": self.monthly_decay,
             "industry_leader_field": self.industry_leader_field,
             "industry_leader_top_n": self.industry_leader_top_n,
             "scorer": self.scorer,
@@ -822,6 +843,7 @@ class Strategy:
             stoploss_lookback_days=self.stoploss_lookback_days,
             stoploss_drawdown=self.stoploss_drawdown,
             replacement_pool_size=self.replacement_pool_size,
+            monthly_decay=self.monthly_decay,
             factor_window_scale=self.factor_window_scale,
             hard_filters=self.hard_filters if self.hard_filters else None,
             hard_filter_quantiles=self.hard_filter_quantiles

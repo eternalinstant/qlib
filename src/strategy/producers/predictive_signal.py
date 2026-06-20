@@ -510,6 +510,16 @@ def load_predictive_config(config_path: str | Path) -> dict:
     data = cfg.setdefault("data", {})
     data.setdefault("start_date", "2019-01-01")
     data.setdefault("end_date", CONFIG.get("end_date", pd.Timestamp.today().strftime("%Y-%m-%d")))
+    # RESOLVE_AUTO_END_DATE: 把 auto/today/latest 解析成最新交易日
+    _auto = {"auto", "today", "latest", "none", ""}
+    if str(data["end_date"]).strip().lower() in _auto:
+        data["end_date"] = pd.Timestamp.today().strftime("%Y-%m-%d")
+    if isinstance(cfg.get("backtest"), dict):
+        _bt = cfg["backtest"]
+        if _bt.get("end_date") is not None and str(_bt["end_date"]).strip().lower() in _auto:
+            _bt["end_date"] = pd.Timestamp.today().strftime("%Y-%m-%d")
+        if _bt.get("start_date") is not None and str(_bt["start_date"]).strip().lower() in _auto:
+            _bt["start_date"] = pd.Timestamp.today().strftime("%Y-%m-%d")
 
     label = cfg.setdefault("label", {})
     label.setdefault("horizon_days", 10)

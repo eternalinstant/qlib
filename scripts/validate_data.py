@@ -805,6 +805,8 @@ class DataValidator:
                     continue
 
                 for fld in price_fields:
+                    if bin_idx >= len(bin_data[fld]):
+                        continue
                     bin_val = bin_data[fld][bin_idx]
                     raw_val = row[fld]
                     if not pd.isna(raw_val) and pd.isna(bin_val):
@@ -830,6 +832,8 @@ class DataValidator:
 
                 ratios = []
                 for fld in price_fields:
+                    if bin_idx >= len(bin_data[fld]):
+                        continue
                     bin_val = bin_data[fld][bin_idx]
                     raw_val = row[fld]
                     if pd.isna(bin_val) or pd.isna(raw_val) or raw_val == 0:

@@ -202,7 +202,7 @@
 | `results/analysis/qualifying_walk_forward_strategies.csv` | Walk-Forward 验证结果 | 679B |
 | `docs/research_findings.md` | 13 轮自动研究完整记录 | 97KB |
 | `docs/analysis_factor_theory_mapping.md` | 因子×理论对照分析 | 18KB |
-| `config/models/push25_cq10_k8d2_very_tight.yaml` | 主力策略配置 | 3.5KB |
+| `src/strategy/configs/models/push25_cq10_k8d2_very_tight.yaml` | 主力策略配置 | 3.5KB |
 | `~/books/finance/notes_*.md` | 金融书籍阅读笔记 | 20 本 |
 | `~/finance-knowledge-base.md` | 精简版金融知识库 | 7 大模块 |
 

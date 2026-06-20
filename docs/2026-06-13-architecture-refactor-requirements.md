@@ -1,7 +1,7 @@
 # 架构重构需求文档
 
 **日期：** 2026-06-13
-**状态：** 待评审
+**状态：** 已部分落地，保留为重构需求背景；当前实现以 `src/` layout 为准
 **背景：** 当前系统仅支持截面多因子选股（Top-K 轮动），无法支持海龟交易法、金字塔加仓、PE 择时等完整交易策略。本次重构目标是在保留现有能力的前提下，扩展系统支持多种策略范式。
 
 ---
@@ -16,7 +16,7 @@
 | 批处理架构 | 选股结果预计算为 CSV，引擎读取 CSV 模拟交易，无法响应实时信号 |
 | 固定调仓日历 | 只支持 week/biweek 周期调仓，无法按条件触发调仓 |
 | 无单票仓位状态 | 引擎不跟踪单票的入场价、加仓层数、浮动盈亏等状态 |
-| 配置与代码分离 | YAML 在 `config/` 下，策略代码在 `core/`/`modules/` 下，维护不便 |
+| 配置与代码分离 | 旧版 YAML 在 `config/` 下、策略代码在 `core/`/`modules/` 下；当前已迁到 `src/` layout |
 
 ### 1.2 希望支持的策略类型
 
@@ -65,7 +65,7 @@
 | 编号 | 需求 | 优先级 |
 |------|------|--------|
 | O-01 | 策略按类型分目录存放：`strategies/factor/`、`strategies/pyramid/`、`strategies/turtle/` | P1 |
-| O-02 | 现有 `config/models/` 和 `config/strategies/` 下的 YAML 迁移到对应策略目录 | P2 |
+| O-02 | 旧版模型和因子 YAML 迁移到 `src/strategy/configs/` 对应目录 | P2 |
 | O-03 | `main.py` 按策略类型自动分派到对应引擎 | P1 |
 
 ---
@@ -92,7 +92,7 @@
 
 ## 5. 成功标准
 
-1. 金字塔加仓策略可以通过 `python main.py backtest -s strategies/pyramid/<name>.yaml` 运行回测
+1. 金字塔加仓策略可以通过 `python main.py backtest -e rule -s src/strategy/producers/configs/pyramid_atr_3layer.yaml` 运行回测
 2. 回测结果可以出现在 `python main.py leaderboard` 中与因子策略对比
 3. 现有所有因子策略回测结果数值不变
 4. 新增策略只需：新建策略目录 + 写 Python 子类 + 写 YAML 参数文件，无需修改引擎代码

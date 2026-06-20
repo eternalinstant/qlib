@@ -3,7 +3,7 @@ name: hybrid10_cashflow_quality10_qlib_k8_d2
 data:
   source: hybrid
   start_date: "2019-01-01"
-  end_date: "2026-04-15"
+  end_date: "2026-06-18"
   alpha158_universe: "csi300"
   parquet_feature_columns:
     - ocf_to_ev
@@ -58,7 +58,7 @@ training:
 
 scoring:
   start_date: "2019-01-01"
-  end_date: "2026-04-15"
+  end_date: "2026-06-18"
 
 model:
   preferred_backend: lightgbm

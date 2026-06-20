@@ -1,18 +1,20 @@
 # Current Strategy Summary
 
-Updated: 2026-05-09
+Updated: 2026-06-20
 
 ## 一句话
 
-当前主线不是单一 `alpha158`，而是两类东西混在一起看：
+当前主线不是单一 `alpha158`，而是两类东西混在一起看。2026-06 之后仓库已经切到 `src/` layout，模型配置在 `src/strategy/configs/models/`，历史结果仍在 `results/model_signals/`。
 
 - QVF / 现金流 / 质量因子主线
 - Alpha158 小因子实验线
 
 如果只记结论：
 
-- 主线里当前最像“可用策略”的是 `push25_cq10_k8d2_very_tight`
+- 阶段一最终归档方案是主备 `60/40`：`alpha158_momentum_volume_k6_dd10_overlay` + `push25_cq10_v3_vol_norm`
+- QVF/现金流/质量单策略里仍重点看 `push25_cq10_k8d2_very_tight`
 - 想要更简单、更低回撤一点的是 `push25_cq7_k8d2_very_tight`
+- 新增容量/股票池验证线：`qvf_alpha158_core12_top30_cap200w`、`qvf_alpha158_core12_csi1000`、`qvf_alpha158_core12_csi1000_top30_cap200w`
 - Alpha158 支线里，收益最高的是 `alpha158_prune_r1_drop_rsv20_k6`
 - Alpha158 支线里，回撤更小的是 `alpha158_prune_r2_drop_vsumd20_k6`
 
@@ -27,7 +29,7 @@ Updated: 2026-05-09
 
 我的建议顺序是：
 
-1. 先看 `2024-01-01` 到 `2026-04-15` 的 `holdout / OOS`
+1. 先看 `2024-01-01` 到 `2026-04-15` 的历史 `holdout / OOS`
 2. 再看全样本历史回测
 3. 最后才看因子数量是不是更少、更容易记
 
@@ -77,7 +79,7 @@ Updated: 2026-05-09
 
 因子数: `10`
 
-来源: [`../config/models/push25_cq10_k8d2_very_tight.yaml`](../config/models/push25_cq10_k8d2_very_tight.yaml)
+来源: [`../src/strategy/configs/models/push25_cq10_k8d2_very_tight.yaml`](../src/strategy/configs/models/push25_cq10_k8d2_very_tight.yaml)
 
 因子清单:
 
@@ -210,7 +212,7 @@ Updated: 2026-05-09
 
 因子数: `8`
 
-来源: [`../config/strategies/experimental/alpha158/alpha158_csi300.yaml`](../config/strategies/experimental/alpha158/alpha158_csi300.yaml)
+来源: 旧因子策略配置，当前工作树未保留该 YAML；如需恢复，应放在 `src/strategy/configs/strategies/experimental/alpha158/alpha158_csi300.yaml`
 
 因子分层:
 
@@ -229,6 +231,8 @@ Updated: 2026-05-09
 - 三窗口因子和 holdout: [`../results/model_signals/validation_runs/three_window_eval_le10_20260424/summary_enriched.csv`](../results/model_signals/validation_runs/three_window_eval_le10_20260424/summary_enriched.csv)
 - 历史收益排名: [`../results/model_signals/validation_runs/historical_return_ranking_latest.csv`](../results/model_signals/validation_runs/historical_return_ranking_latest.csv)
 - Alpha158 剪枝路径: [`../results/model_signals/alpha158_prune_runs/alpha158_momentum_volume_greedy_prune_v1/accepted_steps.csv`](../results/model_signals/alpha158_prune_runs/alpha158_momentum_volume_greedy_prune_v1/accepted_steps.csv)
+- 当前模型配置: [`../src/strategy/configs/models`](../src/strategy/configs/models)
+- 阶段一主备组合归档: [`../results/analysis/phase1_final_main_backup_60_40`](../results/analysis/phase1_final_main_backup_60_40)
 
 ## 6. 最短记忆版
 

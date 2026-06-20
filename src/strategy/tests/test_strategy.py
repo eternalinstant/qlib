@@ -359,6 +359,42 @@ class TestStrategyLoad:
         assert kwargs["exit_persist_days"] == 4
         assert kwargs["min_hold_days"] == 15
 
+    def test_load_and_forward_monthly_decay(self, tmp_strategies_dir):
+        cfg = {
+            "name": "monthly_decay_gate",
+            "factors": {},
+            "stability": {"monthly_decay": 0.25},
+        }
+        yaml_path = tmp_strategies_dir / "monthly_decay_gate.yaml"
+        with open(yaml_path, "w") as f:
+            yaml.dump(cfg, f)
+
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}), \
+             patch("strategy.selection.generate_selections", return_value=pd.DataFrame()) as mock_generate:
+            s = Strategy.load("monthly_decay_gate")
+            s.generate_selections(force=True)
+
+        assert s.monthly_decay == pytest.approx(0.25)
+        assert s.selection_cache_metadata()["monthly_decay"] == pytest.approx(0.25)
+        kwargs = mock_generate.call_args.kwargs
+        assert kwargs["monthly_decay"] == pytest.approx(0.25)
+
+    def test_invalid_monthly_decay_raises(self, tmp_strategies_dir):
+        cfg = {
+            "name": "bad_monthly_decay",
+            "factors": {},
+            "stability": {"monthly_decay": 1.2},
+        }
+        yaml_path = tmp_strategies_dir / "bad_monthly_decay.yaml"
+        with open(yaml_path, "w") as f:
+            yaml.dump(cfg, f)
+
+        with patch("strategy.builder.STRATEGIES_DIR", tmp_strategies_dir), \
+             patch("strategy.builder._load_strategy_defaults", return_value={}):
+            with pytest.raises(ValueError, match="monthly_decay"):
+                Strategy.load("bad_monthly_decay")
+
     def test_load_and_forward_stoploss_replace_selection_options(self, tmp_strategies_dir):
         cfg = {
             "name": "stoploss_replace_plan",

@@ -544,7 +544,7 @@ def main():
     select_parser.add_argument("--config", "-c", default="strategy.yaml",
                                help="策略配置文件 (默认: strategy.yaml)")
     select_parser.add_argument("--universe", "-u",
-                               choices=["all", "csi300", "csi500", "csi800"],
+                               choices=["all", "csi300", "csi500", "csi800", "csi1000"],
                                default=None, help="覆盖股票池（默认使用配置文件值）")
 
     # 回测命令
@@ -558,7 +558,7 @@ def main():
     backtest_parser.add_argument("--list", dest="list_strategies", action="store_true",
                                 help="列出所有可用策略")
     backtest_parser.add_argument("--universe", "-u",
-                                choices=["all", "csi300", "csi500", "csi800"],
+                                choices=["all", "csi300", "csi500", "csi800", "csi1000"],
                                 default=None, help="覆盖股票池（默认使用配置文件值）")
 
     # 绘图命令

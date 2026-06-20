@@ -1,7 +1,7 @@
 # 架构重构设计文档
 
 **日期：** 2026-06-13
-**状态：** 待评审
+**状态：** 已部分落地，本文保留设计背景；当前实际路径以 `src/` layout 为准
 **关联需求：** `docs/2026-06-13-architecture-refactor-requirements.md`
 
 ---
@@ -25,7 +25,7 @@
                  └──────────┬────────────┘
                             │
               ┌─────────────▼──────────────┐
-              │    modules/backtest/common  │
+              │        src/engine/common     │
               │  涨跌停 / 交易成本 / 日历    │
               └─────────────┬──────────────┘
                             │
@@ -49,7 +49,7 @@ strategies/
 ├── factor/                    ← 信号驱动策略（现有迁移）
 │   ├── __init__.py
 │   ├── factor_strategy.py     ← FactorStrategy（对接现有 selection.py）
-│   └── configs/               ← 现有 config/models/ 迁移至此（P2）
+│   └── configs/               ← 当前模型配置位于 src/strategy/configs/models
 ├── pyramid/                   ← 金字塔加仓
 │   ├── __init__.py
 │   ├── pyramid_strategy.py    ← PyramidStrategy(BaseStrategy)
@@ -174,7 +174,7 @@ class RuleStrategy(BaseStrategy):
 ### 3.1 DataProvider
 
 ```python
-# core/data_provider.py
+# src/data/provider.py
 from abc import ABC, abstractmethod
 import pandas as pd
 from typing import List, Optional
@@ -224,7 +224,7 @@ class DataProvider(ABC):
 ### 3.2 QlibDataProvider（具体实现）
 
 ```python
-# core/qlib_data_provider.py
+# src/data/qlib_provider.py
 class QlibDataProvider(DataProvider):
     """基于现有 qlib + parquet 双源的数据提供者"""
 
@@ -249,7 +249,7 @@ class QlibDataProvider(DataProvider):
 ### 4.1 RuleBasedEngine 核心逻辑
 
 ```python
-# modules/backtest/rule_engine.py
+# src/engine/rule_engine.py
 class RuleBasedEngine(BacktestEngine):
 
     def run(self, strategy: RuleStrategy) -> BacktestResult:
@@ -350,7 +350,7 @@ trading:
 
 ## 5. 共享工具层
 
-从现有 `qlib_engine.py` 提取到 `modules/backtest/common.py`：
+从现有 `src/engine/qlib_engine.py` 提取到共享工具层：
 
 | 函数 | 来源 | 用途 |
 |------|------|------|

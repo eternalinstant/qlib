@@ -1117,6 +1117,8 @@ class QlibBacktestEngine(BacktestEngine):
             universe_tag = "historical_csi300"
         elif universe == "csi800":
             universe_tag = "historical_csi800"
+        elif universe == "csi1000":
+            universe_tag = "historical_csi1000"
         else:
             universe_tag = "all_market"
         results_file = results_dir / f"backtest_{strategy_slug}_{universe_tag}_{timestamp}.csv"

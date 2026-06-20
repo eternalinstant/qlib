@@ -39,6 +39,7 @@ def get_tushare_pro():
     try:
         import tushare as ts
 
+        _load_tushare_token_from_env_file()
         token = os.environ.get("TUSHARE_TOKEN")
         if token:
             pro = ts.pro_api(token)
@@ -51,6 +52,35 @@ def get_tushare_pro():
     except Exception as e:
         logger.warning(f"获取 Tushare API 失败: {e}")
         return None
+
+
+def _load_tushare_token_from_env_file() -> None:
+    """Best-effort load of TUSHARE_TOKEN from repo-root .env.
+
+    Some update entrypoints are launched directly from cron/shells that do not
+    source .env. Keep this local and minimal instead of requiring python-dotenv.
+    """
+    if os.environ.get("TUSHARE_TOKEN"):
+        return
+
+    env_path = Path(__file__).resolve().parents[3] / ".env"
+    if not env_path.exists():
+        return
+
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() != "TUSHARE_TOKEN":
+                continue
+            token = value.strip().strip('"').strip("'")
+            if token:
+                os.environ["TUSHARE_TOKEN"] = token
+            return
+    except OSError as exc:
+        logger.warning("读取 .env 失败，跳过 TUSHARE_TOKEN 自动加载: %s", exc)
 
 
 class _RateLimiter:
@@ -319,14 +349,58 @@ class DataUpdater:
         logger.info("raw_data 下载状态已重建: %s entries=%s", state_path, len(state))
         return state
 
-    def _load_raw_download_state(self, state_path: Path) -> dict:
+    @staticmethod
+    def _normalize_raw_state_date(value) -> Optional[str]:
+        """Normalize a raw_data state date to YYYYMMDD, or return None."""
+        if value is None or pd.isna(value):
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        if text.isdigit():
+            text = f"{int(text):08d}"
+            parsed = pd.to_datetime(text, format="%Y%m%d", errors="coerce")
+        else:
+            parsed = pd.to_datetime(text, errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return parsed.strftime("%Y%m%d")
+
+    def _load_raw_download_state(
+        self,
+        state_path: Path,
+        max_valid_date: Optional[str] = None,
+    ) -> dict:
         """加载 raw_data 下载状态；缺失或损坏时从 raw_data 自动重建。"""
+        max_valid = self._normalize_raw_state_date(max_valid_date) if max_valid_date else None
         if state_path.exists():
             try:
                 with open(state_path, "r", encoding="utf-8") as f:
                     state = json.load(f)
                 if isinstance(state, dict):
-                    return {str(k): str(v) for k, v in state.items() if v is not None}
+                    normalized = {}
+                    invalid_preview = []
+                    for key, value in state.items():
+                        normalized_date = self._normalize_raw_state_date(value)
+                        if normalized_date is None:
+                            invalid_preview.append(f"{key}={value!r}")
+                            continue
+                        if max_valid and normalized_date > max_valid:
+                            invalid_preview.append(f"{key}={normalized_date}>{max_valid}")
+                            continue
+                        normalized[str(key)] = normalized_date
+
+                    if invalid_preview:
+                        preview = ", ".join(invalid_preview[:5])
+                        suffix = " ..." if len(invalid_preview) > 5 else ""
+                        logger.warning(
+                            "raw_data 下载状态包含非法或未来日期，将从 raw_data 重建: %s%s",
+                            preview,
+                            suffix,
+                        )
+                        return self._rebuild_raw_download_state(state_path)
+
+                    return normalized
                 logger.warning("raw_data 下载状态格式异常，将从 raw_data 重建")
             except Exception as exc:
                 logger.warning("raw_data 下载状态读取失败，将从 raw_data 重建: %s", exc)
@@ -1195,7 +1269,10 @@ class DataUpdater:
 
         # ── 3. 加载状态文件 ──
         state_path = self.raw_data_dir / ".download_state.json"
-        state_dict = self._load_raw_download_state(state_path)
+        state_dict = self._load_raw_download_state(
+            state_path,
+            max_valid_date=trade_cal[-1],
+        )
 
         # ── 4. 过滤阶段：确定需下载的股票 ──
         download_tasks = []

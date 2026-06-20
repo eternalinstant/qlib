@@ -1,14 +1,14 @@
 # 跨平台运行（Windows / Linux / macOS）
 
-`qlib_quant` 的同一份代码树可在 **Windows、Linux、macOS** 上直接运行，无需逐机器改配置。
+`qlib_quant` 的同一份 `src/` layout 代码树可在 **Windows、Linux、macOS** 上直接运行，无需逐机器改配置。
 路径、平台差异、临时目录、文件编码都已收敛到统一层。
 
 ## 工作原理（无需手动改路径）
 
-- 所有数据/输出路径都**相对项目根**解析（见 `utils/platform.resolve_path` 与 `modules/data/paths.py`），
-  不依赖当前工作目录，也不写死某台机器的 home。`config/paths.yaml`、`config/trading.yaml` 只存相对路径。
-- 平台识别统一走 `utils/platform.py`（`is_windows() / is_macos() / is_linux()`），业务代码不散落 `sys.platform` 判断。
-- qlib 多进程在 Windows 自动切换为单核 + 线程后端（`core/qlib_init.py`），规避 Windows 无 `fork` 的问题。
+- 所有数据/输出路径都**相对项目根**解析（见 `src/common/paths.py` 与 `src/common/config.py`），
+  不依赖当前工作目录，也不写死某台机器的 home。`src/common/configs/paths.yaml`、`src/common/configs/trading.yaml` 只存相对路径。
+- 平台识别统一走 `src/common/platform.py`（`is_windows() / is_macos() / is_linux()`），业务代码不散落 `sys.platform` 判断。
+- qlib 初始化在 `src/data/qlib_init.py`，Windows 侧避免依赖 POSIX-only 的进程模型。
 - 数据/结果/日志目录都按需 `mkdir(parents=True, exist_ok=True)` 自动创建，**新机器无需手动建目录**。
 - 临时文件统一走 `utils/platform.temp_dir()`（系统临时目录），不写死 `/tmp`。
 
@@ -18,7 +18,7 @@
 设环境变量即可，无需改代码或配置：
 
 - `QLIB_PROJECT_ROOT`：把“项目根”指向别的目录（影响所有相对路径推导）。
-- 或在 `config/paths.yaml` 的 `data.qlib_data` 填绝对路径。
+- 或在 `src/common/configs/paths.yaml` 的 `data.qlib_data` 填绝对路径。
 
 ## Windows 安装
 

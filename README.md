@@ -6,7 +6,7 @@
 2. 用 Qlib / PyBroker 两套引擎回测策略
 3. 沉淀研究结果、选股快照和回测输出
 
-当前仓库已经完成阶段一策略研究归档。README 以“阶段一最终主备组合”为优先口径；早期 `top15_*` 和 `config/strategies` 体系保留为历史研究与对照。
+当前仓库已经完成阶段一策略研究归档，并在 2026-06 完成 `src/` layout 重构。README 以“阶段一最终主备组合”和当前 `src/strategy/configs/models` 模型策略为优先口径；早期 `top15_*` 和旧因子策略体系仅作为历史研究与对照。
 
 ## 阶段一最终优选策略
 
@@ -26,7 +26,7 @@
 - 备策略偏质量、价值、现金流和波动归一：`ocf_to_ev / fcff_to_mv / roe_fina / current_ratio_fina / n_cashflow_act / rank_value_profit_core / rank_balance_core / qvf_core_interaction / ROC20 / CORD20`
 - 组合逻辑：主策略吃趋势、量价扩散和情绪惯性；备策略提供基本面质量和现金流安全垫，降低单一风格失效风险。
 
-阶段一最终仿真口径：
+阶段一最终仿真口径（归档结果，子策略配置现已把打分/回测末日推进到 `2026-06-18`）：
 
 - 区间：`2019-01-07` 至 `2026-04-15`
 - 组合年化：`23.19%`
@@ -53,12 +53,12 @@ python3 scripts/historical_allocation_sim.py
 
 ```text
 qlib/
-├── config/                    # 全局配置 + config/models + 旧策略 YAML
-├── core/                      # 策略核心：因子、选股、股票池、仓位
-├── modules/
-│   ├── backtest/              # 回测引擎（Qlib / PyBroker）
-│   ├── data/                  # 数据下载、更新、Tushare -> Qlib
-│   └── risk/                  # 风控模块
+├── src/
+│   ├── app/                   # CLI、compare、report、leaderboard
+│   ├── common/                # 全局配置、路径、交易日历、交易成本
+│   ├── data/                  # 数据更新、预检、股票池、Qlib provider
+│   ├── engine/                # Qlib / PyBroker / rule 回测引擎
+│   └── strategy/              # 因子、选股、仓位、模型和规则策略
 ├── scripts/                   # 研究脚本、批量搜索、辅助工具
 ├── data/
 │   ├── tushare/               # 原始/中间数据（parquet + 少量必要 csv）
@@ -70,32 +70,33 @@ qlib/
 
 ## 重要文件
 
-- [main.py](main.py)：命令行主入口
-- [config/strategy.yaml](config/strategy.yaml)：全局默认策略参数
-- [config/models](config/models)：当前模型信号策略配置目录
-- [core/strategy.py](core/strategy.py)：策略 YAML 加载与生成选股入口
-- [core/selection.py](core/selection.py)：因子加载、信号计算、Top-K 选股
-- [core/universe.py](core/universe.py)：股票池过滤，包括历史沪深300成分过滤
-- [modules/backtest/qlib_engine.py](modules/backtest/qlib_engine.py)：Qlib 回测引擎
-- [modules/backtest/pybroker_engine.py](modules/backtest/pybroker_engine.py)：PyBroker 回测引擎
-- [modules/data/tushare_downloader.py](modules/data/tushare_downloader.py)：Tushare 数据下载
+- [main.py](main.py)：命令行兼容入口，转发到 [src/app/cli.py](src/app/cli.py)
+- [src/common/configs/strategy.yaml](src/common/configs/strategy.yaml)：全局默认策略参数
+- [src/strategy/configs/models](src/strategy/configs/models)：当前模型信号策略配置目录
+- [src/strategy/builder.py](src/strategy/builder.py)：旧因子策略 YAML 加载与生成选股入口
+- [src/strategy/selection.py](src/strategy/selection.py)：因子加载、信号计算、Top-K 选股
+- [src/data/universe.py](src/data/universe.py)：股票池过滤，支持历史 `csi300/csi500/csi800/csi1000`
+- [src/engine/qlib_engine.py](src/engine/qlib_engine.py)：Qlib 回测引擎
+- [src/engine/pybroker_engine.py](src/engine/pybroker_engine.py)：PyBroker 回测引擎
+- [src/engine/rule_engine.py](src/engine/rule_engine.py)：规则驱动策略回测引擎
+- [src/data/sources/updater.py](src/data/sources/updater.py)：统一日更入口
 - [docs/current_strategy_summary.md](docs/current_strategy_summary.md)：当前策略与因子速记
 
 ## 策略分层管理
 
-策略文件仍然统一放在 [config/strategies](config/strategies)，但现在支持递归分层：
+旧因子策略文件由 [src/strategy/builder.py](src/strategy/builder.py) 读取，目录约定为 `src/strategy/configs/strategies`（当前工作树可没有该目录；需要恢复旧因子策略时再创建）。模型信号策略统一放在 [src/strategy/configs/models](src/strategy/configs/models)。
 
-- 兼容旧结构：`config/strategies/<strategy>.yaml`
-- 推荐新结构：`config/strategies/<layer>/<group>/<strategy>.yaml`
+- 兼容旧结构：`src/strategy/configs/strategies/<strategy>.yaml`
+- 推荐分层结构：`src/strategy/configs/strategies/<layer>/<group>/<strategy>.yaml`
 
-`config/strategies` 旧框架约定：
+`src/strategy/configs/strategies` 旧框架约定：
 
 - 根目录平铺文件：早期 `Top5` 优胜策略，作为历史候选和对照组保留
 - `fixed/`：固定策略，作为长期基线和正式对照组
 - `experimental/`：实验策略，按主题继续扩展
 - `research/`：研究归档策略，按主题收纳历史方案和未晋级版本
 
-当前根目录保留的早期 `Top5` 策略：
+早期 `Top5` 策略名曾作为历史候选和对照组保留：
 
 - `test_bullbear_constrained_all`
 - `top15_core_trend`
@@ -105,7 +106,7 @@ qlib/
 
 说明：这批 `Top5` 不再代表当前最终优选；阶段一最终优选以 README 顶部的主备 `60/40` 组合为准。
 
-当前推荐目录示例：
+旧因子策略推荐目录示例：
 
 - `fixed/balanced/core_trend`
 - `fixed/balanced/core_day`
@@ -123,11 +124,19 @@ qlib/
 
 说明：
 
-- `python main.py backtest --list` 会按 `winners / fixed / experimental / research` 分组列出策略。
+- `python main.py backtest --list` 会按 `winners / fixed / experimental / research` 分组列出旧因子策略。
 - `python main.py backtest -s experimental/safety/bullbear_quality_guard_all` 可直接加载分层策略。
 - 新分层策略的选股结果会落到 [data/selections](data/selections) 的同层级路径下，例如 `data/selections/experimental/safety/bullbear_quality_guard_all.csv`。
 - `default` 已移动到 `fixed/reference/default`，但仍可直接用 `python main.py backtest -s default` 通过 basename 加载。
 - 新增 `composition` 组合策略：会先跑成员策略，再按权重混合净值；残余权重默认视为现金。
+
+规则驱动策略（海龟、金字塔、PE 择时）在 [src/strategy/producers](src/strategy/producers) 下，配置样例放在 [src/strategy/producers/configs](src/strategy/producers/configs)。运行时用 `--engine rule` 并显式指定 YAML 路径：
+
+```bash
+python main.py backtest -e rule -s src/strategy/producers/configs/pyramid_atr_3layer.yaml
+python main.py backtest -e rule -s src/strategy/producers/configs/turtle_20_10.yaml
+python main.py backtest -e rule -s src/strategy/producers/configs/pe_timing_csi800.yaml
+```
 
 ## 快速开始
 
@@ -169,11 +178,11 @@ python3 scripts/historical_allocation_sim.py
 ### 2. 重新生成阶段一子策略结果
 
 ```bash
-python3 scripts/generate_model_scores.py --config config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml
-python3 scripts/backtest_model_signal.py --config config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml --engine qlib
+python3 scripts/generate_model_scores.py --config src/strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml
+python3 scripts/backtest_model_signal.py --config src/strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml --engine qlib
 
-python3 scripts/generate_model_scores.py --config config/models/push25_cq10_v3_vol_norm.yaml
-python3 scripts/backtest_model_signal.py --config config/models/push25_cq10_v3_vol_norm.yaml --engine qlib
+python3 scripts/generate_model_scores.py --config src/strategy/configs/models/push25_cq10_v3_vol_norm.yaml
+python3 scripts/backtest_model_signal.py --config src/strategy/configs/models/push25_cq10_v3_vol_norm.yaml --engine qlib
 ```
 
 如果只需要复核最终主备组合，不必每次重跑子策略；直接运行第 1 步即可。
@@ -184,21 +193,30 @@ python3 scripts/backtest_model_signal.py --config config/models/push25_cq10_v3_v
 python main.py update
 ```
 
-正式 `select / backtest / compare` 前会自动执行数据预检；如果缺少历史沪深300成分或历史 ST 数据，会直接失败，不会再静默降级。新环境首次执行 `python main.py update` 就会自动补这批历史数据。
+正式 `select / backtest / compare` 前会自动执行数据预检；如果缺少历史指数成分或历史 ST 数据，会直接失败，不会再静默降级。新环境首次执行 `python main.py update` 会补齐当前主线使用的沪深300历史成分和 ST 历史数据；使用 `csi500/csi1000` 前，需要确认 `data/tushare/index_weight.parquet` 已含 `000905.SH/000852.SH` 成分记录。
 
 ## 策略配置
 
-当前有两套策略配置体系：
+当前有三套策略配置入口：
 
-- `config/models/`：当前阶段一最终策略使用的模型信号体系，输出到 `results/model_signals/`。
-- `config/strategies/`：早期手工因子策略体系，仍可用于历史研究、基线和对照。
+- `src/strategy/configs/models/`：当前阶段一最终策略使用的模型信号体系，输出到 `results/model_signals/`。
+- `src/strategy/configs/strategies/`：早期手工因子策略体系，当前仅作为可选兼容目录。
+- `src/strategy/producers/configs/`：规则驱动策略配置，配合 `python main.py backtest -e rule -s <yaml>` 运行。
 
-### `config/models` 模型策略
+### `src/strategy/configs/models` 模型策略
 
-阶段一最终主备策略都在 [config/models](config/models) 下：
+阶段一最终主备策略都在 [src/strategy/configs/models](src/strategy/configs/models) 下：
 
-- [alpha158_momentum_volume_k6_dd10_overlay.yaml](config/models/alpha158_momentum_volume_k6_dd10_overlay.yaml)
-- [push25_cq10_v3_vol_norm.yaml](config/models/push25_cq10_v3_vol_norm.yaml)
+- [alpha158_momentum_volume_k6_dd10_overlay.yaml](src/strategy/configs/models/alpha158_momentum_volume_k6_dd10_overlay.yaml)
+- [push25_cq10_v3_vol_norm.yaml](src/strategy/configs/models/push25_cq10_v3_vol_norm.yaml)
+
+当前还保留/新增了几条 QVF+Alpha158 核心 12 因子配置，用于 CSI300/CSI1000、Top30 和 200 万本金容量口径验证：
+
+- [qvf_alpha158_core12.yaml](src/strategy/configs/models/qvf_alpha158_core12.yaml)
+- [qvf_alpha158_core12_top30_cap200w.yaml](src/strategy/configs/models/qvf_alpha158_core12_top30_cap200w.yaml)
+- [qvf_alpha158_core12_top30_cap200w_no_overlay.yaml](src/strategy/configs/models/qvf_alpha158_core12_top30_cap200w_no_overlay.yaml)
+- [qvf_alpha158_core12_csi1000.yaml](src/strategy/configs/models/qvf_alpha158_core12_csi1000.yaml)
+- [qvf_alpha158_core12_csi1000_top30_cap200w.yaml](src/strategy/configs/models/qvf_alpha158_core12_csi1000_top30_cap200w.yaml)
 
 模型策略 YAML 的关键字段：
 
@@ -253,13 +271,13 @@ trading:
 常用命令：
 
 ```bash
-python3 scripts/generate_model_scores.py --config config/models/<model>.yaml
-python3 scripts/backtest_model_signal.py --config config/models/<model>.yaml --engine qlib
+python3 scripts/generate_model_scores.py --config src/strategy/configs/models/<model>.yaml
+python3 scripts/backtest_model_signal.py --config src/strategy/configs/models/<model>.yaml --engine qlib
 ```
 
-只调整阶段一最终策略时，优先改 `config/models` 或 [scripts/historical_allocation_sim.py](scripts/historical_allocation_sim.py)，不要去改早期 `top15_*` 策略。
+只调整阶段一最终策略时，优先改 `src/strategy/configs/models` 或 [scripts/historical_allocation_sim.py](scripts/historical_allocation_sim.py)，不要去改早期 `top15_*` 策略。
 
-### `config/strategies` 旧策略
+### `src/strategy/configs/strategies` 旧策略
 
 旧框架每个策略一个 YAML。当前支持的关键字段包括：
 
@@ -275,12 +293,13 @@ weights:
 selection:
   mode: factor_topk        # factor_topk / stoploss_replace
   topk: 15
-  universe: csi300         # all / csi300
+  universe: csi300         # all / csi300 / csi500 / csi800 / csi1000
   neutralize_industry: false
   min_market_cap: 80
   exclude_new_days: 120
   exclude_st: true
   buffer: 10
+  monthly_decay: 0.0       # 旧持仓每跨一个自然月的分数衰减比例，0=关闭
   stoploss_lookback_days: 20  # stoploss_replace 模式使用
   stoploss_drawdown: 0.10     # stoploss_replace 模式使用
   replacement_pool_size: 30   # stoploss_replace 模式使用，0=不限制
@@ -323,8 +342,11 @@ composition:
 
 - `all`：全市场股票池
 - `csi300`：按调仓日回看当时的沪深300成分股
+- `csi500`：按调仓日回看当时的中证500成分股，依赖 `index_weight` 的 `000905.SH`
+- `csi800`：用沪深300 + 中证500 合成，依赖 `000300.SH` 和 `000905.SH`
+- `csi1000`：按调仓日回看当时的中证1000成分股，依赖 `index_weight` 的 `000852.SH`
 
-注意：`csi300` 不是静态股票池，代码会按调仓日回看最近一期成分快照。
+注意：这些指数股票池都不是静态股票池，代码会按调仓日回看最近一期成分快照。统一 `python main.py update` 当前主线仍以沪深300为预检基准；使用 `csi500/csi1000` 前请先确认 `data/tushare/index_weight.parquet` 中已有对应指数代码。
 
 ### `selection.mode`
 
@@ -338,6 +360,12 @@ composition:
 - `selection.stoploss_lookback_days`：回看近期最高收盘价的交易日窗口，默认 `20`
 - `selection.stoploss_drawdown`：触发换仓的回撤阈值，正数，如 `0.10`
 - `selection.replacement_pool_size`：候选替换股票池大小，`0` 表示不限制
+
+`factor_topk` 和 `stoploss_replace` 都支持 `selection.monthly_decay`（也可放在全局 `stability.monthly_decay`）：
+
+- `0.0`：关闭，旧持仓不衰减
+- `0.2`：旧持仓每跨一个自然月，排序分数乘以 `0.8`
+- 取值范围 `[0, 1]`，用于减少长期旧持仓占位、提高组合更新速度
 
 建议约定：
 
@@ -363,9 +391,9 @@ composition:
 
 ### 最小步骤
 
-1. 在 [config/strategies](config/strategies) 下选择一个层级目录新建 YAML  
+1. 在 `src/strategy/configs/strategies` 下选择一个层级目录新建 YAML  
    例如：`fixed/balanced/<strategy_name>.yaml` 或 `experimental/safety/<strategy_name>.yaml`
-2. 只写和 [config/strategy.yaml](config/strategy.yaml) 不同的字段
+2. 只写和 [src/common/configs/strategy.yaml](src/common/configs/strategy.yaml) 不同的字段
 3. 运行 `python main.py select -s <layer>/<group>/<strategy_name>`
 4. 运行 `python main.py backtest -s <layer>/<group>/<strategy_name> -e qlib`
 5. 需要横向对比时，运行 `python main.py compare -s <layer>/<group>/<strategy_name>,experimental/regime/bullbear_regime_guard_all --no-benchmark`
@@ -406,10 +434,10 @@ position:
 
 ### 继承规则
 
-- 单策略 YAML 会先加载 [config/strategy.yaml](config/strategy.yaml) 再做覆盖，所以没写的字段默认继承全局值。
+- 单策略 YAML 会先加载 [src/common/configs/strategy.yaml](src/common/configs/strategy.yaml) 再做覆盖，所以没写的字段默认继承全局值。
 - `factors` 支持两种写法：
   - 直接写 `expression`，适合临时试验单个新因子
-  - 只写 `name`，引用 [core/factors.py](core/factors.py) 里的默认注册因子
+  - 只写 `name`，引用 [src/strategy/factors.py](src/strategy/factors.py) 里的默认注册因子
 - 分层策略的选股文件会按同样层级落到 [data/selections](data/selections) 下。
 - `validity` 是实盘监控规则，不会直接改写历史回测收益；它用于判断“最近一段时间策略是否失效，以及建议 review / reduce / pause”。
 - `selection.mode: factor_topk` 是默认研究模式；`selection.mode: stoploss_replace` 是执行模式，会在保持当前持仓的前提下，仅对触发止损条件的股票做因子池替换。
@@ -423,7 +451,7 @@ position:
 
 ### 什么时候只改配置
 
-这些场景只改 [config/models](config/models) 下的模型策略文件：
+这些场景只改 [src/strategy/configs/models](src/strategy/configs/models) 下的模型策略文件：
 
 - 改阶段一子策略因子列
 - 改 `train / valid / scoring` 时间窗口
@@ -431,7 +459,7 @@ position:
 - 改模型选股 `topk / freq / min_market_cap`
 - 改模型层 `position / overlay / trading`
 
-这些场景只改 [config/strategies](config/strategies) 下的旧策略文件：
+这些场景只改 `src/strategy/configs/strategies` 下的旧策略文件：
 
 - 改因子权重
 - 改 `topk / buffer / sticky / rebalance.freq`
@@ -451,11 +479,11 @@ position:
 
 这些不是“改策略参数”，而是“改系统能力”：
 
-- 想新增一个可复用的默认因子：改 [core/factors.py](core/factors.py)
-- 想新增一个新股票池，比如中证500：改 [core/universe.py](core/universe.py)
-- 想新增一个新仓位模型：改 [core/position.py](core/position.py) 和 [core/strategy.py](core/strategy.py)
-- 想把 `validity` 规则自动接进实盘调仓执行：改 [core/validity.py](core/validity.py) 和实盘执行链路
-- 想改收益口径、撮合、成交约束规则：改 [modules/backtest/qlib_engine.py](modules/backtest/qlib_engine.py)
+- 想新增一个可复用的默认因子：改 [src/strategy/factors.py](src/strategy/factors.py)
+- 想新增一个新股票池：改 [src/data/universe.py](src/data/universe.py)，并同步 CLI 的 `--universe` choices
+- 想新增一个新仓位模型：改 [src/strategy/position.py](src/strategy/position.py) 和 [src/strategy/builder.py](src/strategy/builder.py)
+- 想把 `validity` 规则自动接进实盘调仓执行：改 [src/strategy/validity.py](src/strategy/validity.py) 和实盘执行链路
+- 想改收益口径、撮合、成交约束规则：改 [src/engine/qlib_engine.py](src/engine/qlib_engine.py)
 
 ### 不要手改的文件
 
@@ -465,7 +493,7 @@ position:
 - [results](results) 下的回测结果
 - [results/model_signals](results/model_signals) 下的模型分数、选股和 overlay 结果
 - [main.py](main.py)
-- [core/selection.py](core/selection.py)
+- [src/strategy/selection.py](src/strategy/selection.py)
 
 ## 数据要求
 
@@ -502,16 +530,11 @@ position:
 python main.py update
 ```
 
-如果只是单独排查下载问题，才需要手工调用下载器：
-
-```bash
-python modules/data/tushare_downloader.py --type index_weight --start 20160101
-python modules/data/tushare_downloader.py --type namechange --start 20100101
-```
+如果只是单独排查下载问题，优先直接看 [src/data/sources/updater.py](src/data/sources/updater.py) 的日志和 `data/tushare/` 中的目标文件。旧下载器入口仍在 [src/data/sources/tushare_downloader.py](src/data/sources/tushare_downloader.py)，但它的默认输出目录不是当前正式目录，正式流程不再推荐直接用它替代 `python main.py update`。
 
 ### 正式预检范围
 
-`modules/data/precheck.py` 会在正式运行前检查：
+`src/data/sources/precheck.py` 会在正式运行前检查：
 
 - Qlib provider：`calendars/day.txt`、`instruments/all.txt`、`factor_data.parquet`
 - Tushare 核心表：`daily_basic / income / balancesheet / cashflow / fina_indicator / index_daily / stock_basic / stock_industry`
@@ -530,7 +553,7 @@ python3 scripts/audit_price_fields.py --sample-size 20 --days 10
 
 - `Qlib $open/$high/$low` 只用于审计，不作为正式成交约束输入
 - 涨跌停可成交约束使用 [data/qlib_data/raw_data](data/qlib_data/raw_data) 下的原始日线文件
-- `modules/data/updater.py` 会在日更时自动回补最近一段交易日的 `raw_data`
+- `src/data/sources/updater.py` 会在日更时自动回补最近一段交易日的 `raw_data`
 - 如果启用了 `block_limit_up_buy / block_limit_down_sell`，但本地缺少对应 `raw_data` 文件，回测会直接报错，不会静默降级
 
 ## 数据处理链路
@@ -648,17 +671,7 @@ A: 减少并发数或分批处理。脚本已内置分批逻辑（因子处理�
 - [results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json](results/analysis/phase1_final_main_backup_60_40/dynamic_sim_summary.json)
 - [results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv](results/analysis/phase1_final_main_backup_60_40/dynamic_sim_yearly_vs_hs300.csv)
 
-早期 `top15_*` 阶段研究快照：
-
-- [results/top15_historical_csi300_research_20260322.md](results/top15_historical_csi300_research_20260322.md)
-- [results/tradability_constraint_compare_20260322_185830.md](results/tradability_constraint_compare_20260322_185830.md)
-- [results/price_field_audit_20260322_183351.md](results/price_field_audit_20260322_183351.md)
-
-历史阶段性研究快照：
-
-- [results/robust_close_only_research_20260322.md](results/robust_close_only_research_20260322.md)
-- [results/top15_core_v2_research_20260322.md](results/top15_core_v2_research_20260322.md)
-- [results/factor_optimization_report_20260310.md](results/factor_optimization_report_20260310.md)
+早期 `top15_*` 和阶段性研究的散落 `results/*.md` 已不作为当前文档入口；需要查研究脉络时优先看 [docs/research_summary.md](docs/research_summary.md)、[docs/research_findings.md](docs/research_findings.md) 和 [docs/current_strategy_summary.md](docs/current_strategy_summary.md)。
 
 ## 开发说明
 
@@ -680,7 +693,7 @@ python3 -m pytest -q
 这个仓更适合“研究与验证”，不是开箱即用的实盘系统。当前已经具备：
 
 - 阶段一最终主备 `60/40` 组合归档
-- `config/models` 模型信号训练、打分、回测链路
+- `src/strategy/configs/models` 模型信号训练、打分、回测链路
 - 主备组合历史仿真与逐年沪深300对比
 - 多策略 YAML 配置
 - 双回测引擎

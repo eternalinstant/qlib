@@ -3,7 +3,7 @@ name: push25_cq10_v3_vol_norm
 data:
   source: hybrid
   start_date: "2019-01-01"
-  end_date: "2026-05-22"
+  end_date: "2026-06-18"
   alpha158_universe: "csi300"
   parquet_feature_columns:
     - ocf_to_ev
@@ -58,7 +58,7 @@ training:
 
 scoring:
   start_date: "2019-01-01"
-  end_date: "2026-05-22"
+  end_date: "2026-06-18"
 
 model:
   preferred_backend: lightgbm

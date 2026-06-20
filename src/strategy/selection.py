@@ -158,6 +158,37 @@ def _smooth_signal_over_time(signal: pd.Series, window: int) -> pd.Series:
     return work.set_index(["datetime", "instrument"])["score"].sort_index()
 
 
+def _month_distance(start: pd.Timestamp, end: pd.Timestamp) -> int:
+    """计算两个日期跨过的自然月数。"""
+    start = pd.Timestamp(start)
+    end = pd.Timestamp(end)
+    return max((end.year - start.year) * 12 + (end.month - start.month), 0)
+
+
+def _apply_monthly_decay_to_holdings(
+    day_scores: pd.Series,
+    dt: pd.Timestamp,
+    prev_symbols: set,
+    held_since: dict,
+    monthly_decay: float,
+) -> pd.Series:
+    """对旧持仓按持有自然月数衰减排序分数。"""
+    if monthly_decay <= 0 or day_scores.empty or not prev_symbols:
+        return day_scores
+
+    decay_base = max(0.0, 1.0 - float(monthly_decay))
+    adjusted = day_scores.copy()
+    dt = pd.Timestamp(dt)
+    for sym in prev_symbols:
+        if sym not in adjusted.index:
+            continue
+        months = _month_distance(pd.Timestamp(held_since.get(sym, dt)), dt)
+        if months <= 0:
+            continue
+        adjusted.loc[sym] = float(adjusted.loc[sym]) * (decay_base ** months)
+    return adjusted
+
+
 def _rolling_max_over_time(series: pd.Series, window: int, value_name: str = "value") -> pd.Series:
     """沿时间维对单票数值做滚动最大值。"""
     if window <= 1 or series.empty:
@@ -804,6 +835,7 @@ def extract_topk(
     stoploss_lookback_days: int = 20,
     stoploss_drawdown: float = 0.10,
     replacement_pool_size: int = 0,
+    monthly_decay: float = 0.0,
 ) -> pd.DataFrame:
     """
     Step 3: 从信号中提取 Top-K 选股（支持排名缓冲区）
@@ -859,6 +891,8 @@ def extract_topk(
         触发换仓的回撤阈值，正数，如 0.10 表示较近期高点回撤 10%
     replacement_pool_size : int
         备选股票池大小，0 表示不限制
+    monthly_decay : float
+        旧持仓按自然月衰减的比例，0 表示关闭；0.2 表示每跨一个月旧持仓排序分数乘以 0.8
 
     Returns
     -------
@@ -981,6 +1015,14 @@ def extract_topk(
 
         if len(day_scores) < topk:
             continue
+
+        day_scores = _apply_monthly_decay_to_holdings(
+            day_scores=day_scores,
+            dt=dt_key,
+            prev_symbols=prev_symbols,
+            held_since=held_since,
+            monthly_decay=float(monthly_decay or 0.0),
+        )
 
         # 第二排序键固定为股票代码，避免同分时受集合顺序或 hash seed 影响。
         _df = day_scores.reset_index()
@@ -1206,6 +1248,10 @@ def extract_topk(
             rows.append({"date": dt, "rank": rank, "symbol": sym, "score": score})
 
         # 更新上期持仓
+        held_since = {
+            sym: held_since.get(sym, dt_key) if sym in prev_symbols else dt_key
+            for sym in selected_symbols
+        }
         prev_symbols = selected_symbols
         prev_top_scores = dict(day_sorted.head(topk))
 
@@ -1242,6 +1288,7 @@ def compute_selections(
     stoploss_lookback_days: int = 20,
     stoploss_drawdown: float = 0.10,
     replacement_pool_size: int = 0,
+    monthly_decay: float = 0.0,
     update_start_date: str = None,
     update_lookback_days: int = 60,
     factor_window_scale: int = 1,
@@ -1279,6 +1326,8 @@ def compute_selections(
         每个行业仅保留按该字段排序前 N 的股票
     selection_mode : str
         选股模式，默认 factor_topk；stoploss_replace 会启用“跌破近期高点再换仓”
+    monthly_decay : float
+        旧持仓每跨一个自然月的排序分数衰减比例，默认 0 不启用
 
     Returns
     -------
@@ -1444,6 +1493,7 @@ def compute_selections(
         stoploss_lookback_days=stoploss_lookback_days,
         stoploss_drawdown=stoploss_drawdown,
         replacement_pool_size=replacement_pool_size,
+        monthly_decay=monthly_decay,
     )
     print(f"[INFO] TopK 提取完成: {len(df_sel)} 行, 用时 {time.perf_counter() - topk_start:.1f}s")
     print(f"[INFO] 选股计算完成，总用时 {time.perf_counter() - overall_start:.1f}s")
